@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>myharness</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #1e1e1e;
+    color: #ddd;
+  }
+  #panes {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+  #chat-pane, #internals-pane {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #chat-pane {
+    flex: 1;
+    border-right: 1px solid #444;
+  }
+  #internals-pane {
+    flex: 1;
+    background: #141414;
+  }
+  .pane-header {
+    padding: 10px 16px;
+    border-bottom: 1px solid #444;
+    font-size: 13px;
+    color: #999;
+    flex-shrink: 0;
+  }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .msg {
+    max-width: 80%;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    white-space: pre-wrap;
+    line-height: 1.4;
+  }
+  .msg.user {
+    margin-left: auto;
+    background: #2b5797;
+    color: white;
+  }
+  .msg.assistant {
+    margin-right: auto;
+    background: #2a2a2a;
+  }
+  #input-row {
+    flex-shrink: 0;
+    display: flex;
+    border-top: 1px solid #444;
+    padding: 10px;
+  }
+  #input-row input {
+    flex: 1;
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid #444;
+    background: #2a2a2a;
+    color: #ddd;
+    font-size: 14px;
+  }
+  #input-row button {
+    margin-left: 8px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 6px;
+    background: #2b5797;
+    color: white;
+    cursor: pointer;
+  }
+  #input-row button:disabled { opacity: 0.5; cursor: default; }
+
+  #harness-box {
+    height: 25vh;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid #444;
+    background: #101820;
+  }
+  #terminal, #memory {
+    flex: 1;
+    overflow-y: auto;
+    margin: 0;
+    padding: 16px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+</style>
+</head>
+<body>
+
+<div id="panes">
+<div id="chat-pane">
+  <div class="pane-header">Chat — {{ model }}</div>
+  <div id="messages"></div>
+  <div id="input-row">
+    <input id="input" type="text" placeholder="Type a message..." autofocus>
+    <button id="send">Send</button>
+  </div>
+</div>
+
+<div id="internals-pane">
+  <div class="pane-header">Internals</div>
+  <pre id="terminal">----------------------------------------
+MODEL
+----------------------------------------
+Model: {{ model }}  (context window: {{ context_length }} tokens)
+
+</pre>
+</div>
+</div>
+
+<div id="harness-box">
+  <div class="pane-header">Harness internals — memory (the <code>messages</code> list kept by the harness)</div>
+  <pre id="memory">{{ memory }}</pre>
+</div>
+
+<script>
+const messagesEl = document.getElementById("messages");
+const terminalEl = document.getElementById("terminal");
+const memoryEl = document.getElementById("memory");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+
+function renderChatBubble(role, text) {
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  div.textContent = text;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return div;
+}
+
+const SEP = "-".repeat(40);
+
+function printBlock(title, body) {
+  printToTerminal(SEP + "\n" + title + "\n" + SEP + "\n" + body + "\n\n");
+}
+
+function printToTerminal(text) {
+  terminalEl.textContent += text;
+  terminalEl.scrollTop = terminalEl.scrollHeight;
+}
+
+async function sendMessage() {
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = "";
+  input.disabled = true;
+  sendBtn.disabled = true;
+
+  renderChatBubble("user", text);
+
+  const assistantDiv = renderChatBubble("assistant", "");
+
+  const resp = await fetch("/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: text }),
+  });
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let replyText = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let newlineIndex;
+    while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+      if (!line) continue;
+
+      const event = JSON.parse(line);
+
+      if (event.type === "request") {
+        printBlock("SENT to Ollama (POST /api/chat)", event.raw);
+        memoryEl.textContent = event.memory;
+        continue;
+      }
+
+      if (event.content) {
+        replyText += event.content;
+        assistantDiv.textContent = replyText;
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      if (event.done) {
+        printBlock("RECEIVED from Ollama", event.raw);
+        printBlock("TOKENS", event.tokens);
+        memoryEl.textContent = event.memory;
+      }
+    }
+  }
+
+  input.disabled = false;
+  sendBtn.disabled = false;
+  input.focus();
+}
+
+sendBtn.addEventListener("click", sendMessage);
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendMessage();
+});
+</script>
+
+</body>
+</html>
