@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>myharness</title>
+<script src="/static/marked.min.js"></script>
+<script src="/static/purify.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -49,6 +51,8 @@
   }
   #settings-bar :disabled { opacity: 0.5; cursor: default; }
   #project-error { color: #ff6b6b; }
+  #lock-note { color: #e0b050; cursor: help; }
+  #lock-note[hidden] { display: none; }
   #browser {
     position: fixed;
     top: 46px;
@@ -144,6 +148,84 @@
     margin-right: auto;
     background: #2a2a2a;
   }
+  .msg.markdown { white-space: normal; }
+  .msg.markdown > :first-child { margin-top: 0; }
+  .msg.markdown > :last-child { margin-bottom: 0; }
+  .msg.markdown p, .msg.markdown ul, .msg.markdown ol { margin: 0.5em 0; }
+  .msg.markdown code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 0.9em;
+    background: #1b1b1b;
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
+  .msg.markdown pre {
+    background: #1b1b1b;
+    padding: 10px;
+    border-radius: 6px;
+    overflow-x: auto;
+  }
+  .msg.markdown pre code { padding: 0; background: none; }
+  .msg.markdown a { color: #5cb3ff; }
+  .change {
+    margin: 12px 0;
+    border: 1px solid #555;
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .change-title {
+    padding: 8px 12px;
+    background: #2a2a2a;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  .change pre {
+    margin: 0;
+    padding: 8px 12px;
+    max-height: 300px;
+    overflow: auto;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    background: #181818;
+  }
+  .diff-add { color: #6fcf6f; }
+  .diff-del { color: #ff6b6b; }
+  .diff-hunk { color: #888; }
+  .change-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #2a2a2a;
+  }
+  .change-actions button {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    background: #555;
+  }
+  .change-actions .approve { background: #2e7d32; }
+  .change-status.approved { color: #6fcf6f; }
+  .change-status.refused { color: #ff6b6b; }
+  .msg.thinking {
+    margin-right: auto;
+    border-left: 3px solid #555;
+    border-radius: 0;
+    color: #8a8a8a;
+    font-size: 13px;
+    font-style: italic;
+  }
+  .msg.thinking::before {
+    content: "Thinking";
+    display: block;
+    font-style: normal;
+    font-weight: bold;
+    color: #777;
+    margin-bottom: 4px;
+  }
   #input-row {
     flex-shrink: 0;
     display: flex;
@@ -198,6 +280,8 @@
 
   #terminal .sent { color: #f0a050; }
   #terminal .received { color: #6fcf6f; }
+  #terminal .sent b { color: #ff5c5c; }
+  #terminal .received b { color: #5cb3ff; }
   #harness-box {
     height: 25vh;
     flex-shrink: 0;
@@ -221,8 +305,11 @@
 <body>
 
 <div id="settings-bar">
+  <label for="prompt">System prompt:</label>
+  <select id="prompt"></select>
   <label for="agent">Agent:</label>
   <select id="agent"></select>
+  <span id="lock-note" hidden title="Chosen at the start of the conversation. Unlocks with Clear conversation or Reset memory.">locked</span>
   <label for="project">Project folder:</label>
   <input id="project" type="text" value="{{ project }}" spellcheck="false">
   <button id="browse">Browse…</button>
@@ -255,6 +342,7 @@
     {% for name in tool_names %}
     <label class="toggle tool"><input class="tool-checkbox" type="checkbox" value="{{ name }}" checked> {{ name }}</label>
     {% endfor %}
+    <label class="toggle"><input id="ask-approval" type="checkbox" checked> Ask before file changes</label>
   </div>
 </div>
 
@@ -284,8 +372,11 @@ const resetBtn = document.getElementById("reset");
 const memoryCheckbox = document.getElementById("use-memory");
 const toolsCheckbox = document.getElementById("use-tools");
 const toolCheckboxes = [...document.querySelectorAll(".tool-checkbox")];
+const askApprovalCheckbox = document.getElementById("ask-approval");
 const clearBtn = document.getElementById("clear");
 const agentSelect = document.getElementById("agent");
+const promptSelect = document.getElementById("prompt");
+const lockNote = document.getElementById("lock-note");
 const projectInput = document.getElementById("project");
 const setProjectBtn = document.getElementById("set-project");
 const projectError = document.getElementById("project-error");
@@ -302,10 +393,18 @@ function renderChatBubble(role, text) {
 
 const SEP = "-".repeat(40);
 
+// body is a string, or [before, bold, after] to make the middle part bold
 function printBlock(title, body, className = "") {
   const span = document.createElement("span");
   span.className = className;
-  span.textContent = SEP + "\n" + title + "\n" + SEP + "\n" + body + "\n\n";
+  const [before, bold, after] = Array.isArray(body) ? body : [body, "", ""];
+  span.append(SEP + "\n" + title + "\n" + SEP + "\n" + before);
+  if (bold) {
+    const b = document.createElement("b");
+    b.textContent = bold;
+    span.append(b);
+  }
+  span.append(after + "\n\n");
   terminalEl.appendChild(span);
   terminalEl.scrollTop = terminalEl.scrollHeight;
 }
@@ -315,6 +414,8 @@ async function sendMessage() {
   if (!text) return;
 
   input.value = "";
+  // with memory on, this message starts (or continues) a conversation: lock its setup
+  if (memoryCheckbox.checked) conversationLocked = true;
   setControlsDisabled(true);
 
   renderChatBubble("user", text);
@@ -325,7 +426,9 @@ async function sendMessage() {
     body: JSON.stringify({
       message: text,
       use_memory: memoryCheckbox.checked,
+      ask_approval: askApprovalCheckbox.checked,
       agent: agentSelect.value,
+      prompt: promptSelect.value,
       tools: toolsCheckbox.checked
         ? toolCheckboxes.filter((c) => c.checked).map((c) => c.value)
         : [],
@@ -337,6 +440,8 @@ async function sendMessage() {
   let buffer = "";
   let assistantDiv = null;  // created on the first text chunk, after any tool notes
   let replyText = "";
+  let thinkingDiv = null;
+  let thinkingText = "";
 
   while (true) {
     const { value, done } = await reader.read();
@@ -352,16 +457,21 @@ async function sendMessage() {
       const event = JSON.parse(line);
 
       if (event.type === "request") {
-        printBlock("SENT to Ollama (POST /api/chat)", event.raw, "sent");
+        printBlock("SENT to Ollama (POST /api/chat)", event.parts, "sent");
         memoryEl.textContent = event.memory;
+      } else if (event.type === "thinking") {
+        if (!thinkingDiv) thinkingDiv = renderChatBubble("thinking", "");
+        thinkingText += event.content;
+        thinkingDiv.textContent = thinkingText;
+        messagesEl.scrollTop = messagesEl.scrollHeight;
       } else if (event.type === "chunk") {
         if (!event.content) continue;
         if (!assistantDiv) assistantDiv = renderChatBubble("assistant", "");
         replyText += event.content;
-        assistantDiv.textContent = replyText;
+        renderMarkdown(assistantDiv, replyText);
         messagesEl.scrollTop = messagesEl.scrollHeight;
       } else if (event.type === "response") {
-        printBlock("RECEIVED from Ollama", event.raw, "received");
+        printBlock("RECEIVED from Ollama", event.parts, "received");
         printBlock("TOKENS", event.tokens);
         memoryEl.textContent = event.memory;
       } else if (event.type === "tool") {
@@ -369,9 +479,20 @@ async function sendMessage() {
                    "arguments: " + event.arguments + "\nresult:    " + event.result);
         memoryEl.textContent = event.memory;
         addDivider("used tool " + event.name);
-        // text after a tool run goes in a new bubble, below the tool note
+        // text after a tool run goes in new bubbles, below the tool note
         assistantDiv = null;
         replyText = "";
+        thinkingDiv = null;
+        thinkingText = "";
+      } else if (event.type === "approval") {
+        changeBox = renderChangeBox(event.name + " wants to change " + event.path, event.diff);
+        addApprovalButtons(changeBox, event.id);
+      } else if (event.type === "change") {
+        if (!changeBox) changeBox = renderChangeBox(event.path, event.diff);
+        setChangeStatus(changeBox, event.approved);
+        changeBox = null;
+        printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (refused)"),
+                   event.diff);
       } else if (event.type === "stopped") {
         printBlock("STOPPED", event.reason);
         addDivider(event.reason);
@@ -383,12 +504,77 @@ async function sendMessage() {
   input.focus();
 }
 
+let changeBox = null;  // the diff box of the file change being handled
+
+function renderMarkdown(div, text) {
+  div.classList.add("markdown");
+  div.innerHTML = DOMPurify.sanitize(marked.parse(text));
+}
+
+function renderChangeBox(title, diff) {
+  const box = document.createElement("div");
+  box.className = "change";
+  const titleEl = document.createElement("div");
+  titleEl.className = "change-title";
+  titleEl.textContent = title;
+  const pre = document.createElement("pre");
+  for (const line of diff.split("\n")) {
+    const span = document.createElement("span");
+    if (line.startsWith("@@")) span.className = "diff-hunk";
+    else if (line.startsWith("+") && !line.startsWith("+++")) span.className = "diff-add";
+    else if (line.startsWith("-") && !line.startsWith("---")) span.className = "diff-del";
+    span.textContent = line + "\n";
+    pre.appendChild(span);
+  }
+  const actions = document.createElement("div");
+  actions.className = "change-actions";
+  box.append(titleEl, pre, actions);
+  messagesEl.appendChild(box);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return box;
+}
+
+function addApprovalButtons(box, id) {
+  const actions = box.querySelector(".change-actions");
+  const deny = document.createElement("button");
+  deny.textContent = "Deny";
+  const approve = document.createElement("button");
+  approve.textContent = "Approve";
+  approve.className = "approve";
+  for (const [button, approved] of [[deny, false], [approve, true]]) {
+    button.addEventListener("click", () => {
+      deny.disabled = approve.disabled = true;
+      fetch("/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, approved }),
+      });
+    });
+  }
+  actions.append(deny, approve);
+}
+
+function setChangeStatus(box, approved) {
+  const actions = box.querySelector(".change-actions");
+  const status = document.createElement("span");
+  status.className = "change-status " + (approved ? "approved" : "refused");
+  status.textContent = approved ? "written" : "refused";
+  actions.replaceChildren(status);
+}
+
 function setControlsDisabled(disabled) {
   for (const el of [input, sendBtn, resetBtn, clearBtn, memoryCheckbox, toolsCheckbox,
-                    agentSelect, projectInput, setProjectBtn, browseBtn]) {
+                    askApprovalCheckbox, projectInput, setProjectBtn, browseBtn]) {
     el.disabled = disabled;
   }
   for (const c of toolCheckboxes) c.disabled = disabled || !toolsCheckbox.checked;
+  agentSelect.disabled = promptSelect.disabled = disabled || conversationLocked;
+  lockNote.hidden = !conversationLocked;
+}
+
+function unlockConversation() {
+  conversationLocked = false;
+  setControlsDisabled(false);
 }
 
 toolsCheckbox.addEventListener("change", () => {
@@ -396,6 +582,22 @@ toolsCheckbox.addEventListener("change", () => {
 });
 
 let agents = {{ agents | tojson }};
+const prompts = {{ prompts | tojson }};
+const locked = {{ locked | tojson }};
+let conversationLocked = false;
+
+promptSelect.add(new Option("none", ""));
+for (const p of prompts) {
+  const label = p.name + " (~" + p.tokens.toLocaleString("en") + " tokens)" +
+                (p.fits ? "" : " — too big for the context window");
+  const option = new Option(label, p.name);
+  option.disabled = !p.fits;
+  promptSelect.add(option);
+}
+
+promptSelect.addEventListener("change", () => {
+  addDivider("— system prompt: " + (promptSelect.value || "none") + " —");
+});
 
 function fillAgentSelect() {
   const previous = agentSelect.value;
@@ -504,6 +706,7 @@ async function resetMemory(dividerText) {
   const resp = await fetch("/reset", { method: "POST" });
   memoryEl.textContent = (await resp.json()).memory;
   addDivider(dividerText);
+  unlockConversation();
 }
 
 async function clearConversation() {
@@ -511,10 +714,19 @@ async function clearConversation() {
   memoryEl.textContent = (await resp.json()).memory;
   messagesEl.replaceChildren();
   terminalEl.textContent = initialTerminal;
+  unlockConversation();
   input.focus();
 }
 
 fillAgentSelect();
+
+// after a page reload, show the setup of the conversation still in memory, locked
+if (locked) {
+  promptSelect.value = locked.prompt;
+  agentSelect.value = locked.agent;
+  conversationLocked = true;
+  setControlsDisabled(false);
+}
 
 sendBtn.addEventListener("click", sendMessage);
 clearBtn.addEventListener("click", clearConversation);

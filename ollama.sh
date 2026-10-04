@@ -2,7 +2,7 @@
 # Start/stop the Windows Ollama server from WSL2 and load/unload the model.
 # Usage: ./ollama.sh start|stop|status
 
-MODEL="qwen2.5:7b"
+MODEL="qwen3:8b"
 URL="http://localhost:11434"
 OLLAMA_DIR='C:\Users\emman\AppData\Local\Programs\Ollama'
 

@@ -1,0 +1,13 @@
+System prompts copied unchanged from https://github.com/asgeirtj/system_prompts_leaks
+(license: CC0-1.0, public domain). They are leaks: their accuracy can't be verified.
+Placeholders like {model_name} (Cursor) and {{ personality }} (Codex) are kept as published;
+the real products fill them in before sending.
+
+deepseek-chat.md                          <- DeepSeek/deepseek-chat.md
+openai-codex-pragmatic-personality.md     <- OpenAI/Codex/personality_pragmatic.md
+pi-coding-agent.md                        <- Pi/instructions.md
+cursor.md                                 <- Cursor/cursor.md
+openai-codex-gpt-5.5.md                   <- OpenAI/Codex/gpt-5.5.md
+anthropic-claude-opus-4.6-no-tools.md     <- Anthropic/claude-opus-4.6-no-tools.md
+
+Add more by dropping any .md file in this folder: it appears in the "System prompt" list after a page reload.

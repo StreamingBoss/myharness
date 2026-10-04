@@ -6,7 +6,13 @@ reaches it at `http://localhost:11434` with no extra networking setup.
 
 - App: `C:\Users\emman\AppData\Local\Programs\Ollama`
 - Models: `D:\Users\emman\.ollama\models` (moved off C: — it was at 95% full)
-- Model in use: `qwen2.5:7b` (Q4_K_M, ~4.7GB, fits fully on the RTX 3060's 12GB VRAM)
+- Model in use by the web harness: `qwen3:8b` (~5.2GB, 40960-token context). It "thinks" before
+  answering; Ollama returns that in a separate `thinking` field, which the harness shows.
+  Tool calls: 5/5 real tool calls in a test.
+- `harness.py` (the CLI) still uses `qwen2.5:7b` (Q4_K_M, ~4.7GB, 32768-token context).
+- Also downloaded: `qwen2.5-coder:7b` — don't use it with tools: through Ollama it writes tool
+  calls as plain JSON text (0/5 real tool calls in a test), so the harness never runs them.
+- Only one of these fits in the RTX 3060's 12GB VRAM at a time; Ollama swaps them as needed.
 
 Ollama on Windows is actually **two processes**:
 
