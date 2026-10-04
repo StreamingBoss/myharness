@@ -3,6 +3,7 @@ import type { Agent, Skill } from './catalog.js';
 /** Runtime capabilities; the shared backend never imports OS or browser APIs. */
 export interface WorkspacePort {
   readonly root: string;
+  refresh(): Promise<void>;
   pathFor(input: string): string;
   relative(path: string): string;
   exists(path: string): boolean;

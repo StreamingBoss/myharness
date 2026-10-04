@@ -14,6 +14,7 @@ export class WorkspaceAdapter {
   readonly root: string;
 
   constructor(root: string) { this.root = existsSync(root) ? realpathSync(root) : path.resolve(root); }
+  async refresh(): Promise<void> {}
 
   exists(file: string): boolean { return existsSync(file); }
   isDirectory(file: string): boolean { return statSync(file).isDirectory(); }

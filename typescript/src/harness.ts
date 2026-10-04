@@ -163,6 +163,7 @@ export class Harness implements TurnHost {
     this.running = true; this.state.stopped = false; this.controller = new AbortController();
     this.currentAskApproval = action.askApproval;
     try {
+      await this.workspace.refresh();
       let message = action.message, manualSkill = '';
       if (message.startsWith('/')) {
         const word = message.slice(1).split(' ')[0]!;
@@ -391,6 +392,7 @@ export class Harness implements TurnHost {
     return this.modelPort.request(endpoint, payload, this.running ? this.controller.signal : undefined);
   }
   async explore(action: Omit<TurnAction, 'message' | 'askApproval'>): Promise<Record<string, unknown>> {
+    await this.workspace.refresh();
     const setup = action.useMemory && this.state.memory.length ? this.session.setup : { agent: action.agent, prompt: action.prompt };
     const tools = TOOLS.filter(tool => action.tools.includes(tool.function.name) && this.options.runtime.supportedTools.includes(tool.function.name)), show = await this.request('show', { model: this.model() });
     const history = action.useMemory ? this.state.memory : [], withSkills = action.tools.includes('use_skill');

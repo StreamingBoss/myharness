@@ -26,6 +26,7 @@ export class BrowserWorkspace implements WorkspacePort {
   constructor(readonly project: Project, private readonly persist: (project: Project) => Promise<void>) {
     this.root = absolutePath(project.root);
   }
+  async refresh(): Promise<void> {}
   pathFor(input: string): string {
     const candidate = input === this.root || input.startsWith(this.root + '/') ? input : this.root + '/' + input.replace(/^\/+/, '');
     const target = absolutePath(candidate);
@@ -88,7 +89,9 @@ export class BrowserWorkspace implements WorkspacePort {
     if (!pattern) throw new Error('pattern must not be empty');
     const matches: string[] = [];
     for (const file of this.files(input).filter(file => match(glob, file))) {
-      const text = await this.readText(file); if (text.includes('\0')) continue;
+      let text: string;
+      try { text = await this.readText(file); } catch { continue; }
+      if (text.includes('\0')) continue;
       for (const [index, line] of lines(text).entries()) {
         if (!line.includes(pattern)) continue;
         if (matches.length === 100) return matches.join('\n') + '\n[more matches not shown; narrow path or glob]';
