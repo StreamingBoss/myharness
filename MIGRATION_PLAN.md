@@ -54,6 +54,15 @@ Coverage proves execution, not correctness, so both gates are required.
 
 ## Phase 2: separate the frontend and Python backend
 
+**Status: complete on October 4, 2026.** `web/core.py` now owns the
+transport-free agent loop and yields structured events through a runtime adapter.
+`web/app.py` is its HTTP/NDJSON host, and `web/headless.py` exercises the same
+backend API without rendering the UI. The frontend receives startup metadata
+from `GET /bootstrap`, has a configurable API base, and has no Jinja-rendered
+state. The deterministic suite covers the core without Flask, the host contract,
+the bootstrap/CORS boundary, and headless approval behavior at 100% line and
+branch coverage.
+
 - Extract a session-owned Python harness core from Flask handlers and module
   globals. Keep the current single-session product behavior; do not add a
   multi-user feature as part of this refactor.
@@ -74,9 +83,10 @@ Coverage proves execution, not correctness, so both gates are required.
   language-neutral contract suite and adapter tests; extend coverage to the new
   bootstrap and headless interfaces. Document the API and headless invocation.
 
-**Gate:** all existing scenarios pass without changing their expected behavior;
-100% backend line/branch coverage remains enforced; headless execution and the
-separately served UI pass smoke checks; core imports require no Flask or UI.
+**Gate: passed.** Existing scenarios retain their expected behavior; 100%
+backend line/branch coverage remains enforced; deterministic headless,
+bootstrap/CORS, and static UI smoke checks pass; `web/core.py` imports without
+Flask or UI modules.
 
 ## Phase 3: port the backend to TypeScript
 

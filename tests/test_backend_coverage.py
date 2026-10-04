@@ -388,6 +388,15 @@ class BackendCoverage(unittest.TestCase):
         page = self.client.get("/")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"Chat", page.data)
+        self.assertNotIn(b"{{", page.data)
+        bootstrap = self.client.get("/bootstrap").json
+        self.assertEqual(bootstrap["project"], str(harness.workspace))
+        self.assertIn("tools", bootstrap)
+        with patch.object(harness, "UI_ORIGIN", "https://ui.example"):
+            allowed = self.client.get("/bootstrap", headers={"Origin": "https://ui.example"})
+            denied = self.client.get("/bootstrap", headers={"Origin": "https://other.example"})
+        self.assertEqual(allowed.headers["Access-Control-Allow-Origin"], "https://ui.example")
+        self.assertNotIn("Access-Control-Allow-Origin", denied.headers)
         harness.messages.append({"role": "user", "content": "x"})
         self.client.post("/reset")
         self.assertEqual(harness.messages, [])
@@ -593,6 +602,16 @@ class BackendCoverage(unittest.TestCase):
             harness.stop_requested.set()
             with patch.object(harness, "stream_chat", side_effect=stopped_tool):
                 events = self.events(self.client.post("/chat", json=self.chat(tools=["pwd"])))
+        self.assertEqual(events[-1]["type"], "stopped")
+        harness.stop_requested.clear()
+
+    def test_stop_closes_generator_or_plain_iterator(self):
+        """The transport-free core must also stop an adapter iterator without close()."""
+        def stopped_iterator(_):
+            harness.stop_requested.set()
+            return iter(["ignored"])
+        with patch.object(harness, "stream_chat", side_effect=stopped_iterator):
+            events = self.events(self.client.post("/chat", json=self.chat()))
         self.assertEqual(events[-1]["type"], "stopped")
         harness.stop_requested.clear()
 

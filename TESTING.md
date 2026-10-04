@@ -19,7 +19,8 @@ Run the enforced coverage gate:
 ```
 
 The gate requires 100% line and branch coverage for the maintained Python
-backend, [web/app.py](web/app.py). It includes the direct launcher’s successful
+backend: [web/core.py](web/core.py), [web/app.py](web/app.py), and
+[web/headless.py](web/headless.py). It includes the direct launcher’s successful
 and connection-failure paths with its server and model adapters replaced by
 deterministic fakes. No backend lines are excluded from coverage.
 
@@ -30,4 +31,28 @@ command timeout behavior. [tests/scenarios](tests/scenarios) holds a small,
 language-neutral JSON contract corpus. Its runner drives the public HTTP/NDJSON
 interface with scripted model responses and checks observable events, retained
 memory, and workspace effects. The TypeScript implementation will run this same
-corpus during Phase 3.
+corpus during Phase 3. [tests/test_core.py](tests/test_core.py) imports and runs
+the agent loop directly with a deterministic adapter, without Flask or HTTP
+routes.
+
+## Backend boundary smoke checks
+
+The UI document contains no Jinja template expressions. It gets all startup
+state from `GET /bootstrap` and can target another backend through `?api=` or
+`window.MYHARNESS_API_BASE`. Set `MYHARNESS_UI_ORIGIN` to a comma-separated list
+of local UI origins when serving the UI separately. The deterministic tests
+exercise this bootstrap/CORS contract and the headless approval flow.
+
+## Headless use
+
+Start the backend with `.venv/bin/python web/app.py`. The UI is optional: submit
+a full streamed turn through the same public backend API with:
+
+```bash
+.venv/bin/python web/headless.py "Summarize this project"
+```
+
+The client prints NDJSON events. It denies file changes and commands by default;
+pass `--approve` to authorize them. `Ctrl+C` sends `POST /stop` before exiting.
+Use `--tools read_file,search` to set enabled tools and `--reset` to reset the
+active session’s retained memory.

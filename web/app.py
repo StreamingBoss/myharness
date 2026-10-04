@@ -20,12 +20,26 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
-from flask import Flask, Response, render_template, request
+from flask import Flask, Response, request
+
+from core import HarnessCore, Turn
 
 OLLAMA_URL = "http://localhost:11434"
 MODEL = "qwen3:8b"
 
 app = Flask(__name__)
+UI_ORIGIN = os.environ.get("MYHARNESS_UI_ORIGIN", "")
+
+
+@app.after_request
+def allow_configured_ui_origin(response):
+    """Allow a separately served local UI only when its origin is configured."""
+    origin = request.headers.get("Origin", "")
+    allowed = {value.strip() for value in UI_ORIGIN.split(",") if value.strip()}
+    if origin and origin in allowed:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+    return response
 
 messages: list[dict] = []  # alias to the active session's retained model memory
 context_length: int = 0
@@ -993,24 +1007,28 @@ def compact_endpoint():
 
 @app.route("/")
 def index():
-    return render_template(
-        "index.html",
-        model=MODEL,
-        context_length=context_length,
-        last_prompt_tokens=last_prompt_tokens,
-        memory=str(messages),
-        tools=[
-            {"name": t["function"]["name"], "description": t["function"]["description"]}
-            for t in TOOLS
+    return Response((PROJECT_ROOT / "web" / "templates" / "index.html").read_text(), mimetype="text/html")
+
+
+@app.route("/bootstrap")
+def bootstrap():
+    """The UI's complete startup state; usable by a separately hosted client."""
+    return {
+        "model": MODEL,
+        "context_length": context_length,
+        "last_prompt_tokens": last_prompt_tokens,
+        "memory": str(messages),
+        "tools": [
+            {"name": tool["function"]["name"], "description": tool["function"]["description"]}
+            for tool in TOOLS
         ],
-        agents=agent_list(),
-        prompts=prompt_list(),
-        project=str(workspace),
-        # the page locks the agent and prompt choice while a conversation is in memory
-        locked=conversation_setup if messages else None,
-        session=active_session,
-        sessions=list_sessions(),
-    )
+        "agents": agent_list(),
+        "prompts": prompt_list(),
+        "project": str(workspace),
+        "locked": conversation_setup if messages else None,
+        "session": active_session,
+        "sessions": list_sessions(),
+    }
 
 
 def agent_list() -> list[dict]:
@@ -1254,7 +1272,6 @@ def chat_endpoint():
         record_event({"type": "chat_user", "content": user_input})
 
     def event(**fields) -> str:
-        record_event(fields)
         return json.dumps(fields) + "\n"
 
     def apply_change(name: str, target: Path, new_text: str, note: str):
@@ -1340,138 +1357,80 @@ def chat_endpoint():
         yield event(type="command", command=command, approved=True, output=output, status=status)
         return f"{status}\noutput:\n{output}" if output else f"{status}\n(no output)"
 
+    class FlaskTurnHost:
+        """Adapter from the transport-free core to the current Python services."""
+
+        max_steps = MAX_STEPS
+
+        def stopped(self):
+            return stop_requested.is_set()
+
+        def model(self):
+            return MODEL
+
+        def context_length(self):
+            return context_length
+
+        def last_prompt_tokens(self):
+            return last_prompt_tokens
+
+        def set_last_prompt_tokens(self, value):
+            global last_prompt_tokens
+            last_prompt_tokens = value
+            if active_session.get("id"):
+                active_session["last_prompt_tokens"] = value
+
+        def memory_text(self):
+            return str(messages)
+
+        def system_messages(self, turn_setup, with_skills):
+            return system_messages(turn_setup, with_skills)
+
+        def estimate_tokens(self, system, conversation, tools):
+            return estimate_tokens(system, conversation, tools)
+
+        def trim_context(self, system, conversation, tools):
+            return trim_context(system, conversation, tools)
+
+        def compact_context(self, conversation):
+            return compact_context(conversation)
+
+        def stream_chat(self, payload):
+            return stream_chat(payload)
+
+        def split_json(self, shown, highlighted):
+            return split_json(shown, highlighted)
+
+        def skill_context(self, context):
+            return skill_context(context)
+
+        def run_tool(self, name, arguments, enabled):
+            return run_tool(name, arguments, enabled)
+
+        def action_events(self, action):
+            while True:
+                try:
+                    yield json.loads(next(action))
+                except StopIteration as completed:
+                    return completed.value
+
+        def apply_change(self, name, result):
+            return self.action_events(apply_change(name, *result))
+
+        def execute_command(self, command):
+            return self.action_events(execute_command(command))
+
+        def record_event(self, fields):
+            record_event(fields)
+
     def generate():
-        global last_prompt_tokens
-        # without memory, this turn's messages are thrown away once the turn is over
-        conversation = messages if use_memory else [user_message]
-        compact_attempted = False  # one summary pass per turn, including a failed attempt
-        if manual_skill:
-            yield event(type="skill", name=manual_skill)
-
-        # the agent loop: call the model until it answers with text instead of a tool call
-        for _ in range(MAX_STEPS):
-            # Re-read project instructions before every model call, including tool follow-ups.
-            system = system_messages(setup, with_skills="use_skill" in enabled_tools)
-            if use_memory:
-                estimated = estimate_tokens(system, conversation, selected_tools)
-                pressure = max(last_prompt_tokens, estimated)
-                if pressure >= context_length * .75:
-                    trimmed = trim_context(system, conversation, selected_tools)
-                    if trimmed:
-                        yield event(**trimmed)
-                if pressure >= context_length * .90 and not compact_attempted:
-                    compact_attempted = True
-                    for context_event in compact_context(conversation):
-                        context_event["skill_context"] = skill_context(system + conversation)
-                        yield event(**context_event)
-                if stop_requested.is_set():
-                    yield event(type="stopped", reason="stopped by the user", memory=str(messages))
-                    return
-                if estimate_tokens(system, conversation, selected_tools) >= context_length:
-                    yield event(type="stopped", reason="context full: use Compact or Reset memory", memory=str(messages))
-                    return
-            payload = {"model": MODEL, "messages": system + conversation}
-            if selected_tools:
-                payload["tools"] = selected_tools
-            payload |= {"stream": True, "options": {"num_ctx": context_length}}
-            shown = payload | {
-                "messages": [MARKER if m is user_message else m for m in payload["messages"]]
-            }
-            yield event(
-                type="request", parts=split_json(shown, user_message), memory=str(messages),
-                skill_context=skill_context(system + conversation),
-            )
-
-            reply_parts: list[str] = []
-            thinking_parts: list[str] = []
-            tool_calls: list[dict] = []
-
-            chunks = stream_chat(payload)
-            for raw in chunks:
-                if stop_requested.is_set():
-                    chunks.close()
-                    break
-                chunk = json.loads(raw)
-                content = chunk["message"].get("content", "")
-                thinking = chunk["message"].get("thinking", "")
-                reply_parts.append(content)
-                thinking_parts.append(thinking)
-                tool_calls += chunk["message"].get("tool_calls", [])
-                if thinking:
-                    yield event(type="thinking", content=thinking)
-                if not chunk.get("done"):
-                    yield event(type="chunk", content=content)
-
-            reply = "".join(reply_parts)
-            if stop_requested.is_set():
-                # keep the partial answer, but not a half-received tool call
-                if reply:
-                    conversation.append({"role": "assistant", "content": reply})
-                yield event(type="stopped", reason="stopped by the user", memory=str(messages))
-                return
-            assistant_message = {"role": "assistant", "content": reply}
-            if tool_calls:
-                assistant_message["tool_calls"] = tool_calls
-            # the thinking is shown but not kept in memory: earlier reasoning isn't sent back
-            conversation.append(assistant_message)
-
-            # the final chunk carries the stats; put the whole reply back in it,
-            # which is what stream:false would have returned
-            received_message = {"role": "assistant"}
-            if "".join(thinking_parts):
-                received_message["thinking"] = "".join(thinking_parts)
-            received_message |= assistant_message
-
-            tokens_in = chunk.get("prompt_eval_count", 0)
-            if use_memory:
-                last_prompt_tokens = tokens_in
-                if active_session.get("id"):
-                    active_session["last_prompt_tokens"] = tokens_in
-            tokens_out = chunk.get("eval_count", 0)
-            tokens_used = tokens_in + tokens_out
-            tokens = (
-                f"[{tokens_in} in + {tokens_out} out = {tokens_used} "
-                f"|{tokens_used} / {context_length} ]"
-            )
-            yield event(
-                type="response",
-                parts=split_json(chunk | {"message": MARKER}, received_message),
-                tokens=tokens,
-                tokens_in=tokens_in,
-                context_length=context_length,
-                memory=str(messages),
-            )
-
-            if not tool_calls:
-                return
-
-            for call in tool_calls:
-                name = call["function"]["name"]
-                arguments = call["function"].get("arguments", {})
-                if stop_requested.is_set():
-                    # every tool call needs a result, or the next request is inconsistent
-                    result = STOPPED_RESULT
-                else:
-                    result = run_tool(name, arguments, enabled_tools)
-                if isinstance(result, tuple):
-                    result = yield from apply_change(name, *result)
-                elif isinstance(result, dict):
-                    result = yield from execute_command(result["command"])
-                conversation.append({"role": "tool", "tool_name": name, "content": result})
-                yield event(
-                    type="tool",
-                    name=name,
-                    arguments=json.dumps(arguments),
-                    result=result,
-                    memory=str(messages),
-                    skill_context=skill_context(system + conversation),
-                )
-
-            if stop_requested.is_set():
-                yield event(type="stopped", reason="stopped by the user", memory=str(messages))
-                return
-
-        yield event(type="stopped", reason=f"stopped after {MAX_STEPS} calls to the model")
+        turn = Turn(
+            user_message=user_message, conversation=messages if use_memory else [user_message],
+            setup=setup, enabled_tools=enabled_tools, selected_tools=selected_tools,
+            use_memory=use_memory, manual_skill=manual_skill,
+        )
+        for event_data in HarnessCore(FlaskTurnHost()).run_turn(turn):
+            yield json.dumps(event_data) + "\n"
 
     def locked_generate():
         try:

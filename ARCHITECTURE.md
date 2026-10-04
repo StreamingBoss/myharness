@@ -47,13 +47,27 @@ interface. Check runtime and transport wiring separately.
 
 ## Current status
 
-The implementation currently uses Python. `web/app.py` combines Flask routes,
-the agent loop, shared state, and runtime operations. `web/templates/index.html`
-renders the UI and calls those routes. `harness.py` is a minimal standalone CLI
-reference, not a headless entry point for the full web harness.
+The implementation currently uses Python. The agent loop is in
+[`web/core.py`](web/core.py), which has no Flask, server, DOM, or browser
+dependency. Its `HarnessCore` consumes a `TurnHost` adapter for model streaming,
+workspace tools, persistence, approvals, cancellation, and context management,
+then yields structured event objects. A `Turn` carries the session-owned memory,
+locked setup, enabled tools, and selected tool definitions for one turn.
 
-This contract is a requirement for future development and refactoring; the
-current implementation has not yet been separated accordingly. A TypeScript
-rewrite and the choice of model runtime remain separate implementation decisions.
+[`web/app.py`](web/app.py) is the current Python HTTP host: it prepares a turn
+from the active saved session, provides the local Ollama/workspace/approval
+adapter, and serializes core events as HTTP NDJSON. It retains the existing
+session-file compatibility endpoints while those records remain the product's
+single active-session store. [`web/headless.py`](web/headless.py) is a UI-free
+client for that same public backend; it never loads templates or browser code.
+`harness.py` remains a minimal standalone CLI reference, rather than a second
+implementation of the full harness.
 
 See [MIGRATION_PLAN.md](MIGRATION_PLAN.md) for the proposed three-phase migration.
+
+The frontend loads startup data from `GET /bootstrap` rather than receiving
+Jinja-rendered state, and can point at another host with `?api=<base-url>` or
+`window.MYHARNESS_API_BASE`. A configured `MYHARNESS_UI_ORIGIN` permits that
+origin through the backend's local-development CORS policy. This keeps the UI,
+the headless client, and a future TypeScript host on one observable backend
+contract.

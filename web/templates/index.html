@@ -381,7 +381,7 @@
   <span id="lock-note" hidden title="Chosen at the start of the conversation. Unlocks with Clear conversation or Reset memory.">locked</span>
   <span class="setting" title="The folder the file tools work in. The model cannot read or write anything outside it: the harness checks every path. Remembered when the harness restarts.">
     <label for="project" class="help">Project folder:</label>
-    <input id="project" type="text" value="{{ project }}" spellcheck="false">
+    <input id="project" type="text" spellcheck="false">
   </span>
   <button id="browse" title="Pick the project folder by browsing the folders on this machine.">Browse…</button>
   <button id="set-project" title="Use the path typed in the field as the project folder.">Set</button>
@@ -399,7 +399,7 @@
 
 <div id="panes">
 <div id="chat-pane">
-  <div class="pane-header" title="What a chat app shows you: your messages and the model's answers. Everything else the harness does is hidden here, and shown on the right and at the bottom.">Chat — {{ model }}<span id="context-meter" title="Input tokens from the last Ollama response (prompt_eval_count), not an estimate. Amber at 75%: old tool outputs are trimmed. Red at 90%: older messages are summarized. Ollama can silently drop the START of an overflowing prompt, including the system message. Until the next response, this shows the last measured request.">context: — / {{ context_length }}<progress id="context-bar" max="100" value="0"></progress></span></div>
+  <div class="pane-header" title="What a chat app shows you: your messages and the model's answers. Everything else the harness does is hidden here, and shown on the right and at the bottom.">Chat — <span id="model-name"></span><span id="context-meter" title="Input tokens from the last Ollama response (prompt_eval_count), not an estimate. Amber at 75%: old tool outputs are trimmed. Red at 90%: older messages are summarized. Ollama can silently drop the START of an overflowing prompt, including the system message. Until the next response, this shows the last measured request.">context: — / —<progress id="context-bar" max="100" value="0"></progress></span></div>
   <div id="messages"></div>
   <div id="input-row">
     <textarea id="input" rows="1" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line, /skill-name to use a skill)" autofocus></textarea>
@@ -413,9 +413,7 @@
   </div>
   <div id="tools-row">
     <label class="toggle" title="Tools let the model ask the harness to run a function (read a file, get the time...). The model never runs anything itself: it replies with a tool call, the harness runs it and sends the result back in a new request. Unchecked: no tools are described to the model, so it doesn't know they exist."><input id="use-tools" type="checkbox" checked> <span class="help">Tools:</span></label>
-    {% for tool in tools %}
-    <label class="toggle tool" title="What the model is told: &quot;{{ tool.description }}&quot;&#10;&#10;While checked, this description is sent with every request, which costs input tokens."><input class="tool-checkbox" type="checkbox" value="{{ tool.name }}" checked> <span class="help">{{ tool.name }}</span></label>
-    {% endfor %}
+    <span id="tool-list"></span>
     <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added); before run_command runs, it shows the command. The harness then waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written and commands run immediately. Careful: the project-folder limit only applies to the file tools; a shell command can do anything your user account can (cd .., rm...), so approval is the real protection."><input id="ask-approval" type="checkbox" checked> <span class="help">Ask before changes and commands</span></label>
   </div>
 </div>
@@ -427,7 +425,7 @@
   <pre id="terminal">----------------------------------------
 MODEL
 ----------------------------------------
-Model: {{ model }}  (context window: {{ context_length }} tokens)
+Model: loading…
 
 </pre>
 </div>
@@ -450,7 +448,7 @@ Model: {{ model }}  (context window: {{ context_length }} tokens)
     </select>
     <span id="explore-note"></span>
   </div>
-  <pre id="memory">{{ memory }}</pre>
+  <pre id="memory"></pre>
   <pre id="explore" hidden></pre>
 </div>
 
@@ -466,7 +464,6 @@ const contextMeter = document.getElementById("context-meter");
 const resetBtn = document.getElementById("reset");
 const memoryCheckbox = document.getElementById("use-memory");
 const toolsCheckbox = document.getElementById("use-tools");
-const toolCheckboxes = [...document.querySelectorAll(".tool-checkbox")];
 const askApprovalCheckbox = document.getElementById("ask-approval");
 const clearBtn = document.getElementById("clear");
 const agentSelect = document.getElementById("agent");
@@ -475,9 +472,14 @@ const lockNote = document.getElementById("lock-note");
 const projectInput = document.getElementById("project");
 const setProjectBtn = document.getElementById("set-project");
 const projectError = document.getElementById("project-error");
-const initialTerminal = terminalEl.textContent;
-let session = {{ session | tojson }};
-let sessionEvents = session.events || [];
+let initialTerminal = terminalEl.textContent;
+const API_BASE = window.MYHARNESS_API_BASE || new URLSearchParams(location.search).get("api") || "";
+const api = (path) => API_BASE + path;
+let session = {};
+let sessionEvents = [];
+let toolCheckboxes = [];
+let contextLength = 0;
+let initialized = false;
 const sessionSelect = document.getElementById("session-select");
 const sessionStatus = document.getElementById("session-status");
 
@@ -488,7 +490,7 @@ async function saveSessionSettings() {
   const settings = {use_memory: memoryCheckbox.checked, tools: currentTools(),
     ask_approval: askApprovalCheckbox.checked};
   try {
-    const response = await fetch("/sessions/" + session.id, {method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({settings})});
+    const response = await fetch(api("/sessions/" + session.id), {method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({settings})});
     if (!response.ok) throw new Error((await response.json()).error);
     session = await response.json(); sessionStatus.textContent = "saved";
   } catch (error) { sessionStatus.textContent = "save failed"; }
@@ -502,9 +504,7 @@ function fillSessionSelect(items, selected) {
   }
   sessionSelect.value = selected;
 }
-fillSessionSelect({{ sessions | tojson }}, session.id);
-
-function updateContextMeter(used, windowSize = {{ context_length }}) {
+function updateContextMeter(used, windowSize = contextLength) {
   const usage = windowSize ? 100 * used / windowSize : 0;
   const percent = Math.round(usage);
   contextMeter.className = used == null ? "" : (usage >= 90 ? "red" : usage >= 75 ? "amber" : "");
@@ -530,7 +530,7 @@ function handleContextEvent(event) {
 compactBtn.addEventListener("click", async () => {
   setControlsDisabled(true);
   try {
-    const response = await fetch("/compact", {
+    const response = await fetch(api("/compact"), {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({use_memory: memoryCheckbox.checked, session_id: session.id}),
     });
@@ -644,7 +644,7 @@ async function sendMessage() {
   renderChatBubble("user", text);
 
   try {
-    const resp = await fetch("/chat", {
+    const resp = await fetch(api("/chat"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -891,6 +891,7 @@ function renderSkills(data, context) {
 }
 
 async function refreshExplorer() {
+  if (!initialized) return;
   const view = exploreView.value;
   const showMemory = view === "memory";
   memoryEl.hidden = !showMemory;
@@ -900,7 +901,7 @@ async function refreshExplorer() {
     exploreNote.textContent = note;
     return;
   }
-  const resp = await fetch("/explore", {
+  const resp = await fetch(api("/explore"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -993,7 +994,7 @@ function addApprovalButtons(box, id) {
   for (const [button, approved] of [[deny, false], [approve, true]]) {
     button.addEventListener("click", () => {
       deny.disabled = approve.disabled = true;
-      fetch("/approve", {
+      fetch(api("/approve"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, approved }),
@@ -1035,9 +1036,9 @@ toolsCheckbox.addEventListener("change", () => {
   for (const c of toolCheckboxes) c.disabled = !toolsCheckbox.checked;
 });
 
-let agents = {{ agents | tojson }};
-const prompts = {{ prompts | tojson }};
-const locked = {{ locked | tojson }};
+let agents = [];
+let prompts = [];
+let locked = null;
 let conversationLocked = false;
 
 promptSelect.add(new Option("none", ""));
@@ -1085,7 +1086,7 @@ agentSelect.addEventListener("change", () => {
 });
 
 async function setProject() {
-  const resp = await fetch("/project", {
+  const resp = await fetch(api("/project"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path: projectInput.value }),
@@ -1118,7 +1119,7 @@ function browserEntry(label, onClick, className = "") {
 }
 
 async function browse(path) {
-  const resp = await fetch("/browse?path=" + encodeURIComponent(path));
+  const resp = await fetch(api("/browse?path=" + encodeURIComponent(path)));
   const result = await resp.json();
   if (!resp.ok) {
     projectError.textContent = result.error;
@@ -1164,7 +1165,7 @@ function addDivider(text) {
 }
 
 async function resetMemory(dividerText) {
-  const resp = await fetch("/reset", { method: "POST" });
+  const resp = await fetch(api("/reset"), { method: "POST" });
   memoryEl.textContent = (await resp.json()).memory;
   updateContextMeter(null);
   addDivider(dividerText);
@@ -1173,7 +1174,7 @@ async function resetMemory(dividerText) {
 }
 
 async function clearConversation() {
-  const resp = await fetch("/reset", { method: "POST" });
+  const resp = await fetch(api("/reset"), { method: "POST" });
   memoryEl.textContent = (await resp.json()).memory;
   updateContextMeter(null);
   messagesEl.replaceChildren();
@@ -1183,21 +1184,75 @@ async function clearConversation() {
   input.focus();
 }
 
-fillAgentSelect();
+function renderTools(tools) {
+  const list = document.getElementById("tool-list");
+  list.replaceChildren();
+  for (const tool of tools) {
+    const label = document.createElement("label");
+    label.className = "toggle tool";
+    label.title = "What the model is told: \"" + tool.description + "\"\n\nWhile checked, this description is sent with every request, which costs input tokens.";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "tool-checkbox";
+    checkbox.value = tool.name;
+    checkbox.checked = true;
+    checkbox.addEventListener("change", saveSessionSettings);
+    label.append(checkbox, " ");
+    const name = document.createElement("span");
+    name.className = "help";
+    name.textContent = tool.name;
+    label.append(name);
+    list.append(label);
+  }
+  toolCheckboxes = [...list.querySelectorAll(".tool-checkbox")];
+}
 
-// after a page reload, show the setup of the conversation still in memory, locked
-if (locked) {
-  promptSelect.value = locked.prompt;
-  agentSelect.value = locked.agent;
-  conversationLocked = true;
+function initialize(data) {
+  contextLength = data.context_length;
+  session = data.session || {};
+  sessionEvents = session.events || [];
+  agents = data.agents;
+  prompts = data.prompts;
+  locked = data.locked;
+  projectInput.value = data.project;
+  document.getElementById("model-name").textContent = data.model;
+  initialTerminal = "----------------------------------------\nMODEL\n----------------------------------------\nModel: " + data.model + "  (context window: " + data.context_length + " tokens)\n\n";
+  terminalEl.textContent = initialTerminal;
+  memoryEl.textContent = data.memory;
+  renderTools(data.tools);
+  fillSessionSelect(data.sessions, session.id);
+  promptSelect.replaceChildren(new Option("none", ""));
+  for (const p of prompts) {
+    const option = new Option(p.name + " (~" + p.tokens.toLocaleString("en") + " tokens)" + (p.fits ? "" : " — too big for the context window"), p.name);
+    option.disabled = !p.fits;
+    promptSelect.add(option);
+  }
+  if (session.snapshots?.prompt?.name && !prompts.some(p => p.name === session.snapshots.prompt.name)) promptSelect.add(new Option(session.snapshots.prompt.name + " (saved with this session)", session.snapshots.prompt.name));
+  if (session.snapshots?.agent?.name && !agents.some(a => a.name === session.snapshots.agent.name)) agents.push({name: session.snapshots.agent.name, source: "saved session", tools: session.snapshots.agent.value?.tools || []});
+  fillAgentSelect();
+  if (locked) {
+    promptSelect.value = locked.prompt;
+    agentSelect.value = locked.agent;
+    conversationLocked = true;
+  }
+  if (session.setup) {
+    promptSelect.value = session.setup.prompt || "";
+    agentSelect.value = session.setup.agent || "";
+  }
+  for (const checkbox of toolCheckboxes) checkbox.checked = (session.settings?.tools || toolCheckboxes.map(c => c.value)).includes(checkbox.value);
+  toolsCheckbox.checked = toolCheckboxes.some(c => c.checked);
+  askApprovalCheckbox.checked = session.settings?.ask_approval ?? true;
+  memoryCheckbox.checked = session.settings?.use_memory ?? true;
+  initialized = true;
+  updateContextMeter(data.last_prompt_tokens || null);
+  replaySession();
   setControlsDisabled(false);
+  refreshExplorer();
 }
-if (session.setup) {
-  promptSelect.value = session.setup.prompt || "";
-  agentSelect.value = session.setup.agent || "";
-}
-updateContextMeter({{ last_prompt_tokens }} || null);
-refreshExplorer();
+
+fetch(api("/bootstrap")).then(response => response.ok ? response.json() : Promise.reject(new Error("Could not load backend state."))).then(initialize).catch(error => {
+  terminalEl.textContent = initialTerminal + "\nBackend unavailable: " + error.message;
+});
 
 document.getElementById("hide-thinking").addEventListener("change", (e) => {
   messagesEl.classList.toggle("hide-thinking", e.target.checked);
@@ -1214,7 +1269,7 @@ exploreView.addEventListener("change", () => {
 async function loadSelectedSession() {
   if (!sessionSelect.value || sessionSelect.value === session.id) return;
   try {
-    const response = await fetch("/sessions/" + sessionSelect.value + "/activate", {method: "POST"});
+    const response = await fetch(api("/sessions/" + sessionSelect.value + "/activate"), {method: "POST"});
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not load this session.");
     location.reload();
@@ -1225,22 +1280,22 @@ async function loadSelectedSession() {
 }
 document.getElementById("load-session").addEventListener("click", loadSelectedSession);
 document.getElementById("new-session").addEventListener("click", async () => {
-  const response = await fetch("/sessions", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+  const response = await fetch(api("/sessions"), {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
   if (!response.ok) { sessionStatus.textContent = (await response.json()).error; return; }
   location.reload();
 });
 document.getElementById("rename-session").addEventListener("click", async () => {
   const name = prompt("Session name:", session.name); if (!name || !name.trim()) return;
-  const response = await fetch("/sessions/" + session.id, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name})});
+  const response = await fetch(api("/sessions/" + session.id), {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name})});
   if (!response.ok) { sessionStatus.textContent = "save failed"; return; }
   session = await response.json();
-  const listing = await (await fetch("/sessions")).json(); fillSessionSelect(listing.sessions, session.id);
+  const listing = await (await fetch(api("/sessions"))).json(); fillSessionSelect(listing.sessions, session.id);
 });
 document.getElementById("export-session").addEventListener("click", () => { location.href = "/sessions/" + session.id + "/export"; });
 document.getElementById("import-session").addEventListener("change", async (e) => {
   const file = e.target.files[0]; if (!file) return;
   try {
-    const response = await fetch("/sessions/import", {method:"POST", headers:{"Content-Type":"application/json"}, body:await file.text()});
+    const response = await fetch(api("/sessions/import"), {method:"POST", headers:{"Content-Type":"application/json"}, body:await file.text()});
     const result = await response.json(); if (!response.ok) throw new Error(result.error);
     fillSessionSelect(result.sessions, session.id); sessionStatus.textContent = "imported";
   } catch (error) { sessionStatus.textContent = error.message; }
@@ -1265,7 +1320,7 @@ if (session.settings) {
 sendBtn.addEventListener("click", sendMessage);
 stopBtn.addEventListener("click", () => {
   stopBtn.disabled = true;
-  fetch("/stop", { method: "POST" });
+  fetch(api("/stop"), { method: "POST" });
 });
 clearBtn.addEventListener("click", clearConversation);
 resetBtn.addEventListener("click", () => resetMemory("— memory reset —"));
