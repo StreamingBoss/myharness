@@ -14,6 +14,89 @@
     background: #1e1e1e;
     color: #ddd;
   }
+  #settings-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    border-bottom: 1px solid #444;
+    background: #252525;
+    font-size: 13px;
+    color: #bbb;
+  }
+  #settings-bar select, #settings-bar input {
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid #444;
+    background: #2a2a2a;
+    color: #ddd;
+    font-size: 13px;
+  }
+  #settings-bar input {
+    flex: 1;
+    max-width: 600px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  #settings-bar label:not(:first-child) { margin-left: 20px; }
+  #settings-bar button {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: #555;
+    color: white;
+    cursor: pointer;
+  }
+  #settings-bar :disabled { opacity: 0.5; cursor: default; }
+  #project-error { color: #ff6b6b; }
+  #browser {
+    position: fixed;
+    top: 46px;
+    left: 160px;
+    width: 560px;
+    max-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    background: #252525;
+    border: 1px solid #555;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    z-index: 10;
+    font-size: 13px;
+  }
+  #browser[hidden] { display: none; }
+  #browser-path {
+    padding: 10px 14px;
+    border-bottom: 1px solid #444;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    color: #ddd;
+    word-break: break-all;
+  }
+  #browser-list { overflow-y: auto; padding: 4px 0; }
+  #browser-list div {
+    padding: 5px 14px;
+    cursor: pointer;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  #browser-list div:hover { background: #2b5797; color: white; }
+  #browser-list .empty { color: #888; cursor: default; }
+  #browser-list .empty:hover { background: none; color: #888; }
+  #browser-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid #444;
+  }
+  #browser-buttons button {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: #555;
+    color: white;
+    cursor: pointer;
+  }
+  #browser-buttons #browser-select { background: #2b5797; }
   #panes {
     flex: 1;
     min-height: 0;
@@ -86,6 +169,15 @@
     white-space: nowrap;
     cursor: pointer;
   }
+  #tools-row {
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 0 10px 10px 0;
+  }
+  .toggle.tool { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
+  .toggle:has(input:disabled) { opacity: 0.5; cursor: default; }
   #input-row button {
     margin-left: 8px;
     padding: 10px 16px;
@@ -104,6 +196,8 @@
     margin: 12px 0;
   }
 
+  #terminal .sent { color: #f0a050; }
+  #terminal .received { color: #6fcf6f; }
   #harness-box {
     height: 25vh;
     flex-shrink: 0;
@@ -126,6 +220,25 @@
 </head>
 <body>
 
+<div id="settings-bar">
+  <label for="agent">Agent:</label>
+  <select id="agent"></select>
+  <label for="project">Project folder:</label>
+  <input id="project" type="text" value="{{ project }}" spellcheck="false">
+  <button id="browse">Browse…</button>
+  <button id="set-project">Set</button>
+  <span id="project-error"></span>
+</div>
+
+<div id="browser" hidden>
+  <div id="browser-path"></div>
+  <div id="browser-list"></div>
+  <div id="browser-buttons">
+    <button id="browser-cancel">Cancel</button>
+    <button id="browser-select">Select this folder</button>
+  </div>
+</div>
+
 <div id="panes">
 <div id="chat-pane">
   <div class="pane-header">Chat — {{ model }}</div>
@@ -133,10 +246,15 @@
   <div id="input-row">
     <input id="input" type="text" placeholder="Type a message..." autofocus>
     <label class="toggle"><input id="use-memory" type="checkbox" checked> Harness memory</label>
-    <label class="toggle"><input id="use-tools" type="checkbox" checked> Tools</label>
     <button id="reset">Reset memory</button>
     <button id="clear">Clear conversation</button>
     <button id="send">Send</button>
+  </div>
+  <div id="tools-row">
+    <label class="toggle"><input id="use-tools" type="checkbox" checked> Tools:</label>
+    {% for name in tool_names %}
+    <label class="toggle tool"><input class="tool-checkbox" type="checkbox" value="{{ name }}" checked> {{ name }}</label>
+    {% endfor %}
   </div>
 </div>
 
@@ -165,7 +283,12 @@ const sendBtn = document.getElementById("send");
 const resetBtn = document.getElementById("reset");
 const memoryCheckbox = document.getElementById("use-memory");
 const toolsCheckbox = document.getElementById("use-tools");
+const toolCheckboxes = [...document.querySelectorAll(".tool-checkbox")];
 const clearBtn = document.getElementById("clear");
+const agentSelect = document.getElementById("agent");
+const projectInput = document.getElementById("project");
+const setProjectBtn = document.getElementById("set-project");
+const projectError = document.getElementById("project-error");
 const initialTerminal = terminalEl.textContent;
 
 function renderChatBubble(role, text) {
@@ -179,12 +302,11 @@ function renderChatBubble(role, text) {
 
 const SEP = "-".repeat(40);
 
-function printBlock(title, body) {
-  printToTerminal(SEP + "\n" + title + "\n" + SEP + "\n" + body + "\n\n");
-}
-
-function printToTerminal(text) {
-  terminalEl.textContent += text;
+function printBlock(title, body, className = "") {
+  const span = document.createElement("span");
+  span.className = className;
+  span.textContent = SEP + "\n" + title + "\n" + SEP + "\n" + body + "\n\n";
+  terminalEl.appendChild(span);
   terminalEl.scrollTop = terminalEl.scrollHeight;
 }
 
@@ -203,7 +325,10 @@ async function sendMessage() {
     body: JSON.stringify({
       message: text,
       use_memory: memoryCheckbox.checked,
-      use_tools: toolsCheckbox.checked,
+      agent: agentSelect.value,
+      tools: toolsCheckbox.checked
+        ? toolCheckboxes.filter((c) => c.checked).map((c) => c.value)
+        : [],
     }),
   });
 
@@ -227,7 +352,7 @@ async function sendMessage() {
       const event = JSON.parse(line);
 
       if (event.type === "request") {
-        printBlock("SENT to Ollama (POST /api/chat)", event.raw);
+        printBlock("SENT to Ollama (POST /api/chat)", event.raw, "sent");
         memoryEl.textContent = event.memory;
       } else if (event.type === "chunk") {
         if (!event.content) continue;
@@ -236,7 +361,7 @@ async function sendMessage() {
         assistantDiv.textContent = replyText;
         messagesEl.scrollTop = messagesEl.scrollHeight;
       } else if (event.type === "response") {
-        printBlock("RECEIVED from Ollama", event.raw);
+        printBlock("RECEIVED from Ollama", event.raw, "received");
         printBlock("TOKENS", event.tokens);
         memoryEl.textContent = event.memory;
       } else if (event.type === "tool") {
@@ -244,6 +369,9 @@ async function sendMessage() {
                    "arguments: " + event.arguments + "\nresult:    " + event.result);
         memoryEl.textContent = event.memory;
         addDivider("used tool " + event.name);
+        // text after a tool run goes in a new bubble, below the tool note
+        assistantDiv = null;
+        replyText = "";
       } else if (event.type === "stopped") {
         printBlock("STOPPED", event.reason);
         addDivider(event.reason);
@@ -256,10 +384,113 @@ async function sendMessage() {
 }
 
 function setControlsDisabled(disabled) {
-  for (const el of [input, sendBtn, resetBtn, clearBtn, memoryCheckbox, toolsCheckbox]) {
+  for (const el of [input, sendBtn, resetBtn, clearBtn, memoryCheckbox, toolsCheckbox,
+                    agentSelect, projectInput, setProjectBtn, browseBtn]) {
     el.disabled = disabled;
   }
+  for (const c of toolCheckboxes) c.disabled = disabled || !toolsCheckbox.checked;
 }
+
+toolsCheckbox.addEventListener("change", () => {
+  for (const c of toolCheckboxes) c.disabled = !toolsCheckbox.checked;
+});
+
+let agents = {{ agents | tojson }};
+
+function fillAgentSelect() {
+  const previous = agentSelect.value;
+  agentSelect.replaceChildren(new Option("none", ""));
+  for (const a of agents) {
+    agentSelect.add(new Option(a.name + " (" + a.source + ")", a.name));
+  }
+  if (previous && !agents.some((a) => a.name === previous)) {
+    addDivider("— agent " + previous + " not in this project: agent set to none —");
+  } else {
+    agentSelect.value = previous;
+  }
+}
+
+agentSelect.addEventListener("change", () => {
+  const agent = agents.find((a) => a.name === agentSelect.value);
+  if (agent) {
+    toolsCheckbox.checked = agent.tools.length > 0;
+    for (const c of toolCheckboxes) {
+      c.checked = agent.tools.includes(c.value);
+      c.disabled = !toolsCheckbox.checked;
+    }
+  }
+  addDivider("— agent: " + agentSelect.selectedOptions[0].textContent + " —");
+});
+
+async function setProject() {
+  const resp = await fetch("/project", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: projectInput.value }),
+  });
+  const result = await resp.json();
+  if (!resp.ok) {
+    projectError.textContent = result.error;
+    return;
+  }
+  projectError.textContent = "";
+  projectInput.value = result.path;
+  addDivider("— project folder: " + result.path + " —");
+  agents = result.agents;
+  fillAgentSelect();
+}
+
+const browseBtn = document.getElementById("browse");
+const browserEl = document.getElementById("browser");
+const browserPath = document.getElementById("browser-path");
+const browserList = document.getElementById("browser-list");
+let browsedPath = "";
+
+function browserEntry(label, onClick, className = "") {
+  const div = document.createElement("div");
+  div.textContent = label;
+  div.className = className;
+  if (onClick) div.addEventListener("click", onClick);
+  browserList.appendChild(div);
+}
+
+async function browse(path) {
+  const resp = await fetch("/browse?path=" + encodeURIComponent(path));
+  const result = await resp.json();
+  if (!resp.ok) {
+    projectError.textContent = result.error;
+    return;
+  }
+  projectError.textContent = "";
+  browsedPath = result.path;
+  browserPath.textContent = result.path;
+  browserList.replaceChildren();
+  if (result.parent) browserEntry("..", () => browse(result.parent));
+  for (const name of result.folders) {
+    browserEntry(name + "/", () => browse(result.path.replace(/\/$/, "") + "/" + name));
+  }
+  if (!result.folders.length) browserEntry("(no sub-folders)", null, "empty");
+  browserEl.hidden = false;
+}
+
+browseBtn.addEventListener("click", async () => {
+  // start from the folder in the field; fall back to the current project folder
+  await browse(projectInput.value);
+  if (browserEl.hidden) browse("");
+});
+document.getElementById("browser-cancel").addEventListener("click", () => {
+  browserEl.hidden = true;
+});
+document.getElementById("browser-select").addEventListener("click", () => {
+  browserEl.hidden = true;
+  projectInput.value = browsedPath;
+  setProject();
+});
+
+setProjectBtn.addEventListener("click", setProject);
+projectInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") setProject();
+});
 
 function addDivider(text) {
   const divider = document.createElement("div");
@@ -282,6 +513,8 @@ async function clearConversation() {
   terminalEl.textContent = initialTerminal;
   input.focus();
 }
+
+fillAgentSelect();
 
 sendBtn.addEventListener("click", sendMessage);
 clearBtn.addEventListener("click", clearConversation);
