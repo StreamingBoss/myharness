@@ -3,9 +3,10 @@ import { readFile, readdir } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { homedir } from 'node:os';
-import { NodeHarness, BackendError, type TurnAction } from './harness.js';
+import { NodeHarness, BackendError } from './harness.js';
 import { sessionSummary } from './sessions.js';
 import type { CoreEvent } from '../core.js';
+import { turnAction as action } from '../transport.js';
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
   let text = '';
@@ -16,12 +17,6 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown>> 
 }
 function send(response: ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json' }); response.end(JSON.stringify(value));
-}
-function action(value: Record<string, unknown>, chat: boolean): TurnAction {
-  const useMemory = value.use_memory ?? value.useMemory;
-  const askApproval = value.ask_approval ?? value.askApproval ?? true;
-  if (typeof useMemory !== 'boolean' || typeof askApproval !== 'boolean' || !Array.isArray(value.tools) || !value.tools.every(name => typeof name === 'string') || typeof value.agent !== 'string' || typeof value.prompt !== 'string' || (chat && typeof value.message !== 'string')) throw new BackendError('Invalid turn settings');
-  return { message: chat ? value.message as string : '', useMemory, askApproval, tools: value.tools as string[], agent: value.agent, prompt: value.prompt, ...(typeof value.session_id === 'string' ? { sessionId: value.session_id } : {}) };
 }
 async function stream(response: ServerResponse, events: AsyncGenerator<CoreEvent>, harness: NodeHarness): Promise<void> {
   const first = await events.next();

@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "build:ts": "tsc --project tsconfig.json",
+    "build:browser": "npm run build:ts && node scripts/build-browser.mjs",
+    "start:browser": "npm run build:browser && node scripts/serve-browser.mjs",
     "test:ts": "npm run build:ts && node --test dist/typescript/tests/*.test.js",
     "start:ts": "npm run build:ts && node dist/typescript/src/node/server.js",
     "headless:ts": "npm run build:ts && node dist/typescript/src/node/headless.js",

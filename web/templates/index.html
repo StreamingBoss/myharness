@@ -475,6 +475,7 @@ const projectError = document.getElementById("project-error");
 let initialTerminal = terminalEl.textContent;
 const API_BASE = window.MYHARNESS_API_BASE || new URLSearchParams(location.search).get("api") || "";
 const api = (path) => API_BASE + path;
+const backendFetch = window.MYHARNESS_FETCH || ((...args) => fetch(...args));
 let session = {};
 let sessionEvents = [];
 let toolCheckboxes = [];
@@ -490,7 +491,7 @@ async function saveSessionSettings() {
   const settings = {use_memory: memoryCheckbox.checked, tools: currentTools(),
     ask_approval: askApprovalCheckbox.checked};
   try {
-    const response = await fetch(api("/sessions/" + session.id), {method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({settings})});
+    const response = await backendFetch(api("/sessions/" + session.id), {method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({settings})});
     if (!response.ok) throw new Error((await response.json()).error);
     session = await response.json(); sessionStatus.textContent = "saved";
   } catch (error) { sessionStatus.textContent = "save failed"; }
@@ -517,7 +518,7 @@ function handleContextEvent(event) {
   if (event.action === "compact_request") {
     printBlock("SENT to Ollama — compaction", JSON.stringify(event.payload, null, 2), "sent");
   } else if (event.action === "compact_response") {
-    printBlock("RECEIVED from Ollama — compaction", JSON.stringify(event.response, null, 2), "received");
+    printBlock("RECEIVED from model — compaction", JSON.stringify(event.response, null, 2), "received");
   } else {
     addDivider(event.reason);
     printBlock("CONTEXT — " + event.action, event.reason + (event.summary ? "\n\n" + event.summary : ""));
@@ -530,7 +531,7 @@ function handleContextEvent(event) {
 compactBtn.addEventListener("click", async () => {
   setControlsDisabled(true);
   try {
-    const response = await fetch(api("/compact"), {
+    const response = await backendFetch(api("/compact"), {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({use_memory: memoryCheckbox.checked, session_id: session.id}),
     });
@@ -590,7 +591,7 @@ function replaySessionEvent(event) {
   if (event.type === "chat_user") renderChatBubble("user", event.content || "");
   else if (event.type === "request") printBlock("SENT to Ollama (saved)", event.parts, "sent");
   else if (event.type === "response") {
-    printBlock("RECEIVED from Ollama (saved)", event.parts, "received");
+    printBlock("RECEIVED from model (saved)", event.parts, "received");
     if (event.tokens) printBlock("TOKENS", event.tokens);
     if (event.tokens_in !== undefined) updateContextMeter(event.tokens_in, event.context_length);
   } else if (event.type === "thinking") renderChatBubble("thinking", event.content || "");
@@ -654,7 +655,7 @@ async function sendMessage() {
   renderChatBubble("user", text);
 
   try {
-    const resp = await fetch(api("/chat"), {
+    const resp = await backendFetch(api("/chat"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -665,7 +666,7 @@ async function sendMessage() {
         agent: agentSelect.value,
         prompt: promptSelect.value,
         tools: toolsCheckbox.checked
-          ? toolCheckboxes.filter((c) => c.checked).map((c) => c.value)
+          ? toolCheckboxes.filter((c) => c.checked && c.dataset.supported !== "false").map((c) => c.value)
           : [],
       }),
     });
@@ -701,7 +702,7 @@ async function sendMessage() {
         if (event.type === "context") {
           handleContextEvent(event);
         } else if (event.type === "request") {
-          printBlock("SENT to Ollama (POST /api/chat)", event.parts, "sent");
+          printBlock("SENT to model", event.parts, "sent");
           memoryEl.textContent = event.memory;
         } else if (event.type === "skill") {
           addDivider("— skill loaded: " + event.name + " —");
@@ -719,7 +720,7 @@ async function sendMessage() {
         } else if (event.type === "response") {
           [assistantDiv, replyText] = completeReply(event, assistantDiv, replyText);
           updateContextMeter(event.tokens_in, event.context_length);
-          printBlock("RECEIVED from Ollama", event.parts, "received");
+          printBlock("RECEIVED from model", event.parts, "received");
           printBlock("TOKENS", event.tokens);
           memoryEl.textContent = event.memory;
         } else if (event.type === "tool") {
@@ -838,7 +839,7 @@ const EXPLORE_NOTES = {
 };
 
 function currentTools() {
-  return toolsCheckbox.checked ? toolCheckboxes.filter((c) => c.checked).map((c) => c.value) : [];
+  return toolsCheckbox.checked ? toolCheckboxes.filter((c) => c.checked && c.dataset.supported !== "false").map((c) => c.value) : [];
 }
 
 function showHighlighted(text) {
@@ -912,7 +913,7 @@ async function refreshExplorer() {
     exploreNote.textContent = note;
     return;
   }
-  const resp = await fetch(api("/explore"), {
+  const resp = await backendFetch(api("/explore"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1005,7 +1006,7 @@ function addApprovalButtons(box, id) {
   for (const [button, approved] of [[deny, false], [approve, true]]) {
     button.addEventListener("click", () => {
       deny.disabled = approve.disabled = true;
-      fetch(api("/approve"), {
+      backendFetch(api("/approve"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, approved }),
@@ -1029,7 +1030,7 @@ function setControlsDisabled(disabled) {
     el.disabled = disabled;
   }
   compactBtn.disabled = disabled || !memoryCheckbox.checked;
-  for (const c of toolCheckboxes) c.disabled = disabled || !toolsCheckbox.checked;
+  for (const c of toolCheckboxes) c.disabled = disabled || !toolsCheckbox.checked || c.dataset.supported === "false";
   agentSelect.disabled = promptSelect.disabled = disabled || conversationLocked;
   lockNote.hidden = !conversationLocked;
   // while a turn runs, Stop takes the place of Send
@@ -1044,7 +1045,7 @@ function unlockConversation() {
 }
 
 toolsCheckbox.addEventListener("change", () => {
-  for (const c of toolCheckboxes) c.disabled = !toolsCheckbox.checked;
+  for (const c of toolCheckboxes) c.disabled = !toolsCheckbox.checked || c.dataset.supported === "false";
 });
 
 let agents = [];
@@ -1089,15 +1090,15 @@ agentSelect.addEventListener("change", () => {
   if (agent) {
     toolsCheckbox.checked = agent.tools.length > 0;
     for (const c of toolCheckboxes) {
-      c.checked = agent.tools.includes(c.value);
-      c.disabled = !toolsCheckbox.checked;
+      c.checked = c.dataset.supported !== "false" && agent.tools.includes(c.value);
+      c.disabled = !toolsCheckbox.checked || c.dataset.supported === "false";
     }
   }
   addDivider("— agent: " + agentSelect.selectedOptions[0].textContent + " —");
 });
 
 async function setProject() {
-  const resp = await fetch(api("/project"), {
+  const resp = await backendFetch(api("/project"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path: projectInput.value }),
@@ -1130,7 +1131,7 @@ function browserEntry(label, onClick, className = "") {
 }
 
 async function browse(path) {
-  const resp = await fetch(api("/browse?path=" + encodeURIComponent(path)));
+  const resp = await backendFetch(api("/browse?path=" + encodeURIComponent(path)));
   const result = await resp.json();
   if (!resp.ok) {
     projectError.textContent = result.error;
@@ -1176,7 +1177,7 @@ function addDivider(text) {
 }
 
 async function resetMemory(dividerText) {
-  const resp = await fetch(api("/reset"), { method: "POST" });
+  const resp = await backendFetch(api("/reset"), { method: "POST" });
   memoryEl.textContent = (await resp.json()).memory;
   updateContextMeter(null);
   addDivider(dividerText);
@@ -1185,7 +1186,7 @@ async function resetMemory(dividerText) {
 }
 
 async function clearConversation() {
-  const resp = await fetch(api("/reset"), { method: "POST" });
+  const resp = await backendFetch(api("/reset"), { method: "POST" });
   memoryEl.textContent = (await resp.json()).memory;
   updateContextMeter(null);
   messagesEl.replaceChildren();
@@ -1206,7 +1207,10 @@ function renderTools(tools) {
     checkbox.type = "checkbox";
     checkbox.className = "tool-checkbox";
     checkbox.value = tool.name;
-    checkbox.checked = true;
+    checkbox.dataset.supported = tool.supported === false ? "false" : "true";
+    checkbox.checked = tool.supported !== false;
+    checkbox.disabled = tool.supported === false;
+    if (tool.supported === false) label.title += "\nUnavailable in this runtime. Bash requires the Node backend.";
     checkbox.addEventListener("change", saveSessionSettings);
     label.append(checkbox, " ");
     const name = document.createElement("span");
@@ -1250,7 +1254,7 @@ function initialize(data) {
     promptSelect.value = session.setup.prompt || "";
     agentSelect.value = session.setup.agent || "";
   }
-  for (const checkbox of toolCheckboxes) checkbox.checked = (session.settings?.tools || toolCheckboxes.map(c => c.value)).includes(checkbox.value);
+  for (const checkbox of toolCheckboxes) checkbox.checked = checkbox.dataset.supported !== "false" && (session.settings?.tools || toolCheckboxes.map(c => c.value)).includes(checkbox.value);
   toolsCheckbox.checked = toolCheckboxes.some(c => c.checked);
   askApprovalCheckbox.checked = session.settings?.ask_approval ?? true;
   memoryCheckbox.checked = session.settings?.use_memory ?? true;
@@ -1261,7 +1265,7 @@ function initialize(data) {
   refreshExplorer();
 }
 
-fetch(api("/bootstrap")).then(response => response.ok ? response.json() : Promise.reject(new Error("Could not load backend state."))).then(initialize).catch(error => {
+backendFetch(api("/bootstrap")).then(response => response.ok ? response.json() : Promise.reject(new Error("Could not load backend state."))).then(initialize).catch(error => {
   terminalEl.textContent = initialTerminal + "\nBackend unavailable: " + error.message;
 });
 
@@ -1280,7 +1284,7 @@ exploreView.addEventListener("change", () => {
 async function loadSelectedSession() {
   if (!sessionSelect.value || sessionSelect.value === session.id) return;
   try {
-    const response = await fetch(api("/sessions/" + sessionSelect.value + "/activate"), {method: "POST"});
+    const response = await backendFetch(api("/sessions/" + sessionSelect.value + "/activate"), {method: "POST"});
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not load this session.");
     location.reload();
@@ -1291,22 +1295,22 @@ async function loadSelectedSession() {
 }
 document.getElementById("load-session").addEventListener("click", loadSelectedSession);
 document.getElementById("new-session").addEventListener("click", async () => {
-  const response = await fetch(api("/sessions"), {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+  const response = await backendFetch(api("/sessions"), {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
   if (!response.ok) { sessionStatus.textContent = (await response.json()).error; return; }
   location.reload();
 });
 document.getElementById("rename-session").addEventListener("click", async () => {
   const name = prompt("Session name:", session.name); if (!name || !name.trim()) return;
-  const response = await fetch(api("/sessions/" + session.id), {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name})});
+  const response = await backendFetch(api("/sessions/" + session.id), {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name})});
   if (!response.ok) { sessionStatus.textContent = "save failed"; return; }
   session = await response.json();
-  const listing = await (await fetch(api("/sessions"))).json(); fillSessionSelect(listing.sessions, session.id);
+  const listing = await (await backendFetch(api("/sessions"))).json(); fillSessionSelect(listing.sessions, session.id);
 });
-document.getElementById("export-session").addEventListener("click", () => { location.href = api("/sessions/" + session.id + "/export"); });
+document.getElementById("export-session").addEventListener("click", async () => { if (window.MYHARNESS_EXPORT_SESSION) await window.MYHARNESS_EXPORT_SESSION(session.id); else location.href = api("/sessions/" + session.id + "/export"); });
 document.getElementById("import-session").addEventListener("change", async (e) => {
   const file = e.target.files[0]; if (!file) return;
   try {
-    const response = await fetch(api("/sessions/import"), {method:"POST", headers:{"Content-Type":"application/json"}, body:await file.text()});
+    const response = await backendFetch(api("/sessions/import"), {method:"POST", headers:{"Content-Type":"application/json"}, body:await file.text()});
     const result = await response.json(); if (!response.ok) throw new Error(result.error);
     fillSessionSelect(result.sessions, session.id); sessionStatus.textContent = "imported";
   } catch (error) { sessionStatus.textContent = error.message; }
@@ -1317,7 +1321,7 @@ document.getElementById("import-session").addEventListener("change", async (e) =
 if (session.settings) {
   memoryCheckbox.checked = session.settings.use_memory !== false;
   askApprovalCheckbox.checked = session.settings.ask_approval !== false;
-  for (const checkbox of toolCheckboxes) checkbox.checked = (session.settings.tools || []).includes(checkbox.value);
+  for (const checkbox of toolCheckboxes) checkbox.checked = checkbox.dataset.supported !== "false" && (session.settings.tools || []).includes(checkbox.value);
   toolsCheckbox.checked = toolCheckboxes.some(c => c.checked);
   try {
     const hideThinking = localStorage.getItem("hideThinking") === "1";
@@ -1331,7 +1335,7 @@ if (session.settings) {
 sendBtn.addEventListener("click", sendMessage);
 stopBtn.addEventListener("click", () => {
   stopBtn.disabled = true;
-  fetch(api("/stop"), { method: "POST" });
+  backendFetch(api("/stop"), { method: "POST" });
 });
 clearBtn.addEventListener("click", clearConversation);
 resetBtn.addEventListener("click", () => resetMemory("— memory reset —"));

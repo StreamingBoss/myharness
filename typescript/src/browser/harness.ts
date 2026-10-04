@@ -23,7 +23,7 @@ export class BrowserHarness extends Harness {
         name: 'browser', supportedTools: TOOL_NAMES.filter(name => name !== 'run_command'),
         capabilities: { workspace: 'virtual text files or user-granted local folder', commands: false, persistence: 'IndexedDB', inference: 'scripted demo or external Ollama' },
         workspace(folder) {
-          const project = projects.get(folder) ?? projectFromFiles(folder, {});
+          const project: StoredProject = projects.get(folder) ?? projectFromFiles(folder, {});
           const adapter = project.handle ? new LocalWorkspace(project, project.handle) : new BrowserWorkspace(project, value => browser.storage.put('projects', value.root, value));
           // A fabricated adapter for an imported session must not invent a missing workspace.
           if (!projects.has(folder)) adapter.exists = () => false;
@@ -46,6 +46,10 @@ export class BrowserHarness extends Harness {
     const harness = new BrowserHarness(options, projects, workspace, router);
     await harness.initialize();
     return harness;
+  }
+
+  override async bootstrap(): Promise<Record<string, unknown>> {
+    return { ...await super.bootstrap(), workspace_kind: this.projects.get(this.state.workspace)?.handle ? 'local folder (direct disk access)' : 'virtual workspace (browser storage)', ollama_url: await this.browser.storage.get<string>('settings', 'ollama-url') ?? 'http://localhost:11434' };
   }
 
   async importProject(value: unknown): Promise<Record<string, unknown>> {
@@ -78,11 +82,13 @@ export class BrowserHarness extends Harness {
   browse(raw: string): { path: string; parent: string | null; folders: string[] } {
     const folder = absolutePath(raw);
     if (folder === '/') return { path: '/', parent: null, folders: [...this.projects.keys()].map(root => root.slice(1)).sort() };
-    const workspace = new BrowserWorkspace(this.projects.get(this.state.workspace)!, async () => {});
+    const project = [...this.projects.values()].find(project => folder === project.root || folder.startsWith(project.root + '/'));
+    if (!project) throw new BackendError(`'${raw}' is not a virtual folder`);
+    const workspace = new BrowserWorkspace(project, async () => {});
     if (!workspace.isDirectory(folder)) throw new BackendError(`'${raw}' is not a virtual folder`);
     const prefix = workspace.relative(folder);
     const folders = workspace.project.directories.filter(name => name !== prefix && name.startsWith(prefix ? prefix + '/' : '')).map(name => name.slice(prefix ? prefix.length + 1 : 0)).filter(name => !name.includes('/')).sort();
-    return { path: folder, parent: folder.slice(0, folder.lastIndexOf('/')) || '/', folders };
+    return { path: folder, parent: folder === project.root ? '/' : folder.slice(0, folder.lastIndexOf('/')), folders };
   }
   async configureModel(value: { mode: string; model?: string; url?: string }): Promise<void> {
     this.idle('changing models');
