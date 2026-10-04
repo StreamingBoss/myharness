@@ -90,6 +90,10 @@ Flask or UI modules.
 
 ## Phase 3: port the backend to TypeScript
 
+**Status: in progress on October 4, 2026.** Start by porting the strict,
+transport-free core and exercising the shared scenarios before adding Node
+runtime adapters or switching the HTTP host.
+
 - Create a strict TypeScript core with explicit types for configuration, messages,
   tool calls, client actions, state, and events. Use asynchronous iteration for
   streamed turns and explicit cancellation. Keep Node, HTTP, DOM, and Worker

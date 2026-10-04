@@ -5,3 +5,5 @@ settings.json
 .coverage
 .coverage-html/
 sessions/
+node_modules/
+dist/

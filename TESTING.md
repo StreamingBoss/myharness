@@ -43,6 +43,21 @@ state from `GET /bootstrap` and can target another backend through `?api=` or
 of local UI origins when serving the UI separately. The deterministic tests
 exercise this bootstrap/CORS contract and the headless approval flow.
 
+## TypeScript port baseline
+
+The TypeScript core is compiled in strict mode and has no Node, HTTP, browser,
+or UI dependency. Run its deterministic tests with:
+
+```bash
+npm install
+npm run test:ts
+```
+
+The TypeScript suite runs [tests/scenarios](tests/scenarios) unchanged, alongside
+direct core tests for streamed events, context handling, tool actions,
+cancellation, and the step limit. Node production adapters and the TypeScript
+HTTP host are the next Phase 3 increment; Python remains the default backend.
+
 ## Headless use
 
 Start the backend with `.venv/bin/python web/app.py`. The UI is optional: submit

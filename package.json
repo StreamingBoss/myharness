@@ -1,0 +1,13 @@
+{
+  "name": "myharness",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:ts": "tsc --project tsconfig.json",
+    "test:ts": "npm run build:ts && node --test dist/typescript/tests/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.30",
+    "typescript": "^5.8.3"
+  }
+}
