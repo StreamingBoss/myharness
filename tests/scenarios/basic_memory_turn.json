@@ -1,0 +1,22 @@
+{
+  "name": "streamed remembered turn",
+  "request": {
+    "message": "Hello",
+    "use_memory": true,
+    "tools": [],
+    "ask_approval": false,
+    "agent": "",
+    "prompt": ""
+  },
+  "model_turns": [
+    [
+      {"message": {"role": "assistant", "content": "Hel", "thinking": "reason"}, "done": false},
+      {"message": {"role": "assistant", "content": "lo"}, "done": true, "prompt_eval_count": 12, "eval_count": 2}
+    ]
+  ],
+  "expect": {
+    "event_types": ["request", "thinking", "chunk", "response"],
+    "memory_roles": ["user", "assistant"],
+    "last_content": "Hello"
+  }
+}

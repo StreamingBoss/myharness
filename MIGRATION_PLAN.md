@@ -15,6 +15,11 @@ Keep `harness.py` as the minimal Python reference.
 
 ## Phase 1: establish a tested behavioral baseline
 
+**Status: complete on October 4, 2026.** The deterministic suite has 100% line
+and branch coverage of `web/app.py`; see [TESTING.md](TESTING.md). The shared
+JSON corpus is in `tests/scenarios` and is exercised through HTTP/NDJSON by the
+current Python host.
+
 - Inventory maintained backend behavior and map it to tests. Start with the
   existing 13 passing tests, which currently import `web/app.py` and exercise
   selected file tools, project instructions, skills, and context management.

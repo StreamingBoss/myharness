@@ -1,0 +1,36 @@
+{
+  "name": "denied file change",
+  "request": {
+    "message": "Create a note",
+    "use_memory": true,
+    "tools": ["write_file"],
+    "ask_approval": true,
+    "agent": "",
+    "prompt": ""
+  },
+  "approval": "deny",
+  "model_turns": [
+    [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {"function": {"name": "write_file", "arguments": {"path": "note.txt", "content": "draft"}}}
+          ]
+        },
+        "done": true,
+        "prompt_eval_count": 10,
+        "eval_count": 1
+      }
+    ],
+    [
+      {"message": {"role": "assistant", "content": "I could not make that change."}, "done": true, "prompt_eval_count": 15, "eval_count": 3}
+    ]
+  ],
+  "expect": {
+    "event_types": ["request", "response", "approval", "change", "tool", "request", "response"],
+    "memory_roles": ["user", "assistant", "tool", "assistant"],
+    "absent_files": ["note.txt"]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "stateless turn",
+  "request": {
+    "message": "No memory",
+    "use_memory": false,
+    "tools": [],
+    "ask_approval": false,
+    "agent": "",
+    "prompt": ""
+  },
+  "model_turns": [
+    [
+      {"message": {"role": "assistant", "content": "Done"}, "done": true, "prompt_eval_count": 8, "eval_count": 1}
+    ]
+  ],
+  "expect": {
+    "event_types": ["request", "response"],
+    "memory_roles": [],
+    "last_content": "No memory"
+  }
+}

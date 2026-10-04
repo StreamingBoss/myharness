@@ -13,3 +13,4 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the contract and current status, and
 Run the current web version with `./web.sh`, then open http://localhost:5000.
 See [HANDOVER.md](HANDOVER.md) for setup and implementation details and
 [PYTHON_HARNESS.md](PYTHON_HARNESS.md) for the minimal Python CLI walkthrough.
+See [TESTING.md](TESTING.md) for the deterministic backend test and coverage gate.
