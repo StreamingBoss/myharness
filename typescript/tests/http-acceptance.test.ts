@@ -36,12 +36,20 @@ test('all UI routes, static assets, CORS preflight and session lifecycle use the
   const settings = { message: 'hello', use_memory: true, ask_approval: false, tools: [], agent: '', prompt: '' };
   await request('/chat', 'POST', { ...settings, session_id: 'stale' }, 409);
   await request('/chat', 'POST', settings); await request('/chat', 'POST', {}, 400); await request('/chat', 'POST', null, 400);
+  await request('/chat', 'POST', [], 400);
+  await request('/chat', 'POST', true, 400);
+  assert.equal((await fetch(base + '/chat', { method: 'POST', body: '{' })).status, 400);
+  const blank = { ...harness.activeSessionRecord(), name: '' }; await new SessionStore(path.join(root, 'sessions')).save(blank);
+  assert.match((await request(`/sessions/${first.id}/export`)).headers.get('Content-Disposition')!, /session.json/);
   await request('/chat', 'POST', { ...settings, tools: [1] }, 400); await request('/chat', 'POST', { ...settings, use_memory: 'wrong' }, 400); await request('/chat', 'POST', { ...settings, ask_approval: 'wrong' }, 400); await request('/chat', 'POST', { ...settings, agent: 1 }, 400); await request('/chat', 'POST', { ...settings, prompt: 1 }, 400); await request('/chat', 'POST', { ...settings, message: 1 }, 400);
   await request('/explore', 'POST', settings); await request('/compact', 'POST', {}); await request('/compact', 'POST', { use_memory: false, session_id: first.id }, 400);
   await request('/project', 'POST', {}, 400); await request('/project', 'POST', { path: path.join(root, 'second') });
   await request('/browse'); assert.equal((await (await request('/browse?path=' + encodeURIComponent(path.join(root, 'work')))).json() as { folders: string[] }).folders.join(','), 'a,b');
   await request('/browse?path=/', 'GET'); await request('/browse?path=' + encodeURIComponent(path.join(root, 'file.txt')), 'GET', undefined, 400);
   await request('/reset', 'POST'); await request('/stop', 'POST');
+  assert.equal((await fetch(base + '/sessions', { method: 'POST' })).status, 200);
+  t.mock.method(harness, 'submit', async function* () { yield { type: 'chunk', content: 'partial' }; throw new Error('adapter failed after headers'); });
+  assert.match(await (await request('/chat', 'POST', settings)).text(), /Turn failed: adapter failed after headers/);
 });
 
 test('HTTP detects disconnected streams and releases the turn', async t => {

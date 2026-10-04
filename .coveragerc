@@ -1,6 +1,6 @@
 [run]
 branch = True
-source = web
+source = tests/python_reference
 
 [report]
 show_missing = True

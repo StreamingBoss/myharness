@@ -27,9 +27,9 @@ usable and runnable without the UI, regardless of language or execution runtime.
   responses, and cancellation. UI smoke tests alone are insufficient.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the contract and current status. The
-existing implementation does not yet fully meet this contract. If a TypeScript
-rewrite is undertaken, preserve this separation rather than putting backend
-logic in UI components.
+TypeScript backend implements this contract. Preserve the dependency direction:
+clients use `NodeHarness`, and runtime adapters supply the core's capabilities.
+Browser runtime work must reuse this core rather than put harness logic in UI components.
 
 ## Current project rules
 

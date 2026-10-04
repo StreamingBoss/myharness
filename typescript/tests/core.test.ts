@@ -115,9 +115,10 @@ test("core forwards command actions and reports the max-step limit", async () =>
 test("core emits a final stop when cancellation follows a tool batch", async () => {
   const host = new FakeHost();
   host.stopAfterTool = true;
-  host.chunks = [{ message: { tool_calls: [{ function: { name: "pwd" } }] }, done: true }];
+  host.chunks = [{ message: { tool_calls: [{ function: { name: "pwd" } }, { function: { name: "pwd" } }] }, done: true }];
   const message: ChatMessage = { role: "user", content: "stop after tool" };
   const events = [];
   for await (const event of new HarnessCore(host).runTurn({ userMessage: message, conversation: [message], setup: { agent: "", prompt: "" }, enabledTools: ["pwd"], selectedTools: [], useMemory: false })) events.push(event.type);
-  assert.deepEqual(events, ["request", "response", "tool", "stopped"]);
+  assert.deepEqual(events, ["request", "response", "tool", "tool", "stopped"]);
+  assert.match(String(host.events.filter(event => event.type === 'tool')[1]!.result), /stopped/);
 });

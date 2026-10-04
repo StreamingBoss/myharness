@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { minimatch } from 'minimatch';
 import { characters, sliceCharacters, lines } from '../format.js';
 
@@ -18,7 +18,7 @@ export class WorkspaceAdapter {
       ? path.resolve(input)
       : path.resolve(this.root, input.replace(/^[/\\]+/, ""));
     let ancestor = candidate;
-    while (!existsSync(ancestor) && path.dirname(ancestor) !== ancestor) ancestor = path.dirname(ancestor);
+    while (!lstatSync(ancestor, { throwIfNoEntry: false }) && path.dirname(ancestor) !== ancestor) ancestor = path.dirname(ancestor);
     const resolved = path.resolve(realpathSync(ancestor), path.relative(ancestor, candidate));
     if (!this.isInside(resolved)) throw new Error(`'${input}' is outside the project folder`);
     return resolved;
@@ -27,7 +27,7 @@ export class WorkspaceAdapter {
   async listFiles(input = "."): Promise<string> {
     const entries = await readdir(this.pathFor(input), { withFileTypes: true });
     if (!entries.length) return "(empty folder)";
-    return entries.sort((left, right) => left.name < right.name ? -1 : 1)
+    return entries.sort((left, right) => Number(left.name > right.name) - Number(left.name < right.name))
       .map((entry) => entry.isDirectory() ? `${entry.name}/` : entry.name).join("\n");
   }
 
@@ -88,7 +88,7 @@ export class WorkspaceAdapter {
   async edit(input: string, oldText: string, newText: string): Promise<{ path: string; content: string; note?: string }> {
     if (!oldText) throw new Error("old_text is empty; use write_file to create a new file");
     const target = this.pathFor(input);
-    const text = await readFile(target, "utf8");
+    const text = await readText(target);
     let note = '';
     if (!text.includes(oldText) && oldText.includes('\\n') && text.includes(unescape(oldText))) {
       oldText = unescape(oldText); newText = unescape(newText); note = ESCAPE_NOTE;
@@ -106,11 +106,13 @@ export class WorkspaceAdapter {
     if ((await stat(directory)).isFile()) return [path.relative(this.root, directory)];
     const visit = async (folder: string): Promise<void> => {
       const entries = await readdir(folder, { withFileTypes: true });
-      for (const entry of entries.sort((left, right) => left.name < right.name ? -1 : 1)) {
+      for (const entry of entries.sort((left, right) => Number(left.name > right.name) - Number(left.name < right.name))) {
         if (SKIP_DIRECTORIES.has(entry.name)) continue;
         const full = path.join(folder, entry.name);
         if (entry.isSymbolicLink()) {
-          if (this.isInside(realpathSync(full)) && statSync(full).isFile()) results.push(path.relative(this.root, full));
+          try {
+            if (this.isInside(realpathSync(full)) && statSync(full).isFile()) results.push(path.relative(this.root, full));
+          } catch { /* Broken links are not searchable files. */ }
           continue;
         }
         if (entry.isDirectory()) await visit(full);
@@ -130,6 +132,11 @@ export class WorkspaceAdapter {
     const relative = path.relative(this.root, candidate);
     return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
   }
+}
+
+/** Match Python's strict UTF-8 text reads and universal newline handling. */
+export async function readText(file: string): Promise<string> {
+  return new TextDecoder('utf-8', { fatal: true }).decode(await readFile(file)).replace(/\r\n?/g, '\n');
 }
 
 export const ESCAPE_NOTE = 'the harness turned literal \\n sequences sent by the model into real line breaks';

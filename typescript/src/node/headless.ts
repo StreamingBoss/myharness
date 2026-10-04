@@ -6,6 +6,7 @@ import type { NodeHarness } from './harness.js';
 /** Direct full-backend execution: no HTTP server, templates or browser required. */
 export async function headless(args: string[], load = loadHarness, output = console.log): Promise<number> {
   let harness: NodeHarness | undefined;
+  let status = 0;
   const stop = () => harness!.stop();
   try {
     const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
@@ -21,8 +22,9 @@ export async function headless(args: string[], load = loadHarness, output = cons
       output(JSON.stringify(event));
       if (event.type === 'approval') harness.approve(String(event.id), values.approve === true);
     }
-    return harness.stopped() ? 130 : 0;
-  } catch (error) { output(`headless harness failed: ${(error as Error).message}`); return 1; }
+    status = harness.stopped() ? 130 : 0;
+  } catch (error) { output(`headless harness failed: ${(error as Error).message}`); status = 1; }
   finally { process.off('SIGINT', stop); }
+  return status;
 }
 if (import.meta.url === pathToFileURL(process.argv[1]!).href) process.exitCode = await headless(process.argv.slice(2));

@@ -1,4 +1,4 @@
-"""Use the full harness backend without loading its browser UI."""
+"""Retired Python HTTP client retained for migration regression tests."""
 
 import argparse
 import json

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -21,5 +22,27 @@ test('browser hydrates the existing UI, streams a terminal reply, and restores s
   await page.getByText('Hello from TypeScript', { exact: true }).first().waitFor();
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
   await page.reload(); await page.getByText('Hello from TypeScript', { exact: true }).first().waitFor();
+  assert.deepEqual(errors, []);
+});
+
+test('a separately served UI approves a write and exports the backend session', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'myharness-browser-split-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const ui = createServer(async (request, response) => { const file = request.url!.startsWith('/static/') ? path.join(process.cwd(), 'web', request.url!) : path.join(process.cwd(), 'web/templates/index.html'); response.end(await readFile(file)); });
+  await new Promise<void>(resolve => ui.listen(0, '127.0.0.1', resolve)); t.after(() => ui.close());
+  const uiAddress = ui.address(); assert.ok(uiAddress && typeof uiAddress !== 'string'); const origin = `http://127.0.0.1:${uiAddress.port}`;
+  let turn = 0;
+  const harness = new NodeHarness({ workspace: root, projectRoot: root, model: 'qwen3:8b', contextLength: 4096, sessions: new SessionStore(path.join(root, 'sessions')), ollama: { async *streamChat() { yield JSON.stringify({ message: ++turn === 1 ? { tool_calls: [{ function: { name: 'write_file', arguments: { path: 'approved.txt', content: 'approved in browser' } } }] } : { content: 'Write completed' }, done: true }); }, async request() { return {}; } } });
+  await harness.initialize(); const backend = createHarnessServer(harness, { uiOrigins: origin });
+  await new Promise<void>(resolve => backend.listen(0, '127.0.0.1', resolve)); t.after(() => backend.close());
+  const address = backend.address(); assert.ok(address && typeof address !== 'string'); const base = `http://127.0.0.1:${address.port}`;
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
+  const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto(origin + '/?api=' + encodeURIComponent(base)); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 10);
+  await page.locator('#input').fill('write'); await page.locator('#send').click(); await page.getByRole('button', { name: 'Approve', exact: true }).click();
+  await page.getByText('Write completed', { exact: true }).first().waitFor(); assert.equal(await readFile(path.join(root, 'approved.txt'), 'utf8'), 'approved in browser');
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  const download = page.waitForEvent('download'); await page.locator('#export-session').click(); const exported = await download;
+  assert.equal(exported.url(), base + '/sessions/' + harness.activeSessionRecord().id + '/export');
+  assert.match(await readFile((await exported.path())!, 'utf8'), /approved in browser/);
   assert.deepEqual(errors, []);
 });

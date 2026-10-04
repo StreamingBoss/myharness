@@ -1,0 +1,89 @@
+{
+  "request": {
+    "message": "Do the work",
+    "use_memory": true,
+    "tools": [
+      "read_file",
+      "search",
+      "find_files"
+    ],
+    "ask_approval": false,
+    "agent": "",
+    "prompt": ""
+  },
+  "model_turns": [
+    [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "read_file",
+                "arguments": {
+                  "path": "😀.txt"
+                }
+              }
+            },
+            {
+              "function": {
+                "name": "search",
+                "arguments": {
+                  "pattern": "c"
+                }
+              }
+            },
+            {
+              "function": {
+                "name": "find_files",
+                "arguments": {
+                  "pattern": "*.txt"
+                }
+              }
+            }
+          ]
+        },
+        "done": true,
+        "prompt_eval_count": 10,
+        "eval_count": 1
+      }
+    ],
+    [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "Done"
+        },
+        "done": true,
+        "prompt_eval_count": 15,
+        "eval_count": 2
+      }
+    ]
+  ],
+  "expect": {
+    "event_types": [
+      "request",
+      "response",
+      "tool",
+      "tool",
+      "tool",
+      "request",
+      "response"
+    ],
+    "memory_roles": [
+      "user",
+      "assistant",
+      "tool",
+      "tool",
+      "tool",
+      "assistant"
+    ],
+    "files": {}
+  },
+  "files": {
+    "😀.txt": "a\r\nb\rc
+d\n"
+  },
+  "name": "unicode_lines"
+}

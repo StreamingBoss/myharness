@@ -2,7 +2,12 @@ import type { ChatMessage, ToolDefinition } from './core.js';
 
 export const characters = (text: string): number => [...text].length;
 export const sliceCharacters = (text: string, end: number): string => [...text].slice(0, end).join('');
-export const lines = (text: string): string[] => text === '' ? [] : text.replace(/\r\n/g, '\n').replace(/\n$/, '').split(/\n|\r/);
+export function lines(text: string): string[] {
+  if (!text) return [];
+  const result = text.split(/\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]/u);
+  if (result.at(-1) === '') result.pop();
+  return result;
+}
 
 /** Python-compatible JSON spacing; this keeps displayed requests and estimates stable. */
 export function json(value: unknown, indent?: number): string {
@@ -44,7 +49,7 @@ export function splitJson(shown: unknown, highlighted: unknown): string[] {
 
 function ordered(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(ordered);
-  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, item]) => [key, ordered(item)]));
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).sort(([a], [b]) => Number(a > b) - Number(a < b)).map(([key, item]) => [key, ordered(item)]));
   return value;
 }
 

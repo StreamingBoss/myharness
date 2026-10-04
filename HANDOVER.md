@@ -1,64 +1,58 @@
 # Contributor handover
 
 Read [AGENTS.md](AGENTS.md) before editing. This project teaches what a harness
-adds to an LLM: make behavior visible and explain it. The public introduction
-and portable setup live in [README.md](README.md); backend boundaries live in
-[ARCHITECTURE.md](ARCHITECTURE.md).
+adds to an LLM: make behavior visible and explain it. Public setup is in
+[README.md](README.md); boundaries are in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Maintained implementation
 
-- `web/core.py`: transport-free agent loop, with `HarnessCore`, `Turn` and `TurnHost`.
-- `web/app.py`: Python HTTP host and local adapters; also retains session,
-  prompt/catalog, approval, tool and context-management implementation.
-- `web/headless.py`: client of the same HTTP backend; denies approvals by default.
-- `web/templates/index.html`: static UI, startup through `/bootstrap`, NDJSON rendering.
-- `web/static/`: vendored Markdown renderer and sanitizer.
+- `typescript/src/core.ts`: strict, transport-free agent loop and runtime contract.
+- `typescript/src/node/harness.ts`: session-owned backend with tools, approvals,
+  cancellation, catalogs, snapshots, state inspection and context management.
+- `typescript/src/node/`: model, filesystem, persistence, startup, HTTP and CLI adapters.
+- `typescript/src/format.ts`: runtime-independent request/memory/prompt formatting.
+- `web/templates/index.html` and `web/static/`: static UI and vendored renderers.
 - `agents/`, `skills/`, `prompts/`: inspectable instruction examples.
-- `typescript/`: parallel implementation under development; not the default host.
-- `harness.py`: minimal reference; do not change without an explicit request.
+- `tests/python_reference/`: retired Python implementation used only as a parity oracle.
+- `harness.py`: unchanged minimal reference; do not change without explicit instruction.
 
-Sessions are stored in git-ignored `sessions/`, with a single active session.
-`settings.json` remembers the workspace. Browser display preferences stay in
-local storage. Instruction snapshots retain the selected prompt, agent and
-skills; project instructions refresh on resume, compaction and project change.
-The transcript and retained model memory are different: resetting memory keeps
-the transcript available. Export never bundles the workspace, but transcript
-and tool events can contain its contents.
+Phase 3 is complete. `web.sh` starts TypeScript; browser runtime is next.
+Node can run the backend directly without HTTP, Flask or the UI.
 
-File tools resolve paths within the workspace. Commands run through Bash with
-account permissions, a timeout and process-group cancellation. They are not
-confined to the workspace. Missing approval answers deny actions. Keep the
-request, proposed effect, approval decision and actual tool result visible.
+Sessions are JSON-compatible with existing Python exports and saved files.
+Startup restores the latest session. Snapshots freeze the prompt, agent and skills;
+project instructions refresh on resume, compaction and project change. Reset keeps
+the transcript. Session saves are atomic and serialized within one backend process.
+Use distinct session directories across concurrently running processes.
 
-Token estimates are approximate. Context handling trims old tool outputs at
-75% pressure and attempts summarization at 90%, preserving the last four
-messages and complete tool batches. A failed or larger summary leaves memory
-unchanged. The Qwen reconstruction is illustrative and version-dependent;
-matching token counts does not prove matching rendered text.
+File tools resolve paths within the workspace and reject escaping or dangling
+symlinks. Bash commands run with account permissions, a timeout and process-group
+cancellation; they are not confined to the workspace. Missing approval answers
+deny actions. Keep requests, proposed effects, decisions and results visible.
+
+Context handling trims old tool output at 75% pressure and attempts summarization
+at 90%, retaining the last four messages and whole tool batches. Failed, empty,
+incomplete or larger summaries leave memory unchanged. Estimates and Qwen prompt
+reconstruction remain illustrative. Node Stop aborts model requests and command
+process groups and denies pending approvals. Resume repairs incomplete tool
+batches without rerunning them.
 
 ## Safe verification
 
-The owner may have a live conversation on **port 5000**. Never stop, restart or
-send requests to that service. Do not call `ollama.sh stop`, kill shared processes,
-or change the owner's model/service for a check. Use scratch workspaces,
-settings and session directories, and port **5001** for integrations.
+Never stop, restart or send requests to the owner's **port 5000** service.
+Never call `ollama.sh stop`, kill shared processes or change the owner's model
+for a check. Use scratch workspaces/settings/sessions and port **5001** or an
+ephemeral port. Stop only exact processes you started.
 
-The deterministic suite uses temporary directories and scripted models, with
-no live Ollama requests. Run the checks in [TESTING.md](TESTING.md). All new code
-must have 100% test coverage; backend checks alone do not verify UI behavior.
+Run [TESTING.md](TESTING.md). New backend code needs 100% line/branch coverage.
+Backend coverage alone does not verify UI behavior. Deterministic tests use no live
+model; Playwright smoke tests use scripted models. Do not commit unless asked.
+Inspect the working tree and preserve other sessions' changes.
 
-For an isolated Python integration, import the host from a separate launcher,
-set `workspace`, `SETTINGS_FILE` and `SESSIONS_DIR` to scratch paths, initialize
-`context_length`, create a fresh session and call `app.run(port=5001)`.
-Stop only the exact process you started. Do not restore the owner's sessions.
+The owner must restart their service when ready to use the new backend. Do not
+restart it for them. Hard-refresh the browser after UI updates.
 
-Python changes require the owner to restart their service when ready. The
-launcher disables automatic reload; hard-refresh the browser after UI changes.
-Do not restart it on their behalf. Do not commit unless asked. When another
-session is working, inspect the working tree and preserve its changes.
-
-## Local convenience scripts
-
-`web.sh` starts the owner's Windows Ollama installation and the Python web host.
-`ollama.sh` provides start, stop and status for that installation. Its Windows
-path is machine-specific. Public users should follow the portable README setup.
+`npm run start:ts` defaults to localhost:5001; `npm run headless:ts -- "message"`
+starts the full backend directly. `MYHARNESS_*` settings are documented in README.
+`web.sh` selects port 5000 unless overridden and uses the owner's machine-specific
+Windows/WSL Ollama launcher. Public users should follow the portable Node setup.

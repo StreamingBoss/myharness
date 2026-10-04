@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { homedir } from 'node:os';
@@ -9,7 +9,7 @@ import { HarnessCore, STOPPED_RESULT, type ChatMessage, type CoreEvent, type Mod
 import { characters, estimateTokens, json, lines, pythonRepr, renderQwenPrompt, retainedBoundary, sliceCharacters, splitJson } from '../format.js';
 import { Catalog, skillContext, skillsSection, type Skill } from './catalog.js';
 import { OllamaAdapter } from './ollama.js';
-import { WorkspaceAdapter, ESCAPE_NOTE, unescape } from './workspace.js';
+import { WorkspaceAdapter, ESCAPE_NOTE, unescape, readText } from './workspace.js';
 import { SessionStore, sessionSummary, sessionTitle, type SessionRecord } from './sessions.js';
 import { TOOLS, TOOL_NAMES } from './tools.js';
 
@@ -262,6 +262,8 @@ export class NodeHarness implements TurnHost {
   async runTool(name: string, args: Record<string, unknown>, enabled: string[]): Promise<ToolResult> {
     if (!enabled.includes(name) || !TOOL_NAMES.includes(name)) return { kind: 'text', text: `error: unknown tool '${name}'` };
     try {
+      const properties = TOOLS.find(tool => tool.function.name === name)!.function.parameters.properties as Record<string, unknown>;
+      if (Object.keys(args).some(key => !Object.hasOwn(properties, key))) throw new Error(`bad arguments for '${name}'`);
       const s = (key: string, fallback?: string) => this.stringArgument(args, key, fallback);
       switch (name) {
         case 'get_current_time': return { kind: 'text', text: new Date().toISOString() };
@@ -304,7 +306,7 @@ export class NodeHarness implements TurnHost {
   async *applyChange(name: string, change: unknown): AsyncGenerator<CoreEvent, string, void> {
     const value = change as Change;
     const target = this.workspace.pathFor(value.path), relative = path.relative(this.workspace.root, target);
-    const isNew = !existsSync(target), oldText = isNew ? '' : await readFile(target, 'utf8');
+    const isNew = !existsSync(target), oldText = isNew ? '' : await readText(target);
     if (!isNew && oldText === value.content) return `no change: '${relative}' already has this content`;
     const normalized = (text: string) => lines(text).join('\n') + (lines(text).length ? '\n' : '');
     let diff = createTwoFilesPatch(isNew ? '/dev/null' : `a/${relative}`, `b/${relative}`, normalized(oldText), normalized(value.content), undefined, undefined, { context: 3 }).split('\n').slice(1).join('\n').trimEnd().replace(/(\d+),1(?= | @@)/g, '$1');
@@ -334,7 +336,7 @@ export class NodeHarness implements TurnHost {
       child.stdout.on('data', collect); child.stderr.on('data', collect);
       const kill = (reason: string) => {
         killed = reason;
-        try { process.kill(-child.pid!, 'SIGKILL'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') child.kill('SIGKILL'); }
+        try { process.kill(-child.pid!, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
       };
       const abort = () => kill('stopped by the user');
       signal.addEventListener('abort', abort, { once: true });

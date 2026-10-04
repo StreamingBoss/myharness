@@ -1,127 +1,108 @@
 # UI and backend separation
 
-## Goal
+## Contract
 
-Let learners explore what a harness adds to an LLM. The UI makes those behaviors
-visible; an independent backend implements them. Headless execution must use the
-same full harness core as the UI, not a separate simplified implementation.
-
-## Architectural contract
-
-The dependency direction is:
+This project teaches what a harness adds to a model. The UI makes those behaviors
+visible; the independent backend implements them. Browser and headless callers
+use the same full harness.
 
 ```text
-UI or headless caller -> public backend interface -> harness core
-                                                   -> model adapter
-                                                   -> workspace/tool adapters
+UI -> HTTP adapter ---------> NodeHarness -> HarnessCore
+direct headless caller -----> NodeHarness -> model/workspace/runtime adapters
 ```
 
-The core owns conversation state, the model/tool loop, instructions and skills,
-context management, and approval policy. Clients send actions and receive
-structured data/events. The core does not import client code or access UI state.
-Rendering, layout, tooltips, and input controls belong to the UI.
+The backend owns conversation state, model/tool sequencing, instructions, skills,
+context management and approval enforcement. Clients send actions and render
+structured state/events. Core code imports no Node, HTTP, UI, DOM or Worker APIs.
+Runtime and transport integration belong in adapters. A browser Worker will
+supply different adapters while reusing the same core.
 
-The public interface must support submitting turns, observing streamed progress
-and inspectable state, responding to approvals, stopping turns, resetting memory,
-and requesting compaction. Approvals are backend interactions any client can
-handle; they must not depend on GUI buttons. A headless caller supplies approval
-responses or an explicit policy. Missing responses never silently authorize actions.
+## TypeScript backend
 
-Model access, workspace access, command execution, and runtime-specific services
-sit behind adapters. A browser Worker or HTTP server may host the backend, but
-neither transport belongs in the core. Provide a documented headless entry point
-using the same core and interface as the UI.
+`typescript/src/core.ts` exports `HarnessCore`, `Turn`, `TurnHost`, message,
+tool, request and event types. Its asynchronous iterator advances a turn using
+injected capabilities. Tests run it directly without a server or UI.
 
-If implemented in TypeScript, keep the core importable outside the browser, with
-no required DOM or Worker globals. Browser and headless hosts supply appropriate
-adapters. Report browser filesystem or shell limitations explicitly. Moving the
-harness into a browser does not itself move Ollama or Bash into that browser.
+`typescript/src/node/harness.ts` exports the complete session-owned `NodeHarness`.
+Callers can submit turns, inspect state, answer approvals, stop, reset, compact,
+explore instructions, change projects and manage saved sessions. It owns state
+and supplies runtime capabilities to the core. The HTTP adapter maps the existing
+snake_case UI contract to these methods; it contains no agent-loop decisions.
 
-## Verification
+```typescript
+import { NodeHarness } from "./typescript/src/node/harness.js";
 
-Test the core without mounting the UI or starting its host. Use deterministic
-model and workspace adapters to cover a turn, tool execution, approval and denial,
-cancellation, memory reset, and context management. Verify that requests,
-responses, tools, approvals, and context changes are observable through the public
-interface. Check runtime and transport wiring separately.
+const backend = new NodeHarness({ workspace: "/path/to/project",
+  model: "qwen3:8b", contextLength: 40960 });
+for await (const event of backend.submit({ message: "Inspect this project",
+  useMemory: true, tools: ["pwd", "list_files"], askApproval: true,
+  agent: "", prompt: "" })) {
+  console.log(event);
+  if (event.type === "approval") backend.approve(String(event.id), false);
+}
+```
 
-## Current status
+The normal startup adapter obtains model metadata and configures catalogs,
+settings and durable sessions. Direct callers may inject model/session adapters.
+`npm run headless:ts -- "message"` uses this startup and the full backend without
+HTTP, templates or browser code. It denies actions unless `--approve` is supplied.
+An unanswered approval times out to denial.
 
-The implementation currently uses Python. The agent loop is in
-[`web/core.py`](web/core.py), which has no Flask, server, DOM, or browser
-dependency. Its `HarnessCore` consumes a `TurnHost` adapter for model streaming,
-workspace tools, persistence, approvals, cancellation, and context management,
-then yields structured event objects. A `Turn` carries the session-owned memory,
-locked setup, enabled tools, and selected tool definitions for one turn.
+Stop aborts network requests, denies pending approvals and kills Bash process
+groups. Turns reserve a session execution lock; conflicting turns, session changes,
+reset and project changes are rejected. Disconnected HTTP streams cancel the turn.
+Completed events are saved atomically; resume repairs interrupted tool batches
+with stopped results instead of executing them again. Save serialization is within
+one process, so concurrent processes need distinct session directories.
 
-[`web/app.py`](web/app.py) is the current Python HTTP host: it prepares a turn
-from the active saved session, provides the local Ollama/workspace/approval
-adapter, and serializes core events as HTTP NDJSON. It retains the existing
-session-file compatibility endpoints while those records remain the product's
-single active-session store. [`web/headless.py`](web/headless.py) is a UI-free
-client for that same public backend; it never loads templates or browser code.
-`harness.py` remains a minimal standalone CLI reference, rather than a second
-implementation of the full harness.
+Sessions retain the transcript, model memory, enabled tools, approval preference,
+selected setup and frozen prompt/agent/skill snapshots. Project instructions refresh
+on resume, project change and successful compaction. Existing Python JSON envelopes
+remain compatible. The full Python runtime has been retired to
+`tests/python_reference/` for parity checks; `harness.py` remains the minimal example.
 
-The TypeScript core and Node model, workspace and HTTP adapters are being
-developed under `typescript/`. Python remains the default.
-[MIGRATION_PLAN.md](MIGRATION_PLAN.md) is the active contributor plan; it is
-not a claim of completed runtime parity.
+## HTTP and UI
 
-The frontend loads startup data from `GET /bootstrap` rather than receiving
-Jinja-rendered state, and can point at another host with `?api=<base-url>` or
-`window.MYHARNESS_API_BASE`. A configured `MYHARNESS_UI_ORIGIN` permits that
-origin through the backend's local-development CORS policy. This keeps the UI,
-the headless client, and a future TypeScript host on one observable backend
-contract.
-
-## Current Python interface
-
-A UI-free caller can import `HarnessCore`, prepare a `Turn` and supply a
-`TurnHost`. Iterate `HarnessCore(host).run_turn(turn)` to advance the loop.
-The host supplies model streaming, workspace operations, approval waiting,
-cancellation state, persistence and context operations. Any client can answer
-approvals through the adapter; an unanswered request must deny the action.
-`tests/test_core.py` demonstrates a direct call with a deterministic host.
-
-The HTTP host exposes the same loop to browser and headless clients:
+The frontend gets startup state from `GET /bootstrap`. It can target another host
+through `?api=<base-url>` or `window.MYHARNESS_API_BASE`. Configure
+`MYHARNESS_UI_ORIGIN` with a comma-separated origin allowlist for separate serving.
+The existing static UI renders events; it does not advance the agent loop.
 
 | Action | Endpoint |
 | --- | --- |
-| Inspect startup metadata and active state | `GET /bootstrap` |
-| Submit a turn; stream NDJSON events | `POST /chat` |
-| Respond to a pending approval | `POST /approve` with `id` and boolean `approved` |
-| Request cancellation | `POST /stop` |
-| Reset retained memory | `POST /reset` |
-| Request compaction; stream its events | `POST /compact` |
-| Inspect composed instructions, tools and template | `POST /explore` |
-| Select workspace | `POST /project` |
-| List/create saved sessions | `GET` / `POST /sessions` |
-| Inspect/rename a session | `GET` / `PATCH /sessions/<id>` |
-| Activate/export/import a session | `/sessions/<id>/activate`, `/sessions/<id>/export`, `/sessions/import` |
+| Startup metadata and active state | `GET /bootstrap` |
+| Submit turn; stream NDJSON | `POST /chat` |
+| Answer approval | `POST /approve` with `id` and boolean `approved` |
+| Cancel | `POST /stop` |
+| Reset memory | `POST /reset` |
+| Compact; stream events | `POST /compact` |
+| Inspect instructions/tools/template | `POST /explore` |
+| Choose/browse project | `POST /project`, `GET /browse` |
+| List/create sessions | `GET` / `POST /sessions` |
+| Inspect/rename | `GET` / `PATCH /sessions/<id>` |
+| Activate/export/import | `/sessions/<id>/activate`, `/sessions/<id>/export`, `/sessions/import` |
 
-`/chat` accepts `message`, `use_memory`, `tools` (enabled names), `ask_approval`,
-`agent` and `prompt`. Supply `session_id` to reject turns from stale clients.
-NDJSON events include `request`, `thinking`, `chunk`, `response`, `tool`,
-`approval`, `change`, `command`, `skill`, `context` and `stopped`. The final
-`response.content` includes text from every model chunk, including the terminal
-chunk; clients should use it to complete the displayed answer. Errors and
-incomplete streams produce a visible `stopped` event. Reset and session actions
-return JSON; their durable events appear in the session transcript.
+`/chat` accepts `message`, `use_memory`, `tools`, `ask_approval`, `agent`,
+`prompt` and optional `session_id` for stale-client detection. Events include
+`request`, `thinking`, `chunk`, `response`, `tool`, `approval`, `change`,
+`command`, `skill`, `context` and `stopped`. Final `response.content` includes
+terminal-chunk text. Errors and empty replies produce visible stopped events.
+Reset/session actions return JSON; their durable events remain in the transcript.
 
-Approval waits time out to denial. Reset and workspace changes are rejected while
-a turn holds the execution lock. Stop is cooperative: model streaming can remain
-blocked waiting for the next network chunk until the read timeout; a compaction
-request completes before its stopped result is discarded. Cancellation is not
-an instantaneous interruption of every adapter operation.
+## Verification and next runtime
 
-## Remaining separation work
+Strict compilation, 100% backend line/branch coverage, shared Python/TypeScript
+HTTP parity, direct headless checks, Chromium smoke checks and an isolated live
+Ollama check pass. See [TESTING.md](TESTING.md) and [MIGRATION_PLAN.md](MIGRATION_PLAN.md).
 
-The transport-free core owns the agent-loop sequence. The Python host still
-contains substantive session, catalog, context and action implementations,
-including module-global single-session state and a route-local approval adapter.
-The headless CLI is an HTTP client and requires that host to be running, although
-it never loads the UI. The entire Python backend has not yet been extracted into
-one standalone service object independent of Flask. The required contract above
-remains the target for the TypeScript migration; extracting only the model/tool
-loop does not establish that the whole backend meets it.
+Runtime-specific differences are deliberate: Node timestamps use UTC ISO strings;
+filesystem/process exception wording comes from Node; cancellation aborts pending
+model requests immediately. Tool output limits count Unicode code points.
+Read-file replacement decoding, strict search/edit decoding and universal line
+boundaries preserve the Python contract. Dangling symlinks are rejected/skipped
+rather than followed during file operations.
+
+Phase 4 will host the core in a browser Worker with browser storage/workspace and
+model adapters. Ollama and Bash do not move into the browser automatically.
+Unsupported OS capabilities must be reported explicitly. Browser execution and
+educational distribution are separate from this completed language migration.

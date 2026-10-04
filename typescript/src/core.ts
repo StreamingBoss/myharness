@@ -173,7 +173,10 @@ export class HarnessCore {
         tokens: `[${tokensIn} in + ${tokensOut} out = ${used} |${used} / ${this.host.contextLength()} ]`,
         tokens_in: tokensIn, context_length: this.host.contextLength(), memory: this.host.memoryText(), content: answer,
       });
-      if (!toolCalls.length) return;
+      if (!toolCalls.length) {
+        if (!answer) yield this.emit({ type: 'stopped', reason: 'The model returned an empty reply. Send another message to try again.', memory: this.host.memoryText() });
+        return;
+      }
 
       for (const call of toolCalls) {
         const name = call.function.name;

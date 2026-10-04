@@ -54,3 +54,11 @@ test("Ollama adapter validates model context metadata", async () => {
   const missing = new OllamaAdapter(async () => response({ json: async () => ({ models: {} }) }), "http://ollama");
   await assert.rejects(() => missing.contextLength("qwen"), /did not report/);
 });
+
+test('Ollama adapter forwards cancellation to streaming and inspection requests', async () => {
+  const controller = new AbortController(); const signals: AbortSignal[] = [];
+  const adapter = new OllamaAdapter(async (_input, init) => { signals.push(init.signal!); return response(); }, 'http://ollama');
+  assert.deepEqual(await collect(adapter.streamChat({ model: 'q', messages: [], stream: true, options: { num_ctx: 1 } }, controller.signal)), []);
+  await adapter.request('show', {}, controller.signal);
+  controller.abort(); assert.ok(signals.every(signal => signal.aborted));
+});

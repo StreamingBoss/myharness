@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Ollama (with the model) and the web harness. Ctrl+C stops the web harness.
+# Start Ollama (with the model) and the TypeScript harness. Ctrl+C stops the host.
 # Usage: ./web.sh
 
 cd "$(dirname "$0")" || exit 1
@@ -12,4 +12,5 @@ echo "  Open the web harness at:  http://localhost:5000"
 echo "  Stop it with Ctrl+C (Ollama keeps running; stop it with ./ollama.sh stop)"
 echo
 
-.venv/bin/python web/app.py
+export MYHARNESS_PORT="${MYHARNESS_PORT:-5000}"
+npm run start:ts

@@ -1,4 +1,4 @@
-"""Local Python HTTP host and adapters for the educational harness.
+"""Retired Python host retained as the deterministic migration test oracle.
 
 Left pane = chat like you'd see in Claude or another model's UI.
 Right pane = what goes to and comes back from Ollama, plus the tools the harness runs.
@@ -50,7 +50,7 @@ turn_lock = threading.Lock()  # chat and compaction must not mutate memory concu
 
 MAX_STEPS = 20  # max calls to the model per user message, in case it keeps calling tools
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parents[2]
 AGENTS_DIR = PROJECT_ROOT / "agents"  # harness agents, usable on any project
 PROJECT_AGENTS_DIR = Path("agents")  # inside the project folder
 PROMPTS_DIR = PROJECT_ROOT / "prompts"  # product system prompts, from system_prompts_leaks

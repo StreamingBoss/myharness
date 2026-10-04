@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests" / "python_reference"))
 import app as harness
 
 
@@ -673,15 +673,15 @@ class BackendCoverage(unittest.TestCase):
         self.assertTrue(any(e["type"] == "tool" and e["result"] == harness.STOPPED_RESULT for e in events))
         self.assertEqual(events[-1]["type"], "stopped")
 
-        source = (Path(__file__).resolve().parents[1] / "web" / "app.py").read_text()
-        filename = str(Path(__file__).resolve().parents[1] / "web" / "app.py")
+        source = (Path(__file__).resolve().parents[1] / "tests" / "python_reference" / "app.py").read_text()
+        filename = str(Path(__file__).resolve().parents[1] / "tests" / "python_reference" / "app.py")
         tags = MagicMock()
         tags.json.return_value = {"model_info": {"general.architecture": "qwen3", "qwen3.context_length": 99}}
-        namespace = {"__name__": "__main__", "__file__": str(self.root / "web" / "app.py")}
+        namespace = {"__name__": "__main__", "__file__": str(self.root / "tests" / "python_reference" / "app.py")}
         with patch.object(harness.requests, "post", return_value=tags), patch.object(harness.Flask, "run") as run:
             exec(compile(source, filename, "exec"), namespace)
         run.assert_called_once_with(port=5000, debug=True, use_reloader=False)
-        namespace = {"__name__": "__main__", "__file__": str(self.root / "error-web" / "app.py")}
+        namespace = {"__name__": "__main__", "__file__": str(self.root / "error-root" / "tests" / "python_reference" / "app.py")}
         with patch.object(harness.requests, "post", side_effect=harness.requests.ConnectionError), \
              patch.object(sys, "exit", side_effect=SystemExit(1)):
             with self.assertRaises(SystemExit):

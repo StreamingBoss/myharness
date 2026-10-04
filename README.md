@@ -7,9 +7,8 @@ memory, instructions, tools, skills, approvals and context management visible:
 inspect the requests sent to Ollama, the responses it returns, and every tool
 call in between. The goal is to understand what a harness adds to a model.
 
-The Python backend runs the agent independently of the UI. A headless client
-uses the same backend and approval flow. A TypeScript implementation is being
-developed alongside it; Python is currently the default.
+The TypeScript backend runs the agent independently of the UI. The browser and
+direct headless runner use the same backend, tools and approval policy.
 
 ## What you can explore
 
@@ -30,14 +29,13 @@ controls for explanations.
 
 ## Run locally
 
-Use Python 3.10 or later, Bash and a local [Ollama](https://ollama.com/) server.
+Use Node.js 20.19 or later, Bash and a local [Ollama](https://ollama.com/) server.
 The shell tool needs a Linux/WSL environment with process-group support.
 Install Ollama using its [official instructions](https://docs.ollama.com/quickstart).
 Then, from this repository:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+npm ci
 ollama pull qwen3:8b
 ```
 
@@ -45,15 +43,16 @@ Make sure Ollama is listening at `http://localhost:11434`. If it is not already
 running, start `ollama serve` in another terminal. Launch the harness:
 
 ```bash
-.venv/bin/python web/app.py
+npm run start:ts
 ```
 
-Open **http://localhost:5000**. Choose a scratch project folder for your first
+Open **http://localhost:5001**. Choose a scratch project folder for your first
 experiment. Model loading and generation speed depend on your hardware; the
 first request can take longer.
 
 `web.sh` and `ollama.sh` are convenience scripts for the owner's Windows/WSL
-installation. They contain a machine-specific Windows path; the commands above
+installation. `web.sh` now starts TypeScript on port 5000, or `MYHARNESS_PORT`.
+The Ollama script contains a machine-specific Windows path; the commands above
 are the portable setup. Windows/WSL localhost connectivity depends on your WSL
 network configuration.
 
@@ -75,17 +74,23 @@ to request the intended tool. The internals make that difference visible.
 
 ## Use the backend without the browser
 
-With the backend running, the following client prints NDJSON events and denies
-requested file changes and commands by default:
+The direct runner starts the full backend and prints NDJSON events. It requires
+Ollama, but no HTTP server or browser. It denies changes and commands by default:
 
 ```bash
-.venv/bin/python web/headless.py --tools pwd,list_files "List the project files"
+npm run headless:ts -- "List the project files" --tools pwd,list_files
 ```
 
 Use `--approve` to approve every requested change and command for that invocation.
-`Ctrl+C` requests cancellation. The client operates on the backend's active
-session, so its actions also affect an open browser using that backend.
+`Ctrl+C` requests cancellation. `--reset` clears retained memory; `--compact`
+summarizes it. The runner restores the latest saved session. Use separate
+`MYHARNESS_SESSIONS` directories when running more than one backend process.
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the core interface and HTTP endpoints.
+
+Configuration uses `MYHARNESS_MODEL`, `OLLAMA_URL`, `MYHARNESS_WORKSPACE`,
+`MYHARNESS_SESSIONS`, `MYHARNESS_SETTINGS`, `MYHARNESS_ROOT` and `MYHARNESS_PORT`.
+Defaults are `qwen3:8b`, `http://localhost:11434`, the saved project or `workspace/`,
+`sessions/`, `settings.json`, the current directory and port 5001.
 
 ## Scope and limits
 
@@ -114,13 +119,20 @@ paths; inspect them before sharing. Exports do not bundle project files.
 - [PYTHON_HARNESS.md](PYTHON_HARNESS.md): memory and context in the minimal CLI reference.
 - [HANDOVER.md](HANDOVER.md) and [AGENTS.md](AGENTS.md): contributor and operating rules.
 
-Run the Python suite without a model or browser:
+Install development checks, including the Python parity reference and Chromium:
 
 ```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+npx playwright install chromium
+npm run coverage:ts
 .venv/bin/python -m coverage run -m unittest discover -s tests
 .venv/bin/python -m coverage report -m
 ```
 
-The maintained Python backend requires 100% line and branch coverage. TypeScript
-work is under `typescript/`; run its current checks with `npm install` and
-`npm run test:ts`. It has not replaced the default backend.
+The TypeScript backend and Python test reference have enforced 100% line and
+branch coverage. Python is only needed for development parity checks or the
+unchanged minimal `harness.py` example. The retired full backend lives under
+`tests/python_reference/`; it is no longer a supported application runtime.
+The next milestone is browser execution of the backend. Currently the UI runs
+in the browser while the backend runs in Node.

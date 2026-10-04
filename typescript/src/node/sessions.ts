@@ -30,6 +30,7 @@ const now = (): string => new Date().toISOString();
 
 /** JSON session persistence compatible with the Python session envelope. */
 export class SessionStore {
+  private pendingSave: Promise<void> = Promise.resolve();
   constructor(private readonly directory: string) {}
 
   create(input: Pick<SessionRecord, "model" | "context_length" | "workspace">, name = "New session"): SessionRecord {
@@ -43,11 +44,15 @@ export class SessionStore {
   async save(record: SessionRecord): Promise<void> {
     const next = { ...record, updated_at: now() };
     Object.assign(record, next);
-    await mkdir(this.directory, { recursive: true });
-    const target = this.file(record.id);
-    const temporary = `${target}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, "utf8");
-    await rename(temporary, target);
+    const id = record.id, content = `${JSON.stringify(record, null, 2)}\n`;
+    const persist = async () => {
+      await mkdir(this.directory, { recursive: true });
+      const target = this.file(id), temporary = `${target}.tmp`;
+      await writeFile(temporary, content, 'utf8');
+      await rename(temporary, target);
+    };
+    this.pendingSave = this.pendingSave.then(persist, persist);
+    return this.pendingSave;
   }
 
   async load(id: string): Promise<SessionRecord> {
