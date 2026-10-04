@@ -28,12 +28,14 @@ app = Flask(__name__)
 messages: list[dict] = []  # same role as the list in harness.py — the whole "memory"
 context_length: int = 0
 
-MAX_STEPS = 5  # max calls to the model per user message, in case it keeps calling tools
+MAX_STEPS = 20  # max calls to the model per user message, in case it keeps calling tools
 
 PROJECT_ROOT = Path(__file__).parent.parent
 AGENTS_DIR = PROJECT_ROOT / "agents"  # harness agents, usable on any project
 PROJECT_AGENTS_DIR = Path("agents")  # inside the project folder
 PROMPTS_DIR = PROJECT_ROOT / "prompts"  # product system prompts, from system_prompts_leaks
+SKILLS_DIR = PROJECT_ROOT / "skills"  # harness skills: skills/<name>/SKILL.md
+PROJECT_SKILLS_DIR = Path("skills")  # inside the project folder
 
 # the agent and system prompt chosen when the conversation started; locked until memory is cleared
 conversation_setup = {"agent": "", "prompt": ""}
@@ -153,6 +155,14 @@ def run_command(command: str) -> dict:
     return {"command": command}
 
 
+def use_skill(name: str) -> str:
+    skills = load_skills()
+    if name not in skills:
+        available = ", ".join(skills) or "(none)"
+        raise ValueError(f"there is no skill '{name}'. Available skills: {available}")
+    return f"Skill '{name}' loaded. Follow these instructions:\n\n{skills[name]['body']}"
+
+
 TOOL_FUNCTIONS = {
     "get_current_time": get_current_time,
     "pwd": pwd,
@@ -161,6 +171,7 @@ TOOL_FUNCTIONS = {
     "write_file": write_file,
     "edit_file": edit_file,
     "run_command": run_command,
+    "use_skill": use_skill,
 }
 
 # what the model is told about the tools: sent with every request
@@ -275,6 +286,22 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "use_skill",
+            "description": "Load a skill: detailed instructions for a specific task. Call it "
+            "when the task matches a skill listed in the system message, then follow what it "
+            "returns.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The skill's name, from the list"},
+                },
+                "required": ["name"],
+            },
+        },
+    },
 ]
 
 
@@ -341,6 +368,130 @@ def prompt_list() -> list[dict]:
         {"name": name, "tokens": len(text) // 4, "fits": len(text) // 4 < context_length}
         for name, text in load_prompts().items()
     ]
+
+
+def load_skill_file(file: Path, source: str) -> dict:
+    # "---", then "key: value" lines (name, description), then "---", then the instructions
+    text = file.read_text()
+    meta: dict[str, str] = {}
+    body = text
+    if text.startswith("---\n"):
+        header, sep, rest = text[4:].partition("\n---\n")
+        if sep:
+            body = rest
+            for line in header.splitlines():
+                key, _, value = line.partition(":")
+                meta[key.strip()] = value.strip()
+    return {
+        "name": meta.get("name") or file.parent.name,
+        "description": meta.get("description", ""),
+        "body": body.strip(),
+        "source": source,
+    }
+
+
+def load_skills() -> dict[str, dict]:
+    # read on every call, like agents; a project skill replaces a harness skill with the same name
+    skills = {}
+    for folder, source in [(SKILLS_DIR, "harness"), (workspace / PROJECT_SKILLS_DIR, "project")]:
+        for file in sorted(folder.glob("*/SKILL.md")):
+            skill = load_skill_file(file, source)
+            skills[skill["name"]] = skill
+    return skills
+
+
+def skills_section() -> str:
+    # progressive disclosure: only names and descriptions go in every request
+    skills = load_skills()
+    if not skills:
+        return ""
+    lines = "\n".join(f"- {s['name']}: {s['description']}" for s in skills.values())
+    return (
+        "# Skills\n\nSkills are detailed instructions for specific tasks. When a task matches a "
+        "skill's description, call use_skill with its name before starting, then follow what it "
+        f"returns.\n\n{lines}"
+    )
+
+
+def system_messages(setup: dict, with_skills: bool) -> list[dict]:
+    # the system message = product prompt, then the agent's instructions, then the skill list
+    # (when use_skill is checked); added in front of every request, never stored in memory
+    agent = load_agents().get(setup["agent"])
+    parts = [
+        load_prompts().get(setup["prompt"]),
+        agent["prompt"] if agent else None,
+        skills_section() if with_skills else None,
+    ]
+    text = "\n\n".join(p for p in parts if p)
+    return [{"role": "system", "content": text}] if text else []
+
+
+def go_json(value) -> str:
+    # compact JSON with map keys sorted, like Go's encoder that Ollama's template uses
+    return json.dumps(value, separators=(",", ":"), sort_keys=True, ensure_ascii=False)
+
+
+def tool_as_go_value(tool: dict) -> str:
+    # Ollama 0.35's qwen3 template prints each tool with Go's default struct format, not JSON:
+    # {name description {type <nil> <nil> [required] map[prop:{[type] <nil> description}]}}
+    # (found by matching Ollama's token counts; map keys come out sorted)
+    f = tool["function"]
+    params = f["parameters"]
+    props = " ".join(
+        f"{name}:{{[{prop['type']}] <nil> {prop.get('description', '')}}}"
+        for name, prop in sorted(params["properties"].items())
+    )
+    required = " ".join(params.get("required", []))
+    return f"{{{f['name']} {f['description']} {{{params['type']} <nil> <nil> [{required}] map[{props}]}}}}"
+
+
+def render_qwen_prompt(messages: list[dict], tools: list[dict]) -> str:
+    # a Python copy of qwen3's Ollama template (see the "model template" view). Ollama turns
+    # thinking on by default for qwen3, so the last user message gets " /think"
+    system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+    turns = [m for m in messages if m["role"] != "system"]
+    last_user = max((i for i, m in enumerate(turns) if m["role"] == "user"), default=-1)
+    out = ""
+    if system or tools:
+        out += "<|im_start|>system\n"
+        if system:
+            out += "\n" + system
+        if tools:
+            out += (
+                "\n\n# Tools\n\nYou may call one or more functions to assist with the user query."
+                "\n\nYou are provided with function signatures within <tools></tools> XML tags:"
+                "\n<tools>"
+            )
+            for tool in tools:
+                out += '\n{"type": "function", "function": ' + tool_as_go_value(tool) + "}"
+            out += (
+                "\n</tools>\n\nFor each function call, return a json object with function name "
+                "and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n"
+                '{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>'
+            )
+        out += "<|im_end|>\n"
+    for i, m in enumerate(turns):
+        last = i == len(turns) - 1
+        if m["role"] == "user":
+            think = " /think" if i == last_user else ""
+            out += f"<|im_start|>user\n{m['content']}{think}<|im_end|>\n"
+        elif m["role"] == "assistant":
+            out += "<|im_start|>assistant\n"
+            if m.get("content"):
+                out += m["content"]
+            elif m.get("tool_calls"):
+                out += "<tool_call>\n"
+                for call in m["tool_calls"]:
+                    f = call["function"]
+                    out += f'{{"name": "{f["name"]}", "arguments": {go_json(f.get("arguments", {}))}}}\n'
+                out += "</tool_call>"
+            if not last:
+                out += "<|im_end|>\n"
+        elif m["role"] == "tool":
+            out += f"<|im_start|>user\n<tool_response>\n{m['content']}\n</tool_response><|im_end|>\n"
+        if m["role"] != "assistant" and last:
+            out += "<|im_start|>assistant\n"
+    return out
 
 
 def get_context_length(model: str) -> int:
@@ -440,6 +591,42 @@ def approve():
     return {"ok": True}
 
 
+@app.route("/explore", methods=["POST"])
+def explore():
+    # everything that goes into the next request, for the bottom box's explorer views
+    if request.json["use_memory"] and messages:
+        setup = dict(conversation_setup)  # locked for this conversation
+    else:
+        setup = {"agent": request.json["agent"], "prompt": request.json["prompt"]}
+    agent = load_agents().get(setup["agent"])
+    tools = [t for t in TOOLS if t["function"]["name"] in request.json["tools"]]
+    show = requests.post(f"{OLLAMA_URL}/api/show", json={"model": MODEL}).json()
+
+    history = messages if request.json["use_memory"] else []
+    with_skills = "use_skill" in request.json["tools"]
+    next_messages = (
+        system_messages(setup, with_skills)
+        + history
+        + [{"role": "user", "content": "(your next message)"}]
+    )
+    final = render_qwen_prompt(next_messages, tools) if "qwen" in MODEL else (
+        f"The reconstruction is only written for Qwen templates, and the model is {MODEL}."
+    )
+    return {
+        "system_prompt": load_prompts().get(setup["prompt"], ""),
+        "prompt_name": setup["prompt"],
+        "agent": agent,
+        "agent_name": setup["agent"],
+        "tools": json.dumps(tools, indent=2),
+        "template": show.get("template", ""),
+        "parameters": show.get("parameters", ""),
+        "final": final,
+        "skills": list(load_skills().values()),
+        "skills_section": skills_section(),
+        "skills_listed": with_skills,
+    }
+
+
 @app.route("/reset", methods=["POST"])
 def reset():
     messages.clear()
@@ -462,12 +649,20 @@ def chat_endpoint():
             conversation_setup.update(setup)
         setup = dict(conversation_setup)
 
-    # the system message = product prompt, then the agent's instructions; added in front of
-    # every request, never stored in memory
-    agent = load_agents().get(setup["agent"])
-    system_parts = [load_prompts().get(setup["prompt"]), agent["prompt"] if agent else None]
-    system_text = "\n\n".join(p for p in system_parts if p)
-    system = [{"role": "system", "content": system_text}] if system_text else []
+    system = system_messages(setup, with_skills="use_skill" in enabled_tools)
+
+    # "/name rest of message": the user loads a skill themselves; its instructions are put in
+    # the message (and kept in memory), so the model gets them without calling use_skill
+    manual_skill = ""
+    if user_input.startswith("/"):
+        word, _, rest = user_input[1:].partition(" ")
+        skill = load_skills().get(word)
+        if skill:
+            manual_skill = word
+            user_input = (
+                f'<skill name="{word}">\n{skill["body"]}\n</skill>\n\n'
+                f"{rest.strip() or 'Use this skill.'}"
+            )
 
     user_message = {"role": "user", "content": user_input}
     if use_memory:
@@ -562,6 +757,8 @@ def chat_endpoint():
     def generate():
         # without memory, this turn's messages are thrown away once the turn is over
         conversation = messages if use_memory else [user_message]
+        if manual_skill:
+            yield event(type="skill", name=manual_skill)
 
         # the agent loop: call the model until it answers with text instead of a tool call
         for _ in range(MAX_STEPS):
