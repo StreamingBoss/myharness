@@ -25,6 +25,29 @@ export function createHarnessServer(harness: NodeHarness): Server {
           session: { settings: { use_memory: true, tools: [], ask_approval: true } }, sessions: [] });
         return;
       }
+      if (request.method === "GET" && request.url === "/sessions") {
+        send(response, 200, { active_id: harness.activeSessionRecord()?.id ?? "", sessions: await harness.listSessions() });
+        return;
+      }
+      if (request.method === "POST" && request.url === "/sessions") {
+        const value = await body(request) as { name?: unknown };
+        const session = await harness.newSession(typeof value.name === "string" && value.name.trim() ? value.name.trim() : "New session");
+        send(response, 200, { session, sessions: await harness.listSessions() });
+        return;
+      }
+      const activate = request.url?.match(/^\/sessions\/([^/]+)\/activate$/);
+      if (request.method === "POST" && activate?.[1]) {
+        send(response, 200, await harness.activateSession(activate[1]));
+        return;
+      }
+      const session = request.url?.match(/^\/sessions\/([^/]+)$/);
+      if (request.method === "GET" && session?.[1]) {
+        const matches = await harness.listSessions();
+        const record = matches.find((item) => item.id === session[1]);
+        if (!record) { send(response, 404, { error: "Session not found or invalid." }); return; }
+        send(response, 200, record);
+        return;
+      }
       if (request.method === "POST" && request.url === "/reset") {
         harness.reset();
         send(response, 200, { memory: "[]" });

@@ -116,6 +116,8 @@ class HarnessCore:
                         close()
                     break
                 chunk = json.loads(raw)
+                if "error" in chunk:
+                    raise ValueError(f"Model error: {chunk['error']}")
                 message = chunk["message"]
                 content = message.get("content", "")
                 thinking = message.get("thinking", "")
@@ -133,6 +135,8 @@ class HarnessCore:
                     turn.conversation.append({"role": "assistant", "content": reply})
                 yield self._emit({"type": "stopped", "reason": "stopped by the user", "memory": self.host.memory_text()})
                 return
+            if not chunk.get("done"):
+                raise ValueError("The model stream ended before completion")
             assistant_message: dict[str, Any] = {"role": "assistant", "content": reply}
             if tool_calls:
                 assistant_message["tool_calls"] = tool_calls

@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { NodeHarness } from "../src/node/harness.js";
 import type { ModelRequest } from "../src/core.js";
+import { SessionStore } from "../src/node/sessions.js";
 
 class ScriptedModel {
   constructor(private readonly turns: unknown[][]) {}
@@ -40,4 +41,18 @@ test("Node harness executes an approved-by-policy command in the workspace", asy
   const command = events.find((event) => event.type === "command");
   assert.equal(command?.approved, true);
   assert.equal(command?.output, "done");
+});
+
+test("Node harness creates, persists, and activates a saved session", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "myharness-session-host-"));
+  const sessions = new SessionStore(path.join(root, "sessions"));
+  const harness = new NodeHarness({ workspace: root, model: "scripted", contextLength: 3000, ollama: new ScriptedModel([
+    [{ message: { content: "saved" }, done: true, prompt_eval_count: 1 }],
+  ]), sessions });
+  for await (const _event of harness.submit({ message: "remember", useMemory: true, tools: [], askApproval: false, agent: "", prompt: "" })) {}
+  const active = harness.activeSessionRecord();
+  assert.ok(active);
+  assert.equal((await harness.listSessions()).length, 1);
+  await harness.activateSession(active.id);
+  assert.equal(harness.inspect().memory[0]?.content, "remember");
 });

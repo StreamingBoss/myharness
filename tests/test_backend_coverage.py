@@ -327,9 +327,10 @@ class BackendCoverage(unittest.TestCase):
 
     def test_model_adapters_and_compaction_errors(self):
         tags = MagicMock()
-        tags.json.return_value = {"models": [{"name": "other", "details": {}}, {"name": "m", "details": {"context_length": 42}}]}
-        with patch.object(harness.requests, "get", return_value=tags):
+        tags.json.return_value = {"model_info": {"general.architecture": "qwen3", "qwen3.context_length": 42}}
+        with patch.object(harness.requests, "post", return_value=tags):
             self.assertEqual(harness.get_context_length("m"), 42)
+            tags.json.return_value = {"model_info": {}}
             with self.assertRaises(ValueError):
                 harness.get_context_length("absent")
         response = MagicMock()
@@ -370,7 +371,7 @@ class BackendCoverage(unittest.TestCase):
         self.assertEqual(self.client.post("/compact", json={"session_id": "nope"}).status_code, 409)
         self.assertEqual(self.client.post("/compact", json={"use_memory": False}).status_code, 400)
         harness.pending_approvals["a"] = {"event": MagicMock(), "approved": False}
-        self.assertEqual(self.client.post("/approve", json={"id": "a", "approved": 1}).status_code, 200)
+        self.assertEqual(self.client.post("/approve", json={"id": "a", "approved": True}).status_code, 200)
         self.assertTrue(harness.pending_approvals["a"]["approved"])
         self.assertEqual(self.client.post("/approve", json={"id": "missing"}).status_code, 404)
         self.assertEqual(self.client.post("/stop").json, {"ok": True})
@@ -675,13 +676,13 @@ class BackendCoverage(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "web" / "app.py").read_text()
         filename = str(Path(__file__).resolve().parents[1] / "web" / "app.py")
         tags = MagicMock()
-        tags.json.return_value = {"models": [{"name": "qwen3:8b", "details": {"context_length": 99}}]}
+        tags.json.return_value = {"model_info": {"general.architecture": "qwen3", "qwen3.context_length": 99}}
         namespace = {"__name__": "__main__", "__file__": str(self.root / "web" / "app.py")}
-        with patch.object(harness.requests, "get", return_value=tags), patch.object(harness.Flask, "run") as run:
+        with patch.object(harness.requests, "post", return_value=tags), patch.object(harness.Flask, "run") as run:
             exec(compile(source, filename, "exec"), namespace)
         run.assert_called_once_with(port=5000, debug=True, use_reloader=False)
         namespace = {"__name__": "__main__", "__file__": str(self.root / "error-web" / "app.py")}
-        with patch.object(harness.requests, "get", side_effect=harness.requests.ConnectionError), \
+        with patch.object(harness.requests, "post", side_effect=harness.requests.ConnectionError), \
              patch.object(sys, "exit", side_effect=SystemExit(1)):
             with self.assertRaises(SystemExit):
                 exec(compile(source, filename, "exec"), namespace)
@@ -705,6 +706,85 @@ class BackendCoverage(unittest.TestCase):
         self.assertTrue(any(e["type"] == "change" and e["approved"] for e in events))
         self.assertTrue(any(e["type"] == "command" and "done" in e["output"] for e in events))
         self.assertEqual(events[-1]["type"], "response")
+
+    def test_public_review_regressions(self):
+        harness.new_session()
+        harness.messages.append({"role": "user", "content": "retain"})
+        harness.turn_lock.acquire()
+        try:
+            self.assertEqual(self.client.post("/reset").status_code, 409)
+            self.assertEqual(self.client.post("/project", json={"path": str(self.root)}).status_code, 409)
+            self.assertEqual(harness.messages[0]["content"], "retain")
+        finally:
+            harness.turn_lock.release()
+        harness.active_session["missing_workspace"] = True
+        self.client.post("/project", json={"path": str(harness.workspace)})
+        self.assertNotIn("missing_workspace", harness.active_session)
+        pending = {"event": MagicMock(), "approved": False}
+        harness.pending_approvals["strict"] = pending
+        for value in ("false", "true", 1, None):
+            self.assertEqual(self.client.post("/approve", json={"id": "strict", "approved": value}).status_code, 400)
+            self.assertFalse(pending["approved"])
+        pending["event"].set.assert_not_called()
+        with patch.object(harness, "UI_ORIGIN", "http://localhost:5002"):
+            response = self.client.options("/chat", headers={"Origin": "http://localhost:5002", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type"})
+        self.assertIn("POST", response.headers["Access-Control-Allow-Methods"])
+        self.assertEqual(response.headers["Access-Control-Allow-Headers"], "Content-Type")
+        with patch.object(harness, "stream_chat", side_effect=harness.requests.ConnectionError("offline")):
+            events = self.events(self.client.post("/chat", json=self.chat()))
+        self.assertEqual(events[-1]["type"], "stopped")
+        self.assertIn("offline", events[-1]["reason"])
+        self.assertFalse(harness.turn_lock.locked())
+        with patch.object(harness, "stream_chat", return_value=iter(['{"error":"model missing"}'])):
+            events = self.events(self.client.post("/chat", json=self.chat()))
+        self.assertEqual(events[-1]["type"], "stopped")
+        with patch.object(harness, "stream_chat", return_value=self.complete("")):
+            events = self.events(self.client.post("/chat", json=self.chat()))
+        self.assertIn("empty reply", events[-1]["reason"])
+        with patch.object(harness, "stream_chat", return_value=self.complete("final content")):
+            events = self.events(self.client.post("/chat", json=self.chat()))
+        self.assertEqual(events[-1]["content"], "final content")
+
+    def test_incomplete_stream_and_exact_file_changes(self):
+        harness.new_session()
+        with patch.object(harness, "stream_chat", return_value=iter([])):
+            events = self.events(self.client.post("/chat", json=self.chat()))
+        self.assertIn("ended before completion", events[-1]["reason"])
+        self.assertFalse(harness.turn_lock.locked())
+        with patch.object(harness, "stream_chat", return_value=iter(['{"error":"model missing"}'])):
+            events = self.events(self.client.post("/chat", json=self.chat()))
+        self.assertIn("model missing", events[-1]["reason"])
+        self.write("newline.txt", "text")
+        for filename, content in [("newline.txt", "text\n"), ("newline.txt", "text"), ("empty.txt", "")]:
+            calls = {"message": {"content": "", "tool_calls": [{"function": {
+                "name": "write_file", "arguments": {"path": filename, "content": content}
+            }}]}, "done": True}
+            with patch.object(harness, "stream_chat", side_effect=[iter([json.dumps(calls)]), self.complete()]):
+                events = self.events(self.client.post("/chat", json=self.chat(tools=["write_file"])))
+            self.assertEqual((harness.workspace / filename).read_text(), content)
+            self.assertTrue(any(e["type"] == "change" and e["diff"] and e["approved"] for e in events))
+
+
+    def test_preparation_failure_releases_execution_lock(self):
+        harness.new_session()
+        with patch.object(harness, "snapshot_instructions", side_effect=OSError("unreadable instructions")):
+            response = self.client.post("/chat", json=self.chat())
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("unreadable instructions", response.json["error"])
+        self.assertFalse(harness.turn_lock.locked())
+        self.assertEqual(harness.messages, [])
+
+
+    def test_rejected_chat_does_not_freeze_instructions(self):
+        # Simulate another caller taking the lock after request preparation.
+        harness.messages = []
+        with patch.object(harness, "turn_lock") as lock:
+            lock.locked.return_value = False
+            lock.acquire.return_value = False
+            self.assertEqual(self.client.post("/chat", json=self.chat()).status_code, 409)
+        self.assertEqual(harness.conversation_setup, {"agent": "", "prompt": ""})
+        self.assertEqual(harness.messages, [])
+
 
 
 if __name__ == "__main__":

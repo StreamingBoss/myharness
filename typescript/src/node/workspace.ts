@@ -1,7 +1,8 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 export const MAX_FILE_CHARS = 10_000;
+const SKIP_DIRECTORIES = new Set([".git", ".venv", "node_modules", "__pycache__", ".mypy_cache"]);
 
 /** Filesystem adapter that confines model-supplied paths to one workspace. */
 export class WorkspaceAdapter {
@@ -47,6 +48,65 @@ export class WorkspaceAdapter {
     }
     if (last < lines.length) result.push(`[lines ${startLine}-${last} of ${lines.length}; call again with start_line=${last + 1}]`);
     return result.join("\n");
+  }
+
+  async findFiles(pattern: string): Promise<string> {
+    const matcher = this.glob(pattern);
+    const matches = (await this.projectFiles()).filter((file) => matcher(path.basename(file)) || matcher(file));
+    return [...matches.slice(0, 200), ...(matches.length > 200 ? [`[${matches.length - 200} more not shown]`] : [])].join("\n") || "(no files found)";
+  }
+
+  async search(pattern: string, input = ".", glob = "*"): Promise<string> {
+    if (!pattern) throw new Error("pattern must not be empty");
+    const matcher = this.glob(glob);
+    const start = this.pathFor(input);
+    const files = await this.projectFiles(start);
+    const matches: string[] = [];
+    for (const relative of files) {
+      if (!matcher(path.basename(relative)) && !matcher(relative)) continue;
+      try {
+        const text = await readFile(path.join(this.root, relative), "utf8");
+        if (text.includes("\0")) continue;
+        for (const [index, line] of text.split(/\r?\n/).entries()) {
+          if (!line.includes(pattern)) continue;
+          if (matches.length === 100) return `${matches.join("\n")}\n[more matches not shown; narrow path or glob]`;
+          matches.push(`${relative}:${index + 1}: ${line.slice(0, 500)}${line.length > 500 ? " [line truncated]" : ""}`);
+        }
+      } catch { continue; }
+    }
+    return matches.join("\n") || "(no matches)";
+  }
+
+  async edit(input: string, oldText: string, newText: string): Promise<{ path: string; content: string }> {
+    if (!oldText) throw new Error("old_text is empty; use write_file to create a new file");
+    const target = this.pathFor(input);
+    const text = await readFile(target, "utf8");
+    const count = text.split(oldText).length - 1;
+    if (!count) throw new Error(`old_text was not found in '${input}'. Read the file again and copy the exact text, including spaces and indentation.`);
+    if (count > 1) throw new Error(`old_text appears ${count} times in '${input}'. Include more surrounding lines so it matches only once.`);
+    return { path: input, content: text.replace(oldText, newText) };
+  }
+
+  private async projectFiles(input = this.root): Promise<string[]> {
+    const directory = this.pathFor(input);
+    const results: string[] = [];
+    if ((await stat(directory)).isFile()) return [path.relative(this.root, directory)];
+    const visit = async (folder: string): Promise<void> => {
+      const entries = await readdir(folder, { withFileTypes: true });
+      for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+        if (entry.isSymbolicLink() || SKIP_DIRECTORIES.has(entry.name)) continue;
+        const full = path.join(folder, entry.name);
+        if (entry.isDirectory()) await visit(full);
+        else if (entry.isFile()) results.push(path.relative(this.root, full));
+      }
+    };
+    await visit(directory);
+    return results;
+  }
+
+  private glob(pattern: string): (value: string) => boolean {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*").replaceAll("?", ".");
+    return (value) => new RegExp(`^${escaped}$`).test(value);
   }
 
   private isInside(candidate: string): boolean {

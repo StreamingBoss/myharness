@@ -5,6 +5,7 @@ import path from "node:path";
 import { HarnessCore, type ChatMessage, type CoreEvent, type ModelRequest, type ToolDefinition, type ToolResult, type Turn, type TurnHost } from "../core.js";
 import { OllamaAdapter } from "./ollama.js";
 import { WorkspaceAdapter } from "./workspace.js";
+import { SessionStore, type SessionRecord } from "./sessions.js";
 
 export interface TurnAction {
   message: string;
@@ -28,7 +29,7 @@ export interface ModelPort {
   streamChat(payload: ModelRequest): AsyncIterable<string>;
 }
 
-const TOOL_NAMES = ["get_current_time", "pwd", "list_files", "read_file", "write_file", "run_command"];
+const TOOL_NAMES = ["get_current_time", "pwd", "list_files", "read_file", "find_files", "search", "write_file", "edit_file", "run_command"];
 const tools: ToolDefinition[] = TOOL_NAMES.map((name) => ({
   type: "function", function: { name, description: name, parameters: {} },
 }));
@@ -40,18 +41,36 @@ export class NodeHarness implements TurnHost {
   private readonly workspace: WorkspaceAdapter;
   private readonly modelPort: ModelPort;
   private readonly approvals = new Map<string, (approved: boolean) => void>();
+  private readonly sessions: SessionStore | undefined;
+  private activeSession: SessionRecord | undefined;
   private currentAskApproval = true;
   private running = false;
 
-  constructor(options: { workspace: string; model: string; contextLength: number; ollama?: ModelPort }) {
+  constructor(options: { workspace: string; model: string; contextLength: number; ollama?: ModelPort; sessions?: SessionStore }) {
     this.workspace = new WorkspaceAdapter(options.workspace);
     this.modelPort = options.ollama ?? new OllamaAdapter(fetch, "http://localhost:11434");
+    this.sessions = options.sessions;
     this.state = { model: options.model, contextLength: options.contextLength, lastPromptTokens: 0,
       memory: [], workspace: this.workspace.root, stopped: false };
   }
 
   inspect(): HarnessState { return { ...this.state, memory: structuredClone(this.state.memory) }; }
-  reset(): void { this.state.memory.length = 0; this.state.lastPromptTokens = 0; }
+  activeSessionRecord(): SessionRecord | undefined { return this.activeSession && structuredClone(this.activeSession); }
+  async listSessions(): Promise<SessionRecord[]> { return this.sessions ? this.sessions.list() : []; }
+  async newSession(name = "New session"): Promise<SessionRecord | undefined> {
+    if (!this.sessions) return undefined;
+    this.activeSession = this.sessions.create({ model: this.state.model, context_length: this.state.contextLength, workspace: this.state.workspace }, name);
+    this.syncFromSession();
+    await this.saveSession();
+    return this.activeSessionRecord();
+  }
+  async activateSession(id: string): Promise<SessionRecord> {
+    if (!this.sessions) throw new Error("Session persistence is not configured.");
+    this.activeSession = await this.sessions.load(id);
+    this.syncFromSession();
+    return this.activeSessionRecord() as SessionRecord;
+  }
+  async reset(): Promise<void> { this.state.memory.length = 0; this.state.lastPromptTokens = 0; await this.saveSession(); }
   stop(): void { this.state.stopped = true; }
   approve(id: string, approved: boolean): boolean {
     const resolve = this.approvals.get(id);
@@ -66,6 +85,7 @@ export class NodeHarness implements TurnHost {
     this.running = true;
     this.state.stopped = false;
     this.currentAskApproval = action.askApproval;
+    if (this.sessions && !this.activeSession) await this.newSession();
     const userMessage: ChatMessage = { role: "user", content: action.message };
     const conversation = action.useMemory ? this.state.memory : [userMessage];
     if (action.useMemory) conversation.push(userMessage);
@@ -73,7 +93,10 @@ export class NodeHarness implements TurnHost {
       enabledTools: action.tools.filter((name) => TOOL_NAMES.includes(name)),
       selectedTools: tools.filter((tool) => action.tools.includes(tool.function.name)), useMemory: action.useMemory };
     try {
-      for await (const event of new HarnessCore(this).runTurn(turn)) yield event;
+      for await (const event of new HarnessCore(this).runTurn(turn)) {
+        await this.saveSession();
+        yield event;
+      }
     } finally {
       this.running = false;
     }
@@ -96,13 +119,33 @@ export class NodeHarness implements TurnHost {
   skillContext(): Record<string, unknown> { return {}; }
   recordEvent(_event: CoreEvent): void {}
 
+  private syncFromSession(): void {
+    if (!this.activeSession) return;
+    this.state.model = this.activeSession.model;
+    this.state.contextLength = this.activeSession.context_length;
+    this.state.workspace = this.activeSession.workspace;
+    this.state.memory = this.activeSession.memory;
+    this.state.lastPromptTokens = this.activeSession.last_prompt_tokens;
+  }
+
+  private async saveSession(): Promise<void> {
+    if (!this.sessions || !this.activeSession) return;
+    this.activeSession.memory = this.state.memory;
+    this.activeSession.last_prompt_tokens = this.state.lastPromptTokens;
+    this.activeSession.settings = { use_memory: true, tools: [], ask_approval: this.currentAskApproval };
+    await this.sessions.save(this.activeSession);
+  }
+
   async runTool(name: string, arguments_: Record<string, unknown>, enabled: string[]): Promise<ToolResult> {
     if (!enabled.includes(name)) return { kind: "text", text: `error: unknown tool '${name}'` };
     if (name === "get_current_time") return { kind: "text", text: new Date().toISOString() };
     if (name === "pwd") return { kind: "text", text: this.workspace.root };
     if (name === "list_files") return { kind: "text", text: await this.workspace.listFiles(this.stringArgument(arguments_, "path", ".")) };
     if (name === "read_file") return { kind: "text", text: await this.workspace.readNumbered(this.stringArgument(arguments_, "path"), this.numberArgument(arguments_, "start_line", 1), this.optionalNumber(arguments_, "end_line")) };
+    if (name === "find_files") return { kind: "text", text: await this.workspace.findFiles(this.stringArgument(arguments_, "pattern")) };
+    if (name === "search") return { kind: "text", text: await this.workspace.search(this.stringArgument(arguments_, "pattern"), this.stringArgument(arguments_, "path", "."), this.stringArgument(arguments_, "glob", "*")) };
     if (name === "write_file") return { kind: "change", change: { path: this.stringArgument(arguments_, "path"), content: this.stringArgument(arguments_, "content") } };
+    if (name === "edit_file") return { kind: "change", change: await this.workspace.edit(this.stringArgument(arguments_, "path"), this.stringArgument(arguments_, "old_text"), this.stringArgument(arguments_, "new_text")) };
     if (name === "run_command") return { kind: "command", command: this.stringArgument(arguments_, "command") };
     return { kind: "text", text: `error: unknown tool '${name}'` };
   }

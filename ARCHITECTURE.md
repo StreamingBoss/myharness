@@ -63,7 +63,10 @@ client for that same public backend; it never loads templates or browser code.
 `harness.py` remains a minimal standalone CLI reference, rather than a second
 implementation of the full harness.
 
-See [MIGRATION_PLAN.md](MIGRATION_PLAN.md) for the proposed three-phase migration.
+The TypeScript core and Node model, workspace and HTTP adapters are being
+developed under `typescript/`. Python remains the default.
+[MIGRATION_PLAN.md](MIGRATION_PLAN.md) is the active contributor plan; it is
+not a claim of completed runtime parity.
 
 The frontend loads startup data from `GET /bootstrap` rather than receiving
 Jinja-rendered state, and can point at another host with `?api=<base-url>` or
@@ -71,3 +74,54 @@ Jinja-rendered state, and can point at another host with `?api=<base-url>` or
 origin through the backend's local-development CORS policy. This keeps the UI,
 the headless client, and a future TypeScript host on one observable backend
 contract.
+
+## Current Python interface
+
+A UI-free caller can import `HarnessCore`, prepare a `Turn` and supply a
+`TurnHost`. Iterate `HarnessCore(host).run_turn(turn)` to advance the loop.
+The host supplies model streaming, workspace operations, approval waiting,
+cancellation state, persistence and context operations. Any client can answer
+approvals through the adapter; an unanswered request must deny the action.
+`tests/test_core.py` demonstrates a direct call with a deterministic host.
+
+The HTTP host exposes the same loop to browser and headless clients:
+
+| Action | Endpoint |
+| --- | --- |
+| Inspect startup metadata and active state | `GET /bootstrap` |
+| Submit a turn; stream NDJSON events | `POST /chat` |
+| Respond to a pending approval | `POST /approve` with `id` and boolean `approved` |
+| Request cancellation | `POST /stop` |
+| Reset retained memory | `POST /reset` |
+| Request compaction; stream its events | `POST /compact` |
+| Inspect composed instructions, tools and template | `POST /explore` |
+| Select workspace | `POST /project` |
+| List/create saved sessions | `GET` / `POST /sessions` |
+| Inspect/rename a session | `GET` / `PATCH /sessions/<id>` |
+| Activate/export/import a session | `/sessions/<id>/activate`, `/sessions/<id>/export`, `/sessions/import` |
+
+`/chat` accepts `message`, `use_memory`, `tools` (enabled names), `ask_approval`,
+`agent` and `prompt`. Supply `session_id` to reject turns from stale clients.
+NDJSON events include `request`, `thinking`, `chunk`, `response`, `tool`,
+`approval`, `change`, `command`, `skill`, `context` and `stopped`. The final
+`response.content` includes text from every model chunk, including the terminal
+chunk; clients should use it to complete the displayed answer. Errors and
+incomplete streams produce a visible `stopped` event. Reset and session actions
+return JSON; their durable events appear in the session transcript.
+
+Approval waits time out to denial. Reset and workspace changes are rejected while
+a turn holds the execution lock. Stop is cooperative: model streaming can remain
+blocked waiting for the next network chunk until the read timeout; a compaction
+request completes before its stopped result is discarded. Cancellation is not
+an instantaneous interruption of every adapter operation.
+
+## Remaining separation work
+
+The transport-free core owns the agent-loop sequence. The Python host still
+contains substantive session, catalog, context and action implementations,
+including module-global single-session state and a route-local approval adapter.
+The headless CLI is an HTTP client and requires that host to be running, although
+it never loads the UI. The entire Python backend has not yet been extracted into
+one standalone service object independent of Flask. The required contract above
+remains the target for the TypeScript migration; extracting only the model/tool
+loop does not establish that the whole backend meets it.

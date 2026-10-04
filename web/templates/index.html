@@ -370,7 +370,7 @@
 </div>
 
 <div id="settings-bar">
-  <span class="setting" title="The product's base instructions, sent as the system message: the very first message of every request (look at the start of each SENT block). These are real prompts from Cursor, Codex, Claude and others. The ~tokens number is what the prompt costs on EVERY request, before you type anything. It is chosen once per conversation and locks after your first message, because changing it mid-conversation confuses the model and throws away Ollama's cache.">
+  <span class="setting" title="The product's base instructions, sent as the system message: the very first message of every request (look at the start of each SENT block). These are community-collected prompt examples attributed to Cursor, Codex, Claude and others; their authenticity and currentness are not verified. The ~tokens number is what the prompt costs on EVERY request, before you type anything. It is chosen once per conversation and locks after your first message, because changing it mid-conversation confuses the model and throws away Ollama's cache.">
     <label for="prompt" class="help">System prompt:</label>
     <select id="prompt"></select>
   </span>
@@ -379,7 +379,7 @@
     <select id="agent"></select>
   </span>
   <span id="lock-note" hidden title="Chosen at the start of the conversation. Unlocks with Clear conversation or Reset memory.">locked</span>
-  <span class="setting" title="The folder the file tools work in. The model cannot read or write anything outside it: the harness checks every path. Remembered when the harness restarts.">
+  <span class="setting" title="The folder the file tools work in. File tools cannot read or write outside it: the harness checks every path. Shell commands can access anything your user account can. Remembered when the harness restarts.">
     <label for="project" class="help">Project folder:</label>
     <input id="project" type="text" spellcheck="false">
   </span>
@@ -444,7 +444,7 @@ Model: loading…
       <option value="tools">harness tools</option>
       <option value="skills">harness skills</option>
       <option value="template">model template</option>
-      <option value="final">final prompt (what the model reads)</option>
+      <option value="final">prompt reconstruction (Qwen)</option>
     </select>
     <span id="explore-note"></span>
   </div>
@@ -624,11 +624,21 @@ function replaySession() {
       thinkingText += event.content || ""; thinking.textContent = thinkingText;
       continue;
     }
+    if (event.type === "response") [assistant, assistantText] = completeReply(event, assistant, assistantText);
     replaySessionEvent(event);
     if (["tool", "chat_user", "stopped", "context"].includes(event.type)) {
       assistant = null; assistantText = ""; thinking = null; thinkingText = "";
     }
   }
+}
+
+function completeReply(event, bubble, text) {
+  if (typeof event.content === "string" && event.content !== "" && event.content !== text) {
+    if (!bubble) bubble = renderChatBubble("assistant", "");
+    text = event.content;
+    renderMarkdown(bubble, text);
+  }
+  return [bubble, text];
 }
 
 async function sendMessage() {
@@ -707,6 +717,7 @@ async function sendMessage() {
           renderMarkdown(assistantDiv, replyText);
           messagesEl.scrollTop = messagesEl.scrollHeight;
         } else if (event.type === "response") {
+          [assistantDiv, replyText] = completeReply(event, assistantDiv, replyText);
           updateContextMeter(event.tokens_in, event.context_length);
           printBlock("RECEIVED from Ollama", event.parts, "received");
           printBlock("TOKENS", event.tokens);
@@ -823,7 +834,7 @@ const EXPLORE_NOTES = {
   tools: "The checked tools, exactly as the harness sends them: a separate 'tools' field of the request, next to 'messages'. The model's template then turns them into text inside the system part; see 'final prompt'.",
   skills: "Green = text present in the harness context: names/descriptions in the system message, instruction lines in retained messages or the active turn. Updates as skills load via use_skill, /name or read_file; clears when that text leaves memory. Ollama may truncate overflowing requests without reporting which text remains. Skills are skills/<name>/SKILL.md files, in myharness or in the project folder.",
   template: "Comes with the model, from Ollama (/api/show). The template is the program that turns the system message, the tools and the conversation into the single text the model reads. The parameters are the model's default settings.",
-  final: "What the model will read on your next request: the system message (including the project AGENTS.md section), the tools and the conversation, passed through the model's template. Rebuilt by the harness; checked against Ollama's token counts: the system message and conversation match exactly, each tool description is within 1 token. Highlighted: special tokens and tags that structure the text.",
+  final: "An illustrative Qwen prompt reconstruction for the next request, including project instructions, tools and conversation. This is generated locally, not captured from Ollama; a different model template or Ollama version may render different text. SENT shows the actual API payload. Highlighted: special tokens and structural tags.",
 };
 
 function currentTools() {

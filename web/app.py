@@ -1,4 +1,4 @@
-"""Web version of harness.py: same chat + context-window tracking, streamed to a browser.
+"""Local Python HTTP host and adapters for the educational harness.
 
 Left pane = chat like you'd see in Claude or another model's UI.
 Right pane = what goes to and comes back from Ollama, plus the tools the harness runs.
@@ -1246,14 +1246,6 @@ def chat_endpoint():
     ask_approval = request.json["ask_approval"]
     selected_tools = [t for t in TOOLS if t["function"]["name"] in enabled_tools]
     setup = {"agent": request.json["agent"], "prompt": request.json["prompt"]}
-    if use_memory:
-        if not messages:
-            # a new conversation: its agent and system prompt are fixed until memory is cleared
-            conversation_setup.update(setup)
-            snapshot_instructions(setup)
-        setup = dict(conversation_setup)
-
-    system = system_messages(setup, with_skills="use_skill" in enabled_tools)
 
     # "/name rest of message": the user loads a skill themselves; its instructions are put in
     # the message (and kept in memory), so the model gets them without calling use_skill
@@ -1272,16 +1264,25 @@ def chat_endpoint():
     if not turn_lock.acquire(blocking=False):
         return {"error": "A turn is already running."}, 409
     stop_requested.clear()
-    if use_memory:
-        messages.append(user_message)
-    if active_session.get("id"):
-        if active_session["name"] == "New session":
-            active_session["name"] = unique_session_name(session_title(user_input) or "New session", active_session_id)
-        active_session["settings"].update({"use_memory": use_memory, "tools": enabled_tools,
-                                            "ask_approval": ask_approval})
-        active_session["last_prompt_tokens"] = last_prompt_tokens
-        save_active_session()
-        record_event({"type": "chat_user", "content": user_input})
+    try:
+        if use_memory:
+            if not messages:
+                # Freeze instructions only after the turn has been accepted.
+                conversation_setup.update(setup)
+                snapshot_instructions(setup)
+            setup = dict(conversation_setup)
+            messages.append(user_message)
+        if active_session.get("id"):
+            if active_session["name"] == "New session":
+                active_session["name"] = unique_session_name(session_title(user_input) or "New session", active_session_id)
+            active_session["settings"].update({"use_memory": use_memory, "tools": enabled_tools,
+                                                "ask_approval": ask_approval})
+            active_session["last_prompt_tokens"] = last_prompt_tokens
+            save_active_session()
+            record_event({"type": "chat_user", "content": user_input})
+    except (OSError, ValueError, TypeError) as error:
+        turn_lock.release()
+        return {"error": f"Could not prepare turn: {error}"}, 500
 
     def event(**fields) -> str:
         return json.dumps(fields) + "\n"
@@ -1301,8 +1302,12 @@ def chat_endpoint():
                 lineterm="",
             )
         )
-        if not diff:
+        if not is_new and old_text == new_text:
             return f"no change: '{rel}' already has this content"
+        if not diff:
+            diff = "Creating an empty file." if is_new else (
+                "Adding the final newline." if new_text.endswith("\n") else "Removing the final newline."
+            )
         approved = yield from ask_user(name=name, path=rel, diff=diff, note=note)
         yield event(type="change", path=rel, diff=diff, approved=approved, note=note)
         if stop_requested.is_set():

@@ -36,3 +36,17 @@ test("workspace adapter reads numbered ranges and protects its output cap", asyn
   await writeFile(path.join(files.root, "long.txt"), "x".repeat(20_000));
   assert.match(await files.readNumbered("long.txt"), /long line truncated/);
 });
+
+test("workspace adapter finds, searches, and prepares exact edits", async () => {
+  const files = await workspace();
+  await writeFile(path.join(files.root, "src", "b.py"), "needle\nneedle again");
+  await mkdir(path.join(files.root, ".git"));
+  await writeFile(path.join(files.root, ".git", "secret.txt"), "needle");
+  assert.equal(await files.findFiles("*.txt"), "empty.txt\nsrc/a.txt");
+  assert.equal(await files.search("needle", "src", "*.py"), "src/b.py:1: needle\nsrc/b.py:2: needle again");
+  await assert.rejects(() => files.search(""), /must not be empty/);
+  assert.deepEqual(await files.edit("src/a.txt", "two", "changed"), { path: "src/a.txt", content: "one\nchanged\nthree" });
+  await assert.rejects(() => files.edit("src/a.txt", "", "x"), /old_text is empty/);
+  await assert.rejects(() => files.edit("src/a.txt", "missing", "x"), /was not found/);
+  await assert.rejects(() => files.edit("src/b.py", "needle", "x"), /appears 2 times/);
+});

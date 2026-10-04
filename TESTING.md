@@ -1,6 +1,6 @@
-# Backend test baseline
+# Verification
 
-Phase 1 establishes a deterministic behavioral baseline for the Python backend.
+The Python suite checks the maintained backend.
 The suite runs against temporary workspaces and session directories. It never
 contacts Ollama, opens the browser, or uses the owner's port-5000 session.
 
@@ -30,8 +30,8 @@ model responses, tool execution, approvals, cancellation, compaction, and
 command timeout behavior. [tests/scenarios](tests/scenarios) holds a small,
 language-neutral JSON contract corpus. Its runner drives the public HTTP/NDJSON
 interface with scripted model responses and checks observable events, retained
-memory, and workspace effects. The TypeScript implementation will run this same
-corpus during Phase 3. [tests/test_core.py](tests/test_core.py) imports and runs
+memory, and workspace effects. The TypeScript tests also exercise the shared
+corpus. [tests/test_core.py](tests/test_core.py) imports and runs
 the agent loop directly with a deterministic adapter, without Flask or HTTP
 routes.
 
@@ -55,8 +55,9 @@ npm run test:ts
 
 The TypeScript suite runs [tests/scenarios](tests/scenarios) unchanged, alongside
 direct core tests for streamed events, context handling, tool actions,
-cancellation, and the step limit. Node production adapters and the TypeScript
-HTTP host are the next Phase 3 increment; Python remains the default backend.
+cancellation, and the step limit. Node adapters and an HTTP host exist under `typescript/src/node/`; the port
+is still being developed and Python remains the default backend. Python
+coverage does not certify TypeScript coverage or full behavioral parity.
 
 ## Headless use
 
@@ -71,3 +72,23 @@ The client prints NDJSON events. It denies file changes and commands by default;
 pass `--approve` to authorize them. `Ctrl+C` sends `POST /stop` before exiting.
 Use `--tools read_file,search` to set enabled tools and `--reset` to reset the
 active session’s retained memory.
+
+## UI response regression
+
+Run the browser response helper against deterministic rendering fakes:
+
+```bash
+node --test tests/ui_response.test.mjs
+```
+
+This covers final content arriving in the terminal model chunk, replay, partial
+answer completion, duplicate prevention and older events without a content field.
+It executes the actual helper extracted from the UI, not a copy. It does not
+claim whole-UI coverage. Full browser checks remain separate from backend tests.
+
+## Real-model checks
+
+Use port 5001 and scratch workspaces, settings and session storage as described
+in [HANDOVER.md](HANDOVER.md). Never send test messages or Stop to the owner's
+port-5000 service. A deterministic passing suite verifies the harness contract;
+it does not establish the reliability of any model's tool choices or summaries.
