@@ -324,6 +324,13 @@
     flex-direction: column;
     background: #101820;
   }
+  #context-meter { margin-left: auto; font-size: 12px; font-weight: normal; }
+  #context-bar { width: 90px; height: 7px; accent-color: #80d890; margin-left: 8px; }
+  #context-meter.amber { color: #e0b050; }
+  #context-meter.red { color: #f08080; }
+  #context-meter.amber #context-bar { accent-color: #e0b050; }
+  #context-meter.red #context-bar { accent-color: #f08080; }
+  #chat-pane > .pane-header { display: flex; align-items: center; gap: 8px; }
   #explore-header { display: flex; align-items: center; gap: 10px; }
   #explore-header select {
     padding: 3px 6px;
@@ -336,6 +343,7 @@
   #explore-note { color: #8a8a8a; font-size: 12px; }
   #explore[hidden], #memory[hidden] { display: none; }
   #explore .token { color: #e0b050; font-weight: bold; }
+  #explore .skill-loaded { color: #80d890; }
   #terminal, #memory, #explore {
     flex: 1;
     overflow-y: auto;
@@ -380,16 +388,17 @@
 
 <div id="panes">
 <div id="chat-pane">
-  <div class="pane-header" title="What a chat app shows you: your messages and the model's answers. Everything else the harness does is hidden here, and shown on the right and at the bottom.">Chat — {{ model }}</div>
+  <div class="pane-header" title="What a chat app shows you: your messages and the model's answers. Everything else the harness does is hidden here, and shown on the right and at the bottom.">Chat — {{ model }}<span id="context-meter" title="Input tokens from the last Ollama response (prompt_eval_count), not an estimate. Amber at 75%: old tool outputs are trimmed. Red at 90%: older messages are summarized. Ollama can silently drop the START of an overflowing prompt, including the system message. Until the next response, this shows the last measured request.">context: — / {{ context_length }}<progress id="context-bar" max="100" value="0"></progress></span></div>
   <div id="messages"></div>
   <div id="input-row">
     <textarea id="input" rows="1" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line, /skill-name to use a skill)" autofocus></textarea>
     <label class="toggle" title="The model remembers nothing between requests. Checked: the harness keeps the conversation (the messages list at the bottom) and re-sends ALL of it with every request, which is why the 'in' token count grows each turn. Unchecked: only your new message is sent and nothing is kept, so the model can't refer to earlier messages."><input id="use-memory" type="checkbox" checked> <span class="help">Harness memory</span></label>
     <label class="toggle" title="Only changes what the chat shows: the model still thinks before answering (which takes time and output tokens), and the RECEIVED blocks on the right still contain its thinking. Applies to the thinking already in the chat too."><input id="hide-thinking" type="checkbox"> <span class="help">Hide thinking</span></label>
     <button id="reset" title="Empty the harness memory: the model forgets the conversation, but the chat stays visible. Also unlocks the system prompt and agent.">Reset memory</button>
+    <button id="compact" title="Ask the model to summarize older messages (under 300 words), retaining at least the last 4 messages and complete tool-call batches. Costs a model request; the request and summary appear in Internals. Memory changes only if the summary succeeds and saves space.">Compact</button>
     <button id="clear" title="Start over: empty the memory and all three panels, and unlock the system prompt and agent.">Clear conversation</button>
     <button id="send">Send</button>
-    <button id="stop" hidden title="Stop the current turn. The harness stops reading from Ollama and closes the connection, which makes Ollama stop generating; tools that haven't run yet are skipped, and a change waiting for approval is refused. What the model already wrote stays in memory, and every tool call it made gets a 'stopped' result so the next request stays consistent.">Stop</button>
+    <button id="stop" hidden title="Stop the current turn. The harness stops reading from Ollama and closes the connection, which makes Ollama stop generating; tools that haven't run yet are skipped, and a change waiting for approval is refused. During compaction, the summary request finishes but its result is discarded. What the model already wrote stays in memory, and every tool call it made gets a 'stopped' result so the next request stays consistent.">Stop</button>
   </div>
   <div id="tools-row">
     <label class="toggle" title="Tools let the model ask the harness to run a function (read a file, get the time...). The model never runs anything itself: it replies with a tool call, the harness runs it and sends the result back in a new request. Unchecked: no tools are described to the model, so it doesn't know they exist."><input id="use-tools" type="checkbox" checked> <span class="help">Tools:</span></label>
@@ -422,6 +431,7 @@ Model: {{ model }}  (context window: {{ context_length }} tokens)
       <option value="memory">harness memory</option>
       <option value="system">harness system prompt</option>
       <option value="agent">harness agent</option>
+      <option value="project">harness project file</option>
       <option value="tools">harness tools</option>
       <option value="skills">harness skills</option>
       <option value="template">model template</option>
@@ -440,6 +450,8 @@ const memoryEl = document.getElementById("memory");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
 const stopBtn = document.getElementById("stop");
+const compactBtn = document.getElementById("compact");
+const contextMeter = document.getElementById("context-meter");
 const resetBtn = document.getElementById("reset");
 const memoryCheckbox = document.getElementById("use-memory");
 const toolsCheckbox = document.getElementById("use-tools");
@@ -453,6 +465,60 @@ const projectInput = document.getElementById("project");
 const setProjectBtn = document.getElementById("set-project");
 const projectError = document.getElementById("project-error");
 const initialTerminal = terminalEl.textContent;
+
+function updateContextMeter(used, windowSize = {{ context_length }}) {
+  const usage = windowSize ? 100 * used / windowSize : 0;
+  const percent = Math.round(usage);
+  contextMeter.className = used == null ? "" : (usage >= 90 ? "red" : usage >= 75 ? "amber" : "");
+  contextMeter.firstChild.textContent = "context: " + (used == null ? "—" : used.toLocaleString("en")) +
+    " / " + windowSize.toLocaleString("en") + (used == null ? "" : " (" + percent + "%)");
+  document.getElementById("context-bar").value = used == null ? 0 : Math.min(100, percent);
+}
+
+function handleContextEvent(event) {
+  if (event.action === "compact_request") {
+    printBlock("SENT to Ollama — compaction", JSON.stringify(event.payload, null, 2), "sent");
+  } else if (event.action === "compact_response") {
+    printBlock("RECEIVED from Ollama — compaction", JSON.stringify(event.response, null, 2), "received");
+  } else {
+    addDivider(event.reason);
+    printBlock("CONTEXT — " + event.action, event.reason + (event.summary ? "\n\n" + event.summary : ""));
+    if (event.summary) renderChatBubble("assistant", "[Summary of earlier conversation]\n" + event.summary);
+  }
+  if (event.memory !== undefined) memoryEl.textContent = event.memory;
+  if (event.skill_context) activeSkillContext = event.skill_context;
+}
+
+compactBtn.addEventListener("click", async () => {
+  setControlsDisabled(true);
+  try {
+    const response = await fetch("/compact", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({use_memory: memoryCheckbox.checked}),
+    });
+    if (!response.ok) throw new Error((await response.json()).error);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const {value, done} = await reader.read();
+      buffer += done ? decoder.decode() : decoder.decode(value, {stream: true});
+      let newline;
+      while ((newline = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (line) handleContextEvent(JSON.parse(line));
+      }
+      if (done) break;
+    }
+  } catch (error) {
+    handleContextEvent({action: "error", reason: "Compaction failed: " + error.message});
+  } finally {
+    setControlsDisabled(false);
+    activeSkillContext = null;
+    refreshExplorer();
+  }
+});
 
 function renderChatBubble(role, text) {
   const div = document.createElement("div");
@@ -493,108 +559,125 @@ async function sendMessage() {
 
   renderChatBubble("user", text);
 
-  const resp = await fetch("/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: text,
-      use_memory: memoryCheckbox.checked,
-      ask_approval: askApprovalCheckbox.checked,
-      agent: agentSelect.value,
-      prompt: promptSelect.value,
-      tools: toolsCheckbox.checked
-        ? toolCheckboxes.filter((c) => c.checked).map((c) => c.value)
-        : [],
-    }),
-  });
+  try {
+    const resp = await fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        use_memory: memoryCheckbox.checked,
+        ask_approval: askApprovalCheckbox.checked,
+        agent: agentSelect.value,
+        prompt: promptSelect.value,
+        tools: toolsCheckbox.checked
+          ? toolCheckboxes.filter((c) => c.checked).map((c) => c.value)
+          : [],
+      }),
+    });
 
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let assistantDiv = null;  // created on the first text chunk, after any tool notes
-  let replyText = "";
-  let thinkingDiv = null;
-  let thinkingText = "";
+    if (!resp.ok) throw new Error((await resp.json()).error);
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let assistantDiv = null;  // created on the first text chunk, after any tool notes
+    let replyText = "";
+    let thinkingDiv = null;
+    let thinkingText = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    let newlineIndex;
-    while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, newlineIndex);
-      buffer = buffer.slice(newlineIndex + 1);
-      if (!line) continue;
+      let newlineIndex;
+      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        if (!line) continue;
 
-      const event = JSON.parse(line);
-
-      if (event.type === "request") {
-        printBlock("SENT to Ollama (POST /api/chat)", event.parts, "sent");
-        memoryEl.textContent = event.memory;
-      } else if (event.type === "skill") {
-        addDivider("— skill loaded: " + event.name + " —");
-      } else if (event.type === "thinking") {
-        if (!thinkingDiv) thinkingDiv = renderChatBubble("thinking", "");
-        thinkingText += event.content;
-        thinkingDiv.textContent = thinkingText;
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-      } else if (event.type === "chunk") {
-        if (!event.content) continue;
-        if (!assistantDiv) assistantDiv = renderChatBubble("assistant", "");
-        replyText += event.content;
-        renderMarkdown(assistantDiv, replyText);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-      } else if (event.type === "response") {
-        printBlock("RECEIVED from Ollama", event.parts, "received");
-        printBlock("TOKENS", event.tokens);
-        memoryEl.textContent = event.memory;
-      } else if (event.type === "tool") {
-        printBlock("TOOL — the harness ran " + event.name,
-                   "arguments: " + event.arguments + "\nresult:    " + event.result);
-        memoryEl.textContent = event.memory;
-        addDivider("used tool " + event.name);
-        // text after a tool run goes in new bubbles, below the tool note
-        assistantDiv = null;
-        replyText = "";
-        thinkingDiv = null;
-        thinkingText = "";
-      } else if (event.type === "approval") {
-        changeBox = event.command !== undefined
-          ? renderChangeBox("run_command wants to run, in " + projectInput.value + ":",
-                            "$ " + event.command)
-          : renderChangeBox(event.name + " wants to change " + event.path, event.diff,
-                            event.note);
-        addApprovalButtons(changeBox, event.id);
-      } else if (event.type === "command") {
-        if (!changeBox) changeBox = renderChangeBox("run_command ran:", "$ " + event.command);
-        if (event.approved) {
-          const out = document.createElement("pre");
-          out.className = "command-output";
-          out.textContent = event.output || "(no output)";
-          changeBox.querySelector(".change-actions").before(out);
+        const event = JSON.parse(line);
+        if (event.skill_context) {
+          activeSkillContext = event.skill_context;
+          if (exploreView.value === "skills" && skillsExplorerData) {
+            renderSkills(skillsExplorerData, activeSkillContext);
+          }
         }
-        setChangeStatus(changeBox, event.approved, event.status);
-        changeBox = null;
-        printBlock("COMMAND — " + (event.approved ? event.status : "refused"),
-                   "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
-      } else if (event.type === "change") {
-        if (!changeBox) changeBox = renderChangeBox(event.path, event.diff, event.note);
-        setChangeStatus(changeBox, event.approved, "written");
-        changeBox = null;
-        printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (refused)"),
-                   (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
-      } else if (event.type === "stopped") {
-        printBlock("STOPPED", event.reason);
-        addDivider(event.reason);
-        if (event.memory) memoryEl.textContent = event.memory;
+
+        if (event.type === "context") {
+          handleContextEvent(event);
+        } else if (event.type === "request") {
+          printBlock("SENT to Ollama (POST /api/chat)", event.parts, "sent");
+          memoryEl.textContent = event.memory;
+        } else if (event.type === "skill") {
+          addDivider("— skill loaded: " + event.name + " —");
+        } else if (event.type === "thinking") {
+          if (!thinkingDiv) thinkingDiv = renderChatBubble("thinking", "");
+          thinkingText += event.content;
+          thinkingDiv.textContent = thinkingText;
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        } else if (event.type === "chunk") {
+          if (!event.content) continue;
+          if (!assistantDiv) assistantDiv = renderChatBubble("assistant", "");
+          replyText += event.content;
+          renderMarkdown(assistantDiv, replyText);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        } else if (event.type === "response") {
+          updateContextMeter(event.tokens_in, event.context_length);
+          printBlock("RECEIVED from Ollama", event.parts, "received");
+          printBlock("TOKENS", event.tokens);
+          memoryEl.textContent = event.memory;
+        } else if (event.type === "tool") {
+          printBlock("TOOL — the harness ran " + event.name,
+                     "arguments: " + event.arguments + "\nresult:    " + event.result);
+          memoryEl.textContent = event.memory;
+          addDivider("used tool " + event.name);
+          // text after a tool run goes in new bubbles, below the tool note
+          assistantDiv = null;
+          replyText = "";
+          thinkingDiv = null;
+          thinkingText = "";
+        } else if (event.type === "approval") {
+          changeBox = event.command !== undefined
+            ? renderChangeBox("run_command wants to run, in " + projectInput.value + ":",
+                              "$ " + event.command)
+            : renderChangeBox(event.name + " wants to change " + event.path, event.diff,
+                              event.note);
+          addApprovalButtons(changeBox, event.id);
+        } else if (event.type === "command") {
+          if (!changeBox) changeBox = renderChangeBox("run_command ran:", "$ " + event.command);
+          if (event.approved) {
+            const out = document.createElement("pre");
+            out.className = "command-output";
+            out.textContent = event.output || "(no output)";
+            changeBox.querySelector(".change-actions").before(out);
+          }
+          setChangeStatus(changeBox, event.approved, event.status);
+          changeBox = null;
+          printBlock("COMMAND — " + (event.approved ? event.status : "refused"),
+                     "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
+        } else if (event.type === "change") {
+          if (!changeBox) changeBox = renderChangeBox(event.path, event.diff, event.note);
+          setChangeStatus(changeBox, event.approved, "written");
+          changeBox = null;
+          printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (refused)"),
+                     (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
+        } else if (event.type === "stopped") {
+          printBlock("STOPPED", event.reason);
+          addDivider(event.reason);
+          if (event.memory) memoryEl.textContent = event.memory;
+        }
       }
     }
-  }
 
-  setControlsDisabled(false);
-  refreshExplorer();
-  input.focus();
+  } catch (error) {
+    printBlock("STOPPED", "Chat request failed: " + error.message);
+    addDivider("Chat request failed: " + error.message);
+  } finally {
+    setControlsDisabled(false);
+    activeSkillContext = null;
+    refreshExplorer();
+    input.focus();
+  }
 }
 
 let changeBox = null;  // the diff box of the file change being handled
@@ -651,10 +734,11 @@ const EXPLORE_NOTES = {
   memory: "The messages list the harness keeps: the model's only memory, re-sent with every request. Tool calls and results are stored too; the system message and the thinking are not.",
   system: "The library prompt chosen at the top. It's the first part of the system message, at the very start of every request.",
   agent: "The agent's instructions, added after the system prompt in the same system message. Its tools line presets the tool checkboxes.",
+  project: "AGENTS.md from the project folder root, added after the agent and before the skills. Read again for every model call: edits and project-folder changes apply immediately, even while the agent and system prompt are locked. Only AGENTS.md is used.",
   tools: "The checked tools, exactly as the harness sends them: a separate 'tools' field of the request, next to 'messages'. The model's template then turns them into text inside the system part; see 'final prompt'.",
-  skills: "Progressive disclosure: while use_skill is checked, only each skill's name and description go in the system message (the list at the top). The full instructions below reach the model only when it calls use_skill, or when you start a message with /name. Skills are skills/<name>/SKILL.md files, in myharness or in the project folder.",
+  skills: "Green = text present in the harness context: names/descriptions in the system message, instruction lines in retained messages or the active turn. Updates as skills load via use_skill, /name or read_file; clears when that text leaves memory. Ollama may truncate overflowing requests without reporting which text remains. Skills are skills/<name>/SKILL.md files, in myharness or in the project folder.",
   template: "Comes with the model, from Ollama (/api/show). The template is the program that turns the system message, the tools and the conversation into the single text the model reads. The parameters are the model's default settings.",
-  final: "What the model will read on your next request: the system message, the tools and the conversation, passed through the model's template. Rebuilt by the harness; checked against Ollama's token counts: the system message and conversation match exactly, each tool description is within 1 token. Highlighted: special tokens and tags that structure the text.",
+  final: "What the model will read on your next request: the system message (including the project AGENTS.md section), the tools and the conversation, passed through the model's template. Rebuilt by the harness; checked against Ollama's token counts: the system message and conversation match exactly, each tool description is within 1 token. Highlighted: special tokens and tags that structure the text.",
 };
 
 function currentTools() {
@@ -675,6 +759,50 @@ function showHighlighted(text) {
     last = match.index + match[0].length;
   }
   exploreEl.append(text.slice(last));
+}
+
+let activeSkillContext = null;
+let skillsExplorerData = null;
+
+function renderSkills(data, context) {
+  exploreEl.replaceChildren();
+  function append(text, loaded, title) {
+    const span = document.createElement("span");
+    span.textContent = text;
+    if (loaded) span.className = "skill-loaded";
+    if (title) span.title = title;
+    exploreEl.append(span);
+  }
+  if (!data.skills.length) {
+    exploreEl.textContent = "(no skills: add skills/<name>/SKILL.md files)";
+    exploreNote.textContent = EXPLORE_NOTES.skills;
+    return;
+  }
+  const listCost = Math.round(data.skills_section.length / 4);
+  const fullCost = Math.round(data.skills.reduce((n, s) => n + s.body.length, 0) / 4);
+  exploreNote.textContent = EXPLORE_NOTES.skills + "  (list ~" + listCost +
+    " tokens on every request" + (data.skills_listed ? "" : ", use_skill is unchecked") +
+    "; all full skills ~" + fullCost.toLocaleString("en") + " tokens)";
+  append("SENT ON EVERY REQUEST (in the system message)\n\n");
+  const firstEntry = data.skills_section.indexOf("\n- ");
+  append(data.skills_section.slice(0, firstEntry),
+    data.skills.some(s => context[s.name]?.listed));
+  for (const s of data.skills) {
+    append("\n- " + s.name + ": " + s.description, context[s.name]?.listed,
+      "Green when this name and description are in the system message.");
+  }
+  append("\n\n\nLOADED ONLY WHEN USED\n");
+  for (const s of data.skills) {
+    const state = context[s.name] || {};
+    append("\n" + "-".repeat(40) + "\n" + s.name + " (" + s.source + ")\n" +
+      "-".repeat(40) + "\n", state.body_loaded,
+      "Green when all of these instructions are present in the harness context.");
+    const loadedLines = new Set(state.loaded_lines || []);
+    s.body.split("\n").forEach((line, i) => {
+      append(line + "\n", state.body_loaded || loadedLines.has(i),
+        "Green when this instruction line is present in the harness context.");
+    });
+  }
 }
 
 async function refreshExplorer() {
@@ -707,24 +835,16 @@ async function refreshExplorer() {
       ? "agent: " + data.agent_name + " (" + data.agent.source + ")\ntools: " +
         (data.agent.tools.join(", ") || "(none)") + "\n\n" + data.agent.prompt
       : "(no agent selected)";
+  } else if (view === "project") {
+    text = data.project_instructions
+      ? data.project_instructions[0] + "\n\n" + data.project_instructions[1]
+      : "none: create AGENTS.md in the project folder";
   } else if (view === "tools") {
     text = data.tools === "[]" ? "(no tools checked: the request has no 'tools' field)" : data.tools;
   } else if (view === "skills") {
-    if (!data.skills.length) {
-      text = "(no skills: add skills/<name>/SKILL.md files)";
-    } else {
-      const listCost = Math.round(data.skills_section.length / 4);
-      const fullCost = Math.round(data.skills.reduce((n, s) => n + s.body.length, 0) / 4);
-      note += "  (list ~" + listCost + " tokens on every request" +
-              (data.skills_listed ? "" : ", but not sent now: use_skill is unchecked") +
-              "; all full skills ~" + fullCost.toLocaleString("en") + " tokens)";
-      text = "SENT ON EVERY REQUEST (in the system message)\n\n" + data.skills_section +
-             "\n\n\nLOADED ONLY WHEN USED\n";
-      for (const s of data.skills) {
-        text += "\n" + "-".repeat(40) + "\n" + s.name + " (" + s.source + ")\n" + "-".repeat(40) +
-                "\n" + s.body + "\n";
-      }
-    }
+    skillsExplorerData = data;
+    renderSkills(data, activeSkillContext || data.skill_context);
+    return;
   } else if (view === "template") {
     text = "TEMPLATE\n\n" + data.template + "\n\nPARAMETERS\n\n" + data.parameters;
   } else {
@@ -807,10 +927,11 @@ function setChangeStatus(box, approved, doneLabel) {
 }
 
 function setControlsDisabled(disabled) {
-  for (const el of [input, sendBtn, resetBtn, clearBtn, memoryCheckbox, toolsCheckbox,
+  for (const el of [input, sendBtn, resetBtn, compactBtn, clearBtn, memoryCheckbox, toolsCheckbox,
                     askApprovalCheckbox, projectInput, setProjectBtn, browseBtn]) {
     el.disabled = disabled;
   }
+  compactBtn.disabled = disabled || !memoryCheckbox.checked;
   for (const c of toolCheckboxes) c.disabled = disabled || !toolsCheckbox.checked;
   agentSelect.disabled = promptSelect.disabled = disabled || conversationLocked;
   lockNote.hidden = !conversationLocked;
@@ -954,6 +1075,7 @@ function addDivider(text) {
 async function resetMemory(dividerText) {
   const resp = await fetch("/reset", { method: "POST" });
   memoryEl.textContent = (await resp.json()).memory;
+  updateContextMeter(null);
   addDivider(dividerText);
   unlockConversation();
   refreshExplorer();
@@ -962,6 +1084,7 @@ async function resetMemory(dividerText) {
 async function clearConversation() {
   const resp = await fetch("/reset", { method: "POST" });
   memoryEl.textContent = (await resp.json()).memory;
+  updateContextMeter(null);
   messagesEl.replaceChildren();
   terminalEl.textContent = initialTerminal;
   unlockConversation();
@@ -978,6 +1101,7 @@ if (locked) {
   conversationLocked = true;
   setControlsDisabled(false);
 }
+updateContextMeter({{ last_prompt_tokens }} || null);
 refreshExplorer();
 
 document.getElementById("hide-thinking").addEventListener("change", (e) => {
@@ -992,6 +1116,7 @@ stopBtn.addEventListener("click", () => {
 clearBtn.addEventListener("click", clearConversation);
 resetBtn.addEventListener("click", () => resetMemory("— memory reset —"));
 memoryCheckbox.addEventListener("change", () => {
+  compactBtn.disabled = !memoryCheckbox.checked;
   if (memoryCheckbox.checked) addDivider("— harness memory on —");
   else resetMemory("— harness memory off: memory cleared —");
 });

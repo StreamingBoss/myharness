@@ -46,10 +46,10 @@ The server holds all state in module globals (single user): `messages` (the "mem
 Ollama `/api/chat` (streaming). If the reply has `tool_calls`, the harness runs them, appends
 `{"role":"tool",...}` messages, and calls the model again. Stops when a reply has no tool calls.
 
-**Event types** streamed to the page: `request`, `thinking`, `chunk`, `response`, `tool`,
+**Event types** streamed to the page: `request`, `thinking`, `chunk`, `response`, `context`, `tool`,
 `approval`, `change`, `command`, `skill`, `stopped`.
 
-**What a request contains** (in order): system message = library prompt + agent text + skill list
+**What a request contains** (in order): system message = library prompt + agent text + project `AGENTS.md` + skill list
 (only if `use_skill` is checked); then `messages`; plus the `tools` field for checked tools.
 The system message is rebuilt every request and never stored in memory. Thinking is shown but not
 stored.
@@ -72,7 +72,7 @@ stored.
 | Memory checkbox | Off = only the new message is sent and **nothing is stored**; turning it off clears memory. |
 | System prompt + agent | Chosen **once per conversation**, locked after the first message (with memory on); unlocked by Reset memory / Clear conversation. Reason: changing them mid-conversation confuses the model and invalidates Ollama's prompt cache. |
 | Agents | `agents/*.md` in myharness **and** `agents/` in the project folder (project overrides). Optional header `tools: a, b` then `---`. Choosing an agent ticks its tools. Read on every call (no restart needed). |
-| Tools | `get_current_time, pwd, list_files, read_file, write_file, edit_file, run_command, use_skill`. File tools are confined to the project folder (`workspace_path()`). |
+| Tools | `get_current_time, pwd, list_files, find_files, search, read_file, write_file, edit_file, run_command, use_skill`. File tools are confined to the project folder (`workspace_path()`). |
 | write/edit | They only *prepare* `(file, new_content, note)`; `apply_change()` shows a diff, asks approval, writes. `edit_file` needs `old_text` to match exactly once. |
 | run_command | `bash -c` in the project folder, 60 s timeout, output cut to last 10,000 chars, new session so Stop/timeout kills children. **Not confined to the project folder**; approval is the real protection. |
 | Approval | Checkbox "Ask before changes and commands", on by default. Deny/Stop is returned to the model as the tool result. |
@@ -92,13 +92,17 @@ stored.
    the model then hallucinates or writes `<tool_call>` as text. Hence the lock.
 4. **Ollama keeps a prompt cache** for the identical *beginning* of the prompt; changing the system
    message or the tool set invalidates all of it.
-5. **qwen3 tools in the prompt are not JSON**: Ollama 0.35 prints them in Go's default struct format
-   (`{name desc {object <nil> <nil> [required] map[prop:{[type] <nil> desc}]}}`). Found by matching
-   token counts; there is no Ollama API to return the rendered prompt.
+5. **qwen3 tools use a mixed Go/JSON format** in Ollama 0.35.1: function and parameter structs
+   print in Go's default format, but the properties map prints compact JSON with sorted property
+   names. The earlier Go-map reconstruction happened to have similar token counts for simple
+   tools; adding integer range parameters exposed the mismatch. `tool_as_go_value` now follows
+   Ollama's actual template conversion. Run `.venv/bin/python scratchpad/verify_render.py` to
+   compare real token counts; AGENTS.md and all three search/read tools match exactly.
+
 6. Flask does **not** reload `app.py` (`use_reloader=False`): after Python changes the owner must
    restart `./web.sh`. Templates reload; the browser tab needs Ctrl+Shift+R.
 7. Context overflow is **silent**: Ollama drops the *start* of the prompt (the system message).
-   Nothing in the harness handles this yet (see section 7).
+   The harness now trims old tool outputs at 75%, compacts at 90%, and refuses requests estimated to exceed the window. Estimates are approximate; the meter uses real input token counts.
 8. A 7-8B model sometimes returns an **empty reply** or skips a skill; the UI shows nothing (see
    section 7).
 9. `qwen3:8b` first request after load can take ~45 s.
@@ -130,29 +134,35 @@ repetitions: a single run proves little.
 
 ## 7. State and what to do next
 
-**Git:** work is committed up to the `run_command` commit. **Staged but not committed**: skills
-(`skills/`), `agents/coder.md`, and the latest `web/app.py` / `index.html` changes (explorer,
-skills, `MAX_STEPS` 5 -> 20). The owner commits themselves; do not commit unless asked.
+**Git:** changes are uncommitted; the owner commits themselves. Do not commit unless asked.
+Existing skill-context highlighting changes have been preserved.
 
-**Approved plan, not started** (see `/home/streamingboss/.claude/plans/so-maybe-we-start-mellow-beacon.md`
-if present; otherwise this is the full content). Build in this order, test each:
+**Plan implemented (A -> B -> C):**
 
-A. **Search tools + better `read_file`.** `read_file(path, start_line, end_line)` returning numbered
-   lines and a "continue from line N" hint when cut. `find_files(pattern)` (fnmatch, max 200).
-   `search(pattern, path, glob)` plain-text, `file:line: text`, max 100, skip `.git .venv
-   node_modules __pycache__` and binary files. All read-only (no approval), confined to the project
-   folder. Add to `coder.md`.
+A. **Search tools + better `read_file`.** Numbered lines with inclusive `start_line` / `end_line`,
+   a continuation hint, and a 10,000-character cap. `find_files(pattern)` matches filenames and
+   relative paths (max 200); `search(pattern, path, glob)` uses case-sensitive plain text
+   (max 100 matches). Searches skip cache/dependency folders and binary files, and stay within
+   the project folder. The coder agent now enables these tools.
 
-B. **AGENTS.md**: read `AGENTS.md` (else `CLAUDE.md`) from the project root on every call; add
-   `# Project instructions (AGENTS.md)` to the system message after the agent text, before the skill
-   list; new explorer view "harness project file". Keep `/explore` and `/chat` building the system
-   message through the same `system_messages()` so the explorer stays exact.
+B. **AGENTS.md only.** Project-root `AGENTS.md` is read before every model call and placed after
+   the agent text, before the skills. No `CLAUDE.md` fallback. The explorer has a "harness project
+   file" view and the final prompt uses the same `system_messages()` builder.
 
-C. **Context management**: live meter in the chat header from Ollama's real `prompt_eval_count`
-   (amber 75%, red 90%); **trim** old tool outputs to stubs past 75% (never the last 4 messages);
-   **Compact** button + automatic at 90% (the model summarizes older turns; replace them with one
-   summary message; show the request in the right pane); if still too big, stop the turn with a
-   clear message instead of sending. Test with a tiny window (~3,000) via `app.context_length`.
+C. **Context management.** The chat header shows real `prompt_eval_count` (amber 75%, red 90%).
+   Before requests, old tool outputs are trimmed toward an estimated 60% at 75% pressure.
+   `POST /compact` and automatic compaction at 90% summarize older messages with thinking off.
+   At least the last four messages are retained; a split tool-call batch retains its assistant
+   and all results as well. Summary requests/responses, summaries and trimming are visible.
+   Failed, empty, incomplete or larger summaries leave memory unchanged. Oversized summary
+   requests are refused; if the normal prompt still exceeds the estimated window, the turn stops.
+   Memory-off turns bypass context management. Chat and compaction cannot run simultaneously.
+
+**Verification:** `.venv/bin/python -m unittest discover -s tests -v` runs scratch-folder tests.
+Real `qwen3:8b` checks on port 5001 covered search/read, manual compaction with a follow-up,
+automatic trim/compact with a 3,000-token window, and prompt-render token counts (exact for
+AGENTS.md and all search/read tools). Headless Chrome checked meter colors and the project explorer;
+this does not substitute for the owner's browser. No requests were sent to port 5000.
 
 **Smaller follow-ups the owner may want:**
 - Show "the model returned an empty reply" plus a **Retry** button (an empty reply looked like a
