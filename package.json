@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build:ts": "tsc --project tsconfig.json",
-    "test:ts": "npm run build:ts && node --test dist/typescript/tests/*.test.js"
+    "test:ts": "npm run build:ts && node --test dist/typescript/tests/*.test.js",
+    "start:ts": "npm run build:ts && node dist/typescript/src/node/server.js"
   },
   "devDependencies": {
     "@types/node": "^20.17.30",
