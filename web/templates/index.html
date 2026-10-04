@@ -198,6 +198,13 @@
     font-size: 12px;
     background: #181818;
   }
+  .change-note {
+    margin-top: 4px;
+    color: #e0b050;
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    font-size: 12px;
+  }
+  .change pre.command-output { border-top: 1px solid #333; color: #bbb; }
   .diff-add { color: #6fcf6f; }
   .diff-del { color: #ff6b6b; }
   .diff-hunk { color: #888; }
@@ -228,6 +235,7 @@
     font-size: 13px;
     font-style: italic;
   }
+  #messages.hide-thinking .msg.thinking { display: none; }
   .msg.thinking::before {
     content: "Thinking";
     display: block;
@@ -253,6 +261,11 @@
     background: #2a2a2a;
     color: #ddd;
     font-size: 14px;
+    font-family: inherit;
+    line-height: 1.4;
+    resize: none;
+    max-height: 9em;
+    overflow-y: auto;
   }
   .toggle {
     display: flex;
@@ -284,6 +297,8 @@
   }
   #input-row button:disabled { opacity: 0.5; cursor: default; }
   #input-row #reset, #input-row #clear { background: #555; }
+  #input-row #stop { background: #c62828; }
+  #input-row button[hidden] { display: none; }
   .reset-divider {
     text-align: center;
     font-size: 12px;
@@ -350,18 +365,20 @@
   <div class="pane-header" title="What a chat app shows you: your messages and the model's answers. Everything else the harness does is hidden here, and shown on the right and at the bottom.">Chat — {{ model }}</div>
   <div id="messages"></div>
   <div id="input-row">
-    <input id="input" type="text" placeholder="Type a message..." autofocus>
+    <textarea id="input" rows="1" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line)" autofocus></textarea>
     <label class="toggle" title="The model remembers nothing between requests. Checked: the harness keeps the conversation (the messages list at the bottom) and re-sends ALL of it with every request, which is why the 'in' token count grows each turn. Unchecked: only your new message is sent and nothing is kept, so the model can't refer to earlier messages."><input id="use-memory" type="checkbox" checked> <span class="help">Harness memory</span></label>
+    <label class="toggle" title="Only changes what the chat shows: the model still thinks before answering (which takes time and output tokens), and the RECEIVED blocks on the right still contain its thinking. Applies to the thinking already in the chat too."><input id="hide-thinking" type="checkbox"> <span class="help">Hide thinking</span></label>
     <button id="reset" title="Empty the harness memory: the model forgets the conversation, but the chat stays visible. Also unlocks the system prompt and agent.">Reset memory</button>
     <button id="clear" title="Start over: empty the memory and all three panels, and unlock the system prompt and agent.">Clear conversation</button>
     <button id="send">Send</button>
+    <button id="stop" hidden title="Stop the current turn. The harness stops reading from Ollama and closes the connection, which makes Ollama stop generating; tools that haven't run yet are skipped, and a change waiting for approval is refused. What the model already wrote stays in memory, and every tool call it made gets a 'stopped' result so the next request stays consistent.">Stop</button>
   </div>
   <div id="tools-row">
     <label class="toggle" title="Tools let the model ask the harness to run a function (read a file, get the time...). The model never runs anything itself: it replies with a tool call, the harness runs it and sends the result back in a new request. Unchecked: no tools are described to the model, so it doesn't know they exist."><input id="use-tools" type="checkbox" checked> <span class="help">Tools:</span></label>
     {% for tool in tools %}
     <label class="toggle tool" title="What the model is told: &quot;{{ tool.description }}&quot;&#10;&#10;While checked, this description is sent with every request, which costs input tokens."><input class="tool-checkbox" type="checkbox" value="{{ tool.name }}" checked> <span class="help">{{ tool.name }}</span></label>
     {% endfor %}
-    <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added) and the harness waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written immediately; use git to review or undo them."><input id="ask-approval" type="checkbox" checked> <span class="help">Ask before file changes</span></label>
+    <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added); before run_command runs, it shows the command. The harness then waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written and commands run immediately. Careful: the project-folder limit only applies to the file tools; a shell command can do anything your user account can (cd .., rm...), so approval is the real protection."><input id="ask-approval" type="checkbox" checked> <span class="help">Ask before changes and commands</span></label>
   </div>
 </div>
 
@@ -389,6 +406,7 @@ const terminalEl = document.getElementById("terminal");
 const memoryEl = document.getElementById("memory");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
+const stopBtn = document.getElementById("stop");
 const resetBtn = document.getElementById("reset");
 const memoryCheckbox = document.getElementById("use-memory");
 const toolsCheckbox = document.getElementById("use-tools");
@@ -435,6 +453,7 @@ async function sendMessage() {
   if (!text) return;
 
   input.value = "";
+  fitInput();
   // with memory on, this message starts (or continues) a conversation: lock its setup
   if (memoryCheckbox.checked) conversationLocked = true;
   setControlsDisabled(true);
@@ -506,17 +525,34 @@ async function sendMessage() {
         thinkingDiv = null;
         thinkingText = "";
       } else if (event.type === "approval") {
-        changeBox = renderChangeBox(event.name + " wants to change " + event.path, event.diff);
+        changeBox = event.command !== undefined
+          ? renderChangeBox("run_command wants to run, in " + projectInput.value + ":",
+                            "$ " + event.command)
+          : renderChangeBox(event.name + " wants to change " + event.path, event.diff,
+                            event.note);
         addApprovalButtons(changeBox, event.id);
+      } else if (event.type === "command") {
+        if (!changeBox) changeBox = renderChangeBox("run_command ran:", "$ " + event.command);
+        if (event.approved) {
+          const out = document.createElement("pre");
+          out.className = "command-output";
+          out.textContent = event.output || "(no output)";
+          changeBox.querySelector(".change-actions").before(out);
+        }
+        setChangeStatus(changeBox, event.approved, event.status);
+        changeBox = null;
+        printBlock("COMMAND — " + (event.approved ? event.status : "refused"),
+                   "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
       } else if (event.type === "change") {
-        if (!changeBox) changeBox = renderChangeBox(event.path, event.diff);
-        setChangeStatus(changeBox, event.approved);
+        if (!changeBox) changeBox = renderChangeBox(event.path, event.diff, event.note);
+        setChangeStatus(changeBox, event.approved, "written");
         changeBox = null;
         printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (refused)"),
-                   event.diff);
+                   (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
       } else if (event.type === "stopped") {
         printBlock("STOPPED", event.reason);
         addDivider(event.reason);
+        if (event.memory) memoryEl.textContent = event.memory;
       }
     }
   }
@@ -559,12 +595,18 @@ function renderMarkdown(div, text) {
   div.innerHTML = DOMPurify.sanitize(marked.parse(text));
 }
 
-function renderChangeBox(title, diff) {
+function renderChangeBox(title, diff, note) {
   const box = document.createElement("div");
   box.className = "change";
   const titleEl = document.createElement("div");
   titleEl.className = "change-title";
   titleEl.textContent = title;
+  if (note) {
+    const noteEl = document.createElement("div");
+    noteEl.className = "change-note";
+    noteEl.textContent = "Note: " + note + ".";
+    titleEl.appendChild(noteEl);
+  }
   const pre = document.createElement("pre");
   for (const line of diff.split("\n")) {
     const span = document.createElement("span");
@@ -602,11 +644,11 @@ function addApprovalButtons(box, id) {
   actions.append(deny, approve);
 }
 
-function setChangeStatus(box, approved) {
+function setChangeStatus(box, approved, doneLabel) {
   const actions = box.querySelector(".change-actions");
   const status = document.createElement("span");
   status.className = "change-status " + (approved ? "approved" : "refused");
-  status.textContent = approved ? "written" : "refused";
+  status.textContent = approved ? doneLabel : "refused";
   actions.replaceChildren(status);
 }
 
@@ -618,6 +660,10 @@ function setControlsDisabled(disabled) {
   for (const c of toolCheckboxes) c.disabled = disabled || !toolsCheckbox.checked;
   agentSelect.disabled = promptSelect.disabled = disabled || conversationLocked;
   lockNote.hidden = !conversationLocked;
+  // while a turn runs, Stop takes the place of Send
+  sendBtn.hidden = disabled;
+  stopBtn.hidden = !disabled;
+  stopBtn.disabled = false;
 }
 
 function unlockConversation() {
@@ -776,15 +822,36 @@ if (locked) {
   setControlsDisabled(false);
 }
 
+document.getElementById("hide-thinking").addEventListener("change", (e) => {
+  messagesEl.classList.toggle("hide-thinking", e.target.checked);
+});
+
 sendBtn.addEventListener("click", sendMessage);
+stopBtn.addEventListener("click", () => {
+  stopBtn.disabled = true;
+  fetch("/stop", { method: "POST" });
+});
 clearBtn.addEventListener("click", clearConversation);
 resetBtn.addEventListener("click", () => resetMemory("— memory reset —"));
 memoryCheckbox.addEventListener("change", () => {
   if (memoryCheckbox.checked) addDivider("— harness memory on —");
   else resetMemory("— harness memory off: memory cleared —");
 });
+function fitInput() {
+  input.style.height = "auto";
+  input.style.height = input.scrollHeight + 2 + "px";
+}
+
+input.addEventListener("input", fitInput);
 input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendMessage();
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  if (e.ctrlKey) {
+    input.setRangeText("\n", input.selectionStart, input.selectionEnd, "end");
+    fitInput();
+  } else {
+    sendMessage();
+  }
 });
 </script>
 

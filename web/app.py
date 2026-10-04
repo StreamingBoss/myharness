@@ -7,8 +7,12 @@ Bottom box = the harness memory.
 
 import difflib
 import json
+import os
+import signal
+import subprocess
 import sys
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -55,6 +59,10 @@ MAX_FILE_CHARS = 10_000  # a big file would fill the context window
 
 # file changes waiting for the user's Approve/Deny click, by id
 pending_approvals: dict[str, dict] = {}
+
+# set by the Stop button; checked between chunks and before each tool
+stop_requested = threading.Event()
+STOPPED_RESULT = "stopped: the user stopped the turn before this tool ran"
 APPROVAL_TIMEOUT = 600  # seconds; no answer counts as refused
 
 
@@ -92,20 +100,35 @@ def read_file(path: str) -> str:
     return text
 
 
-# the write tools only prepare the change: (file, its new content); the harness shows the diff,
-# asks the user if needed, and writes the file itself
-def write_file(path: str, content: str) -> tuple[Path, str]:
+ESCAPE_NOTE = "the harness turned literal \\n sequences sent by the model into real line breaks"
+
+
+def unescape(text: str) -> str:
+    # models sometimes escape their tool-call JSON twice: "\\n" arrives instead of a line break
+    for escaped, real in [("\\r\\n", "\n"), ("\\n", "\n"), ("\\t", "\t"), ('\\"', '"')]:
+        text = text.replace(escaped, real)
+    return text
+
+
+# the write tools only prepare the change: (file, its new content, a note about repairs);
+# the harness shows the diff, asks the user if needed, and writes the file itself
+def write_file(path: str, content: str) -> tuple[Path, str, str]:
     target = workspace_path(path)
     if target.is_dir():
         raise ValueError(f"'{path}' is a folder")
-    return target, content
+    if "\n" not in content and "\\n" in content:
+        return target, unescape(content), ESCAPE_NOTE
+    return target, content, ""
 
 
-def edit_file(path: str, old_text: str, new_text: str) -> tuple[Path, str]:
+def edit_file(path: str, old_text: str, new_text: str) -> tuple[Path, str, str]:
     target = workspace_path(path)
     text = target.read_text()
     if not old_text:
         raise ValueError("old_text is empty; use write_file to create a new file")
+    note = ""
+    if old_text not in text and "\\n" in old_text and unescape(old_text) in text:
+        old_text, new_text, note = unescape(old_text), unescape(new_text), ESCAPE_NOTE
     count = text.count(old_text)
     if count == 0:
         raise ValueError(
@@ -117,10 +140,18 @@ def edit_file(path: str, old_text: str, new_text: str) -> tuple[Path, str]:
             f"old_text appears {count} times in '{path}'. "
             "Include more surrounding lines so it matches only once."
         )
-    return target, text.replace(old_text, new_text, 1)
+    return target, text.replace(old_text, new_text, 1), note
 
 
-WRITE_TOOLS = {"write_file", "edit_file"}
+COMMAND_TIMEOUT = 60  # seconds
+
+
+# like the write tools, this only prepares: the harness asks the user if needed, then runs it
+def run_command(command: str) -> dict:
+    if not command.strip():
+        raise ValueError("command is empty")
+    return {"command": command}
+
 
 TOOL_FUNCTIONS = {
     "get_current_time": get_current_time,
@@ -129,6 +160,7 @@ TOOL_FUNCTIONS = {
     "read_file": read_file,
     "write_file": write_file,
     "edit_file": edit_file,
+    "run_command": run_command,
 }
 
 # what the model is told about the tools: sent with every request
@@ -227,11 +259,28 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Run a shell command (bash) in the project folder and get its output "
+            "and exit code. Use it to run scripts and tests, e.g. 'python3 primes.py', to check "
+            f"that code works. Commands are stopped after {COMMAND_TIMEOUT} seconds.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The bash command to run"},
+                },
+                "required": ["command"],
+            },
+        },
+    },
 ]
 
 
-def run_tool(name: str, arguments: dict, enabled: list[str]) -> str | tuple[Path, str]:
-    # returns the result for the model, or (file, new content) from a write tool
+def run_tool(name: str, arguments: dict, enabled: list[str]) -> str | tuple | dict:
+    # returns the result for the model, (file, new content, note) from a write tool,
+    # or {"command": ...} from run_command
     if name not in enabled:
         return f"error: unknown tool '{name}'"
     try:
@@ -304,11 +353,12 @@ def get_context_length(model: str) -> int:
 
 
 def stream_chat(payload: dict):
-    resp = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, stream=True)
-    resp.raise_for_status()
-    for line in resp.iter_lines():
-        if line:
-            yield line.decode("utf-8")
+    # leaving this generator early closes the connection, which makes Ollama stop generating
+    with requests.post(f"{OLLAMA_URL}/api/chat", json=payload, stream=True) as resp:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if line:
+                yield line.decode("utf-8")
 
 
 @app.route("/")
@@ -372,6 +422,14 @@ def browse():
     return {"path": str(path), "parent": parent, "folders": folders}
 
 
+@app.route("/stop", methods=["POST"])
+def stop():
+    stop_requested.set()
+    for pending in pending_approvals.values():
+        pending["event"].set()  # stop waiting; "approved" stays False
+    return {"ok": True}
+
+
 @app.route("/approve", methods=["POST"])
 def approve():
     pending = pending_approvals.get(request.json["id"])
@@ -395,6 +453,7 @@ def chat_endpoint():
     # names of the tools ticked in the page; empty when tools are off
     enabled_tools = [name for name in request.json["tools"] if name in TOOL_FUNCTIONS]
     ask_approval = request.json["ask_approval"]
+    stop_requested.clear()
     selected_tools = [t for t in TOOLS if t["function"]["name"] in enabled_tools]
     setup = {"agent": request.json["agent"], "prompt": request.json["prompt"]}
     if use_memory:
@@ -417,7 +476,7 @@ def chat_endpoint():
     def event(**fields) -> str:
         return json.dumps(fields) + "\n"
 
-    def apply_change(name: str, target: Path, new_text: str):
+    def apply_change(name: str, target: Path, new_text: str, note: str):
         # shows the diff, waits for the user's answer if asked to, writes the file;
         # yields events for the page and returns the result for the model
         is_new = not target.exists()
@@ -434,22 +493,71 @@ def chat_endpoint():
         )
         if not diff:
             return f"no change: '{rel}' already has this content"
-        approved = True
-        if ask_approval:
-            approval_id = uuid.uuid4().hex
-            pending = pending_approvals[approval_id] = {
-                "event": threading.Event(),
-                "approved": False,
-            }
-            yield event(type="approval", id=approval_id, name=name, path=rel, diff=diff)
-            pending["event"].wait(timeout=APPROVAL_TIMEOUT)
-            approved = pending_approvals.pop(approval_id)["approved"]
-        yield event(type="change", path=rel, diff=diff, approved=approved)
+        approved = yield from ask_user(name=name, path=rel, diff=diff, note=note)
+        yield event(type="change", path=rel, diff=diff, approved=approved, note=note)
+        if stop_requested.is_set():
+            return STOPPED_RESULT
         if not approved:
             return "refused: the user did not approve this change. Ask them what to do instead."
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(new_text)
-        return f"ok: {'created' if is_new else 'updated'} '{rel}'"
+        result = f"ok: {'created' if is_new else 'updated'} '{rel}'"
+        return f"{result} (note: {note})" if note else result
+
+    def ask_user(**fields):
+        # if asked to, shows Approve/Deny in the page and waits for the click; returns approved
+        if not ask_approval:
+            return True
+        approval_id = uuid.uuid4().hex
+        pending = pending_approvals[approval_id] = {"event": threading.Event(), "approved": False}
+        yield event(type="approval", id=approval_id, **fields)
+        pending["event"].wait(timeout=APPROVAL_TIMEOUT)
+        return pending_approvals.pop(approval_id)["approved"]
+
+    def execute_command(command: str):
+        # asks the user if needed, runs the command in the project folder; yields events for
+        # the page and returns the result for the model
+        approved = yield from ask_user(name="run_command", command=command)
+        if stop_requested.is_set():
+            yield event(type="command", command=command, approved=False, output="", status="")
+            return STOPPED_RESULT
+        if not approved:
+            yield event(type="command", command=command, approved=False, output="", status="")
+            return "refused: the user did not approve this command. Ask them what to do instead."
+        # a new session, so a timeout or Stop can kill the command and everything it started
+        proc = subprocess.Popen(
+            ["bash", "-c", command],
+            cwd=workspace,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            start_new_session=True,
+        )
+        started = time.time()
+        killed = ""
+        while True:
+            try:
+                output, _ = proc.communicate(timeout=0.3)
+                break
+            except subprocess.TimeoutExpired:
+                if stop_requested.is_set() or time.time() - started > COMMAND_TIMEOUT:
+                    killed = "stopped by the user" if stop_requested.is_set() else (
+                        f"timed out after {COMMAND_TIMEOUT} seconds"
+                    )
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass  # it just finished on its own
+        if len(output) > MAX_FILE_CHARS:
+            # errors usually come last, so keep the end
+            output = f"[first {len(output) - MAX_FILE_CHARS} characters cut]\n" + (
+                output[-MAX_FILE_CHARS:]
+            )
+        status = killed or f"exit code {proc.returncode}"
+        yield event(type="command", command=command, approved=True, output=output, status=status)
+        return f"{status}\noutput:\n{output}" if output else f"{status}\n(no output)"
 
     def generate():
         # without memory, this turn's messages are thrown away once the turn is over
@@ -472,7 +580,11 @@ def chat_endpoint():
             thinking_parts: list[str] = []
             tool_calls: list[dict] = []
 
-            for raw in stream_chat(payload):
+            chunks = stream_chat(payload)
+            for raw in chunks:
+                if stop_requested.is_set():
+                    chunks.close()
+                    break
                 chunk = json.loads(raw)
                 content = chunk["message"].get("content", "")
                 thinking = chunk["message"].get("thinking", "")
@@ -485,6 +597,12 @@ def chat_endpoint():
                     yield event(type="chunk", content=content)
 
             reply = "".join(reply_parts)
+            if stop_requested.is_set():
+                # keep the partial answer, but not a half-received tool call
+                if reply:
+                    conversation.append({"role": "assistant", "content": reply})
+                yield event(type="stopped", reason="stopped by the user", memory=str(messages))
+                return
             assistant_message = {"role": "assistant", "content": reply}
             if tool_calls:
                 assistant_message["tool_calls"] = tool_calls
@@ -518,9 +636,15 @@ def chat_endpoint():
             for call in tool_calls:
                 name = call["function"]["name"]
                 arguments = call["function"].get("arguments", {})
-                result = run_tool(name, arguments, enabled_tools)
+                if stop_requested.is_set():
+                    # every tool call needs a result, or the next request is inconsistent
+                    result = STOPPED_RESULT
+                else:
+                    result = run_tool(name, arguments, enabled_tools)
                 if isinstance(result, tuple):
                     result = yield from apply_change(name, *result)
+                elif isinstance(result, dict):
+                    result = yield from execute_command(result["command"])
                 conversation.append({"role": "tool", "tool_name": name, "content": result})
                 yield event(
                     type="tool",
@@ -529,6 +653,10 @@ def chat_endpoint():
                     result=result,
                     memory=str(messages),
                 )
+
+            if stop_requested.is_set():
+                yield event(type="stopped", reason="stopped by the user", memory=str(messages))
+                return
 
         yield event(type="stopped", reason=f"stopped after {MAX_STEPS} calls to the model")
 
