@@ -13,6 +13,8 @@
     "@types/diff": "^7.0.2",
     "@types/node": "^20.17.30",
     "c8": "^12.0.0",
+    "esbuild": "^0.28.2",
+    "fake-indexeddb": "^6.2.5",
     "playwright": "^1.63.0",
     "typescript": "^5.8.3"
   },

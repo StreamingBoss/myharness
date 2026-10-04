@@ -1,8 +1,10 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { minimatch } from 'minimatch';
 import { characters, sliceCharacters, lines } from '../format.js';
+import { ESCAPE_NOTE, unescape } from '../workspace.js';
+export { ESCAPE_NOTE, unescape } from '../workspace.js';
 
 export const MAX_FILE_CHARS = 10_000;
 const SKIP_DIRECTORIES = new Set([".git", ".venv", "node_modules", "__pycache__", ".mypy_cache"]);
@@ -12,6 +14,14 @@ export class WorkspaceAdapter {
   readonly root: string;
 
   constructor(root: string) { this.root = existsSync(root) ? realpathSync(root) : path.resolve(root); }
+
+  exists(file: string): boolean { return existsSync(file); }
+  isDirectory(file: string): boolean { return statSync(file).isDirectory(); }
+  relative(file: string): string { return path.relative(this.root, file); }
+  readText(file: string): Promise<string> { return readText(file); }
+  async writeText(file: string, text: string): Promise<void> {
+    await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text, 'utf8');
+  }
 
   pathFor(input: string): string {
     const candidate = path.isAbsolute(input) && this.isInside(path.resolve(input))
@@ -137,10 +147,4 @@ export class WorkspaceAdapter {
 /** Match Python's strict UTF-8 text reads and universal newline handling. */
 export async function readText(file: string): Promise<string> {
   return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(file)).replace(/\r\n?/g, '\n');
-}
-
-export const ESCAPE_NOTE = 'the harness turned literal \\n sequences sent by the model into real line breaks';
-export function unescape(text: string): string {
-  for (const [escaped, real] of [['\\r\\n', '\n'], ['\\n', '\n'], ['\\t', '\t'], ['\\"', '"']]) text = text.replaceAll(escaped!, real!);
-  return text;
 }
