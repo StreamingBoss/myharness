@@ -76,6 +76,16 @@
     color: #ddd;
     font-size: 14px;
   }
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 10px;
+    font-size: 13px;
+    color: #bbb;
+    white-space: nowrap;
+    cursor: pointer;
+  }
   #input-row button {
     margin-left: 8px;
     padding: 10px 16px;
@@ -86,6 +96,13 @@
     cursor: pointer;
   }
   #input-row button:disabled { opacity: 0.5; cursor: default; }
+  #input-row #reset, #input-row #clear { background: #555; }
+  .reset-divider {
+    text-align: center;
+    font-size: 12px;
+    color: #888;
+    margin: 12px 0;
+  }
 
   #harness-box {
     height: 25vh;
@@ -115,6 +132,10 @@
   <div id="messages"></div>
   <div id="input-row">
     <input id="input" type="text" placeholder="Type a message..." autofocus>
+    <label class="toggle"><input id="use-memory" type="checkbox" checked> Harness memory</label>
+    <label class="toggle"><input id="use-tools" type="checkbox" checked> Tools</label>
+    <button id="reset">Reset memory</button>
+    <button id="clear">Clear conversation</button>
     <button id="send">Send</button>
   </div>
 </div>
@@ -141,6 +162,11 @@ const terminalEl = document.getElementById("terminal");
 const memoryEl = document.getElementById("memory");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
+const resetBtn = document.getElementById("reset");
+const memoryCheckbox = document.getElementById("use-memory");
+const toolsCheckbox = document.getElementById("use-tools");
+const clearBtn = document.getElementById("clear");
+const initialTerminal = terminalEl.textContent;
 
 function renderChatBubble(role, text) {
   const div = document.createElement("div");
@@ -167,22 +193,24 @@ async function sendMessage() {
   if (!text) return;
 
   input.value = "";
-  input.disabled = true;
-  sendBtn.disabled = true;
+  setControlsDisabled(true);
 
   renderChatBubble("user", text);
-
-  const assistantDiv = renderChatBubble("assistant", "");
 
   const resp = await fetch("/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: text }),
+    body: JSON.stringify({
+      message: text,
+      use_memory: memoryCheckbox.checked,
+      use_tools: toolsCheckbox.checked,
+    }),
   });
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let assistantDiv = null;  // created on the first text chunk, after any tool notes
   let replyText = "";
 
   while (true) {
@@ -201,29 +229,67 @@ async function sendMessage() {
       if (event.type === "request") {
         printBlock("SENT to Ollama (POST /api/chat)", event.raw);
         memoryEl.textContent = event.memory;
-        continue;
-      }
-
-      if (event.content) {
+      } else if (event.type === "chunk") {
+        if (!event.content) continue;
+        if (!assistantDiv) assistantDiv = renderChatBubble("assistant", "");
         replyText += event.content;
         assistantDiv.textContent = replyText;
         messagesEl.scrollTop = messagesEl.scrollHeight;
-      }
-
-      if (event.done) {
+      } else if (event.type === "response") {
         printBlock("RECEIVED from Ollama", event.raw);
         printBlock("TOKENS", event.tokens);
         memoryEl.textContent = event.memory;
+      } else if (event.type === "tool") {
+        printBlock("TOOL — the harness ran " + event.name,
+                   "arguments: " + event.arguments + "\nresult:    " + event.result);
+        memoryEl.textContent = event.memory;
+        addDivider("used tool " + event.name);
+      } else if (event.type === "stopped") {
+        printBlock("STOPPED", event.reason);
+        addDivider(event.reason);
       }
     }
   }
 
-  input.disabled = false;
-  sendBtn.disabled = false;
+  setControlsDisabled(false);
+  input.focus();
+}
+
+function setControlsDisabled(disabled) {
+  for (const el of [input, sendBtn, resetBtn, clearBtn, memoryCheckbox, toolsCheckbox]) {
+    el.disabled = disabled;
+  }
+}
+
+function addDivider(text) {
+  const divider = document.createElement("div");
+  divider.className = "reset-divider";
+  divider.textContent = text;
+  messagesEl.appendChild(divider);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function resetMemory(dividerText) {
+  const resp = await fetch("/reset", { method: "POST" });
+  memoryEl.textContent = (await resp.json()).memory;
+  addDivider(dividerText);
+}
+
+async function clearConversation() {
+  const resp = await fetch("/reset", { method: "POST" });
+  memoryEl.textContent = (await resp.json()).memory;
+  messagesEl.replaceChildren();
+  terminalEl.textContent = initialTerminal;
   input.focus();
 }
 
 sendBtn.addEventListener("click", sendMessage);
+clearBtn.addEventListener("click", clearConversation);
+resetBtn.addEventListener("click", () => resetMemory("— memory reset —"));
+memoryCheckbox.addEventListener("change", () => {
+  if (memoryCheckbox.checked) addDivider("— harness memory on —");
+  else resetMemory("— harness memory off: memory cleared —");
+});
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendMessage();
 });
