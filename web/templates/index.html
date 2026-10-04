@@ -40,7 +40,10 @@
     max-width: 600px;
     font-family: ui-monospace, "SF Mono", Consolas, monospace;
   }
-  #settings-bar label:not(:first-child) { margin-left: 20px; }
+  #settings-bar .setting { display: flex; align-items: center; gap: 10px; }
+  #settings-bar .setting:has(#project) { flex: 1; max-width: 700px; }
+  #settings-bar .setting + .setting, #lock-note + .setting { margin-left: 20px; }
+  .help, .pane-header[title] { text-decoration: underline dotted #666; cursor: help; }
   #settings-bar button {
     padding: 6px 14px;
     border: none;
@@ -112,9 +115,16 @@
     overflow: hidden;
   }
   #chat-pane {
-    flex: 1;
-    border-right: 1px solid #444;
+    flex: 0 0 50%;
+    min-width: 0;
   }
+  #splitter {
+    flex: 0 0 6px;
+    cursor: col-resize;
+    background: #333;
+    touch-action: none;
+  }
+  #splitter:hover, #splitter.dragging { background: #2b5797; }
   #internals-pane {
     flex: 1;
     background: #141414;
@@ -229,11 +239,14 @@
   #input-row {
     flex-shrink: 0;
     display: flex;
+    flex-wrap: wrap;
+    row-gap: 8px;
     border-top: 1px solid #444;
     padding: 10px;
   }
-  #input-row input {
+  #input-row #input {
     flex: 1;
+    min-width: 180px;
     padding: 10px;
     border-radius: 6px;
     border: 1px solid #444;
@@ -305,15 +318,21 @@
 <body>
 
 <div id="settings-bar">
-  <label for="prompt">System prompt:</label>
-  <select id="prompt"></select>
-  <label for="agent">Agent:</label>
-  <select id="agent"></select>
+  <span class="setting" title="The product's base instructions, sent as the system message: the very first message of every request (look at the start of each SENT block). These are real prompts from Cursor, Codex, Claude and others. The ~tokens number is what the prompt costs on EVERY request, before you type anything. It is chosen once per conversation and locks after your first message, because changing it mid-conversation confuses the model and throws away Ollama's cache.">
+    <label for="prompt" class="help">System prompt:</label>
+    <select id="prompt"></select>
+  </span>
+  <span class="setting" title="A persona: your own instructions, added after the system prompt in the same system message. Choosing an agent also ticks the tools it needs. Agents are Markdown files in agents/ (in myharness, or in the project folder for project-specific ones). Like the system prompt, it locks after your first message.">
+    <label for="agent" class="help">Agent:</label>
+    <select id="agent"></select>
+  </span>
   <span id="lock-note" hidden title="Chosen at the start of the conversation. Unlocks with Clear conversation or Reset memory.">locked</span>
-  <label for="project">Project folder:</label>
-  <input id="project" type="text" value="{{ project }}" spellcheck="false">
-  <button id="browse">Browse…</button>
-  <button id="set-project">Set</button>
+  <span class="setting" title="The folder the file tools work in. The model cannot read or write anything outside it: the harness checks every path. Remembered when the harness restarts.">
+    <label for="project" class="help">Project folder:</label>
+    <input id="project" type="text" value="{{ project }}" spellcheck="false">
+  </span>
+  <button id="browse" title="Pick the project folder by browsing the folders on this machine.">Browse…</button>
+  <button id="set-project" title="Use the path typed in the field as the project folder.">Set</button>
   <span id="project-error"></span>
 </div>
 
@@ -328,26 +347,28 @@
 
 <div id="panes">
 <div id="chat-pane">
-  <div class="pane-header">Chat — {{ model }}</div>
+  <div class="pane-header" title="What a chat app shows you: your messages and the model's answers. Everything else the harness does is hidden here, and shown on the right and at the bottom.">Chat — {{ model }}</div>
   <div id="messages"></div>
   <div id="input-row">
     <input id="input" type="text" placeholder="Type a message..." autofocus>
-    <label class="toggle"><input id="use-memory" type="checkbox" checked> Harness memory</label>
-    <button id="reset">Reset memory</button>
-    <button id="clear">Clear conversation</button>
+    <label class="toggle" title="The model remembers nothing between requests. Checked: the harness keeps the conversation (the messages list at the bottom) and re-sends ALL of it with every request, which is why the 'in' token count grows each turn. Unchecked: only your new message is sent and nothing is kept, so the model can't refer to earlier messages."><input id="use-memory" type="checkbox" checked> <span class="help">Harness memory</span></label>
+    <button id="reset" title="Empty the harness memory: the model forgets the conversation, but the chat stays visible. Also unlocks the system prompt and agent.">Reset memory</button>
+    <button id="clear" title="Start over: empty the memory and all three panels, and unlock the system prompt and agent.">Clear conversation</button>
     <button id="send">Send</button>
   </div>
   <div id="tools-row">
-    <label class="toggle"><input id="use-tools" type="checkbox" checked> Tools:</label>
-    {% for name in tool_names %}
-    <label class="toggle tool"><input class="tool-checkbox" type="checkbox" value="{{ name }}" checked> {{ name }}</label>
+    <label class="toggle" title="Tools let the model ask the harness to run a function (read a file, get the time...). The model never runs anything itself: it replies with a tool call, the harness runs it and sends the result back in a new request. Unchecked: no tools are described to the model, so it doesn't know they exist."><input id="use-tools" type="checkbox" checked> <span class="help">Tools:</span></label>
+    {% for tool in tools %}
+    <label class="toggle tool" title="What the model is told: &quot;{{ tool.description }}&quot;&#10;&#10;While checked, this description is sent with every request, which costs input tokens."><input class="tool-checkbox" type="checkbox" value="{{ tool.name }}" checked> <span class="help">{{ tool.name }}</span></label>
     {% endfor %}
-    <label class="toggle"><input id="ask-approval" type="checkbox" checked> Ask before file changes</label>
+    <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added) and the harness waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written immediately; use git to review or undo them."><input id="ask-approval" type="checkbox" checked> <span class="help">Ask before file changes</span></label>
   </div>
 </div>
 
+<div id="splitter" title="Drag to resize the chat and Internals panes"></div>
+
 <div id="internals-pane">
-  <div class="pane-header">Internals</div>
+  <div class="pane-header" title="Everything exchanged with Ollama. SENT (orange): the full request, rebuilt every time; your new message is in red. RECEIVED (green): the model's response with its statistics; the model's message is in blue. TOKENS: input + output tokens out of the context window. TOOL and FILE CHANGE: what the harness ran for the model.">Internals</div>
   <pre id="terminal">----------------------------------------
 MODEL
 ----------------------------------------
@@ -358,7 +379,7 @@ Model: {{ model }}  (context window: {{ context_length }} tokens)
 </div>
 
 <div id="harness-box">
-  <div class="pane-header">Harness internals — memory (the <code>messages</code> list kept by the harness)</div>
+  <div class="pane-header" title="The messages list the harness keeps: the model's only 'memory'. It's sent again with every request (after the system message). Tool calls and tool results are stored here too; the system prompt and the model's thinking are not.">Harness internals — memory (the <code>messages</code> list kept by the harness)</div>
   <pre id="memory">{{ memory }}</pre>
 </div>
 
@@ -505,6 +526,33 @@ async function sendMessage() {
 }
 
 let changeBox = null;  // the diff box of the file change being handled
+
+const chatPane = document.getElementById("chat-pane");
+const splitter = document.getElementById("splitter");
+
+function setChatWidth(percent) {
+  chatPane.style.flexBasis = Math.min(80, Math.max(20, percent)) + "%";
+}
+
+try {
+  const saved = localStorage.getItem("chatWidth");
+  if (saved) setChatWidth(Number(saved));
+} catch {}
+
+splitter.addEventListener("pointerdown", (e) => {
+  splitter.setPointerCapture(e.pointerId);
+  splitter.classList.add("dragging");
+});
+splitter.addEventListener("pointermove", (e) => {
+  if (!splitter.hasPointerCapture(e.pointerId)) return;
+  const panes = document.getElementById("panes").getBoundingClientRect();
+  setChatWidth(100 * (e.clientX - panes.left) / panes.width);
+});
+splitter.addEventListener("pointerup", () => {
+  splitter.classList.remove("dragging");
+  if (!chatPane.style.flexBasis) return;
+  try { localStorage.setItem("chatWidth", parseFloat(chatPane.style.flexBasis)); } catch {}
+});
 
 function renderMarkdown(div, text) {
   div.classList.add("markdown");

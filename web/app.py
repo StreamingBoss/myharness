@@ -318,7 +318,10 @@ def index():
         model=MODEL,
         context_length=context_length,
         memory=str(messages),
-        tool_names=list(TOOL_FUNCTIONS),
+        tools=[
+            {"name": t["function"]["name"], "description": t["function"]["description"]}
+            for t in TOOLS
+        ],
         agents=agent_list(),
         prompts=prompt_list(),
         project=str(workspace),
