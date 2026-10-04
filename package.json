@@ -5,10 +5,18 @@
   "scripts": {
     "build:ts": "tsc --project tsconfig.json",
     "test:ts": "npm run build:ts && node --test dist/typescript/tests/*.test.js",
-    "start:ts": "npm run build:ts && node dist/typescript/src/node/server.js"
+    "start:ts": "npm run build:ts && node dist/typescript/src/node/server.js",
+    "headless:ts": "npm run build:ts && node dist/typescript/src/node/headless.js",
+    "coverage:ts": "npm run build:ts && c8 --all --include 'dist/typescript/src/**/*.js' --exclude '' --check-coverage --lines 100 --branches 100 --functions 100 --statements 100 node --test dist/typescript/tests/*.test.js"
   },
   "devDependencies": {
+    "@types/diff": "^7.0.2",
     "@types/node": "^20.17.30",
+    "c8": "^12.0.0",
     "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "diff": "^9.0.0",
+    "minimatch": "^10.2.6"
   }
 }

@@ -171,7 +171,7 @@ export class HarnessCore {
       yield this.emit({
         type: "response", parts: this.host.splitJson({ ...finalChunk, message: MARKER }, received),
         tokens: `[${tokensIn} in + ${tokensOut} out = ${used} |${used} / ${this.host.contextLength()} ]`,
-        tokens_in: tokensIn, context_length: this.host.contextLength(), memory: this.host.memoryText(),
+        tokens_in: tokensIn, context_length: this.host.contextLength(), memory: this.host.memoryText(), content: answer,
       });
       if (!toolCalls.length) return;
 

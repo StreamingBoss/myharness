@@ -45,11 +45,11 @@ test("Ollama adapter rejects failed or body-less streamed responses", async () =
 });
 
 test("Ollama adapter validates model context metadata", async () => {
-  const adapter = new OllamaAdapter(async () => response({ json: async () => ({ models: [{ name: "qwen", details: { context_length: 4096 } }] }) }), "http://ollama");
+  const adapter = new OllamaAdapter(async () => response({ json: async () => ({ model_info: { 'general.architecture': 'qwen3', 'qwen3.context_length': 4096 } }) }), "http://ollama");
   assert.equal(await adapter.contextLength("qwen"), 4096);
   const failed = new OllamaAdapter(async () => response({ ok: false, status: 404 }), "http://ollama");
   await assert.rejects(() => failed.contextLength("missing"), /404/);
-  const invalid = new OllamaAdapter(async () => response({ json: async () => ({ models: [{ name: "qwen", details: { context_length: 0 } }] }) }), "http://ollama");
+  const invalid = new OllamaAdapter(async () => response({ json: async () => ({ model_info: { 'general.architecture': 'qwen3', 'qwen3.context_length': 0 } }) }), "http://ollama");
   await assert.rejects(() => invalid.contextLength("qwen"), /did not report/);
   const missing = new OllamaAdapter(async () => response({ json: async () => ({ models: {} }) }), "http://ollama");
   await assert.rejects(() => missing.contextLength("qwen"), /did not report/);

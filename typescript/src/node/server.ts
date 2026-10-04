@@ -1,19 +1,16 @@
-import path from "node:path";
+import { pathToFileURL } from 'node:url';
+import { loadHarness } from './startup.js';
+import { createHarnessServer } from './http.js';
 
-import { NodeHarness } from "./harness.js";
-import { createHarnessServer } from "./http.js";
-import { OllamaAdapter } from "./ollama.js";
-
-const model = process.env.MYHARNESS_MODEL ?? "qwen3:8b";
-const workspace = path.resolve(process.env.MYHARNESS_WORKSPACE ?? "workspace");
-const port = Number.parseInt(process.env.MYHARNESS_PORT ?? "5001", 10);
-const ollama = new OllamaAdapter(fetch, process.env.OLLAMA_URL ?? "http://localhost:11434");
-const contextLength = await ollama.contextLength(model);
-const harness = new NodeHarness({ workspace, model, contextLength, ollama });
-const server = createHarnessServer(harness);
-
-server.listen(port, () => {
+export async function startServer(env: NodeJS.ProcessEnv = process.env) {
+  const harness = await loadHarness(env);
+  const server = createHarnessServer(harness, { projectRoot: env.MYHARNESS_ROOT ?? process.cwd(), uiOrigins: env.MYHARNESS_UI_ORIGIN ?? '' });
+  const port = Number(env.MYHARNESS_PORT ?? '5001');
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
   console.log(`TypeScript harness on http://localhost:${port}`);
-  console.log(`Model: ${model} (${contextLength} tokens)`);
-  console.log(`Workspace: ${workspace}`);
-});
+  return server;
+}
+if (import.meta.url === pathToFileURL(process.argv[1]!).href) {
+  try { await startServer(); }
+  catch (error) { console.error(`Could not start harness: ${(error as Error).message}`); process.exitCode = 1; }
+}

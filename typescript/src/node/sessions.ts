@@ -3,6 +3,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { ChatMessage } from "../core.js";
+import type { Snapshots } from './catalog.js';
+import { TOOL_NAMES } from './tools.js';
 
 export interface SessionRecord {
   format: "myharness-session";
@@ -17,7 +19,8 @@ export interface SessionRecord {
   memory: ChatMessage[];
   last_prompt_tokens: number;
   setup: { agent: string; prompt: string };
-  snapshots: Record<string, unknown>;
+  snapshots: Snapshots;
+  missing_workspace?: boolean;
   project_instructions: [string, string] | null;
   events: Record<string, unknown>[];
   settings: { use_memory: boolean; tools: string[]; ask_approval: boolean };
@@ -34,7 +37,7 @@ export class SessionStore {
     return { format: "myharness-session", version: 1, id: randomUUID().replaceAll("-", ""), name,
       created_at: time, updated_at: time, ...input, memory: [], last_prompt_tokens: 0,
       setup: { agent: "", prompt: "" }, snapshots: {}, project_instructions: null, events: [],
-      settings: { use_memory: true, tools: [], ask_approval: true } };
+      settings: { use_memory: true, tools: [...TOOL_NAMES], ask_approval: true } };
   }
 
   async save(record: SessionRecord): Promise<void> {
@@ -74,5 +77,39 @@ export class SessionStore {
     return record as SessionRecord;
   }
 
-  private file(id: string): string { return path.join(this.directory, `${id}.json`); }
+  private file(id: string): string {
+    if (!/^[\w-]+$/.test(id)) throw new Error('Invalid session ID');
+    return path.join(this.directory, `${id}.json`);
+  }
+
+  async uniqueName(name: string, excludeId = ''): Promise<string> {
+    const names = new Set((await this.list()).filter(record => record.id !== excludeId).map(record => record.name));
+    let candidate = name, suffix = 2;
+    while (names.has(candidate)) candidate = `${name} (${suffix++})`;
+    return candidate;
+  }
+
+  async import(value: unknown): Promise<SessionRecord> {
+    const record = structuredClone(this.validate(value));
+    record.id = randomUUID().replaceAll('-', '');
+    record.name = await this.uniqueName(`${record.name} (imported)`);
+    record.created_at = now();
+    await this.save(record);
+    return record;
+  }
+}
+
+export function sessionTitle(text: string): string {
+  const compact = text.trim().split(/\s+/).join(' ');
+  return [...compact].slice(0, 60).join('') + ([...compact].length > 60 ? '…' : '');
+}
+
+export function sessionSummary(record: SessionRecord): Record<string, string> {
+  let name = record.name;
+  if (name === 'New session') {
+    const event = record.events.find(event => event.type === 'chat_user' && typeof event.content === 'string');
+    const message = record.memory.find(message => message.role === 'user');
+    name = sessionTitle(String(event?.content ?? message?.content ?? '')) || name;
+  }
+  return { id: record.id, name, created_at: record.created_at, updated_at: record.updated_at, workspace: record.workspace, model: record.model };
 }
