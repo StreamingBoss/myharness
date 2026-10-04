@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { HarnessCore, type ChatMessage, type CoreEvent, type ModelRequest, type ToolDefinition, type ToolResult, type Turn, type TurnHost } from "../core.js";
@@ -27,7 +28,7 @@ export interface ModelPort {
   streamChat(payload: ModelRequest): AsyncIterable<string>;
 }
 
-const TOOL_NAMES = ["get_current_time", "pwd", "list_files", "read_file", "write_file"];
+const TOOL_NAMES = ["get_current_time", "pwd", "list_files", "read_file", "write_file", "run_command"];
 const tools: ToolDefinition[] = TOOL_NAMES.map((name) => ({
   type: "function", function: { name, description: name, parameters: {} },
 }));
@@ -102,6 +103,7 @@ export class NodeHarness implements TurnHost {
     if (name === "list_files") return { kind: "text", text: await this.workspace.listFiles(this.stringArgument(arguments_, "path", ".")) };
     if (name === "read_file") return { kind: "text", text: await this.workspace.readNumbered(this.stringArgument(arguments_, "path"), this.numberArgument(arguments_, "start_line", 1), this.optionalNumber(arguments_, "end_line")) };
     if (name === "write_file") return { kind: "change", change: { path: this.stringArgument(arguments_, "path"), content: this.stringArgument(arguments_, "content") } };
+    if (name === "run_command") return { kind: "command", command: this.stringArgument(arguments_, "command") };
     return { kind: "text", text: `error: unknown tool '${name}'` };
   }
 
@@ -127,9 +129,32 @@ export class NodeHarness implements TurnHost {
     return apply();
   }
 
-  async *executeCommand(): AsyncGenerator<CoreEvent, string, void> {
-    yield { type: "command", approved: false, output: "", status: "unsupported by this Node-host increment" };
-    return "error: run_command is not yet available in the Node host";
+  async *executeCommand(command: string): AsyncGenerator<CoreEvent, string, void> {
+    if (!command.trim()) throw new Error("command is empty");
+    let approved = true;
+    if (this.currentAskApproval) {
+      const id = crypto.randomUUID();
+      yield { type: "approval", id, name: "run_command", command };
+      approved = await new Promise<boolean>((resolve) => this.approvals.set(id, resolve));
+    }
+    if (this.state.stopped) {
+      yield { type: "command", command, approved: false, output: "", status: "" };
+      return "stopped: the user stopped the turn before this tool ran";
+    }
+    if (!approved) {
+      yield { type: "command", command, approved: false, output: "", status: "" };
+      return "refused: the user did not approve this command. Ask them what to do instead.";
+    }
+    const result = await new Promise<{ output: string; status: string }>((resolve, reject) => {
+      const process = spawn("bash", ["-c", command], { cwd: this.workspace.root, detached: true });
+      let output = "";
+      process.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+      process.stderr.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+      process.on("error", reject);
+      process.on("close", (code) => resolve({ output: output.length > 10_000 ? `[first ${output.length - 10_000} characters cut]\n${output.slice(-10_000)}` : output, status: `exit code ${code ?? 1}` }));
+    });
+    yield { type: "command", command, approved: true, output: result.output, status: result.status };
+    return result.output ? `${result.status}\noutput:\n${result.output}` : `${result.status}\n(no output)`;
   }
 
   private stringArgument(arguments_: Record<string, unknown>, name: string, fallback?: string): string {

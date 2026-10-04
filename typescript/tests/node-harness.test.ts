@@ -28,3 +28,16 @@ test("Node harness runs the TypeScript core with remembered state and a workspac
   harness.reset();
   assert.equal(harness.inspect().memory.length, 0);
 });
+
+test("Node harness executes an approved-by-policy command in the workspace", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "myharness-command-"));
+  const harness = new NodeHarness({ workspace: root, model: "scripted", contextLength: 3000, ollama: new ScriptedModel([
+    [{ message: { tool_calls: [{ function: { name: "run_command", arguments: { command: "printf done" } } }] }, done: true }],
+    [{ message: { content: "done" }, done: true }],
+  ]) });
+  const events = [];
+  for await (const event of harness.submit({ message: "run", useMemory: false, tools: ["run_command"], askApproval: false, agent: "", prompt: "" })) events.push(event);
+  const command = events.find((event) => event.type === "command");
+  assert.equal(command?.approved, true);
+  assert.equal(command?.output, "done");
+});

@@ -151,8 +151,11 @@ class HarnessCore:
                 "type": "response", "parts": self.host.split_json(chunk | {"message": marker}, received_message),
                 "tokens": f"[{tokens_in} in + {tokens_out} out = {used} |{used} / {self.host.context_length()} ]",
                 "tokens_in": tokens_in, "context_length": self.host.context_length(), "memory": self.host.memory_text(),
+                "content": reply,
             })
             if not tool_calls:
+                if not reply:
+                    yield self._emit({"type": "stopped", "reason": "The model returned an empty reply. Send another message to try again.", "memory": self.host.memory_text()})
                 return
 
             for call in tool_calls:

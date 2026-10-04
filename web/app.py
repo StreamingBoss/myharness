@@ -39,6 +39,8 @@ def allow_configured_ui_origin(response):
     if origin and origin in allowed:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return response
 
 messages: list[dict] = []  # alias to the active session's retained model memory
@@ -872,17 +874,18 @@ def render_qwen_prompt(messages: list[dict], tools: list[dict]) -> str:
 
 
 def get_context_length(model: str) -> int:
-    resp = requests.get(f"{OLLAMA_URL}/api/tags")
+    resp = requests.post(f"{OLLAMA_URL}/api/show", json={"model": model}, timeout=30)
     resp.raise_for_status()
-    for entry in resp.json()["models"]:
-        if entry["name"] == model:
-            return entry["details"]["context_length"]
-    raise ValueError(f"Model '{model}' not found locally. Run: ollama pull {model}")
+    info = resp.json().get("model_info", {})
+    length = info.get(f"{info.get('general.architecture', '')}.context_length")
+    if type(length) is not int or length <= 0:
+        raise ValueError(f"Model '{model}' did not report a positive context length")
+    return length
 
 
 def stream_chat(payload: dict):
     # leaving this generator early closes the connection, which makes Ollama stop generating
-    with requests.post(f"{OLLAMA_URL}/api/chat", json=payload, stream=True) as resp:
+    with requests.post(f"{OLLAMA_URL}/api/chat", json=payload, stream=True, timeout=(10, 180)) as resp:
         resp.raise_for_status()
         for line in resp.iter_lines():
             if line:
@@ -1042,6 +1045,8 @@ def agent_list() -> list[dict]:
 @app.route("/project", methods=["POST"])
 def set_project():
     global workspace
+    if turn_lock.locked():
+        return {"error": "Wait for the running turn before changing projects."}, 409
     raw = request.json["path"].strip()
     if len(raw) >= 2 and raw[1] == ":":
         return {"error": "use a WSL path: C:\\code\\x is /mnt/c/code/x"}, 400
@@ -1052,6 +1057,7 @@ def set_project():
         return {"error": f"'{raw}' is a file, not a folder"}, 400
     workspace = path
     if active_session.get("id"):
+        active_session.pop("missing_workspace", None)
         active_session["workspace"] = str(workspace)
         active_session["project_instructions"] = load_project_instructions()
         record_event({"type": "session", "action": "project", "workspace": str(workspace)})
@@ -1165,7 +1171,9 @@ def approve():
     pending = pending_approvals.get(request.json["id"])
     if not pending:
         return {"error": "this change is no longer waiting for an answer"}, 404
-    pending["approved"] = bool(request.json["approved"])
+    if type(request.json.get("approved")) is not bool:
+        return {"error": "approved must be a JSON boolean"}, 400
+    pending["approved"] = request.json["approved"]
     pending["event"].set()
     return {"ok": True}
 
@@ -1211,6 +1219,8 @@ def explore():
 @app.route("/reset", methods=["POST"])
 def reset():
     global last_prompt_tokens, conversation_setup
+    if turn_lock.locked():
+        return {"error": "Wait for the running turn before resetting memory."}, 409
     messages.clear()
     last_prompt_tokens = 0
     if active_session.get("id"):
@@ -1228,6 +1238,8 @@ def chat_endpoint():
     if active_session.get("missing_workspace") or not workspace.is_dir():
         return {"error": "The saved project folder is missing. Choose a replacement folder before continuing."}, 409
     user_input = request.json["message"]
+    if turn_lock.locked():
+        return {"error": "A turn is already running."}, 409
     use_memory = request.json["use_memory"]
     # names of the tools ticked in the page; empty when tools are off
     enabled_tools = [name for name in request.json["tools"] if name in TOOL_FUNCTIONS]
@@ -1435,6 +1447,10 @@ def chat_endpoint():
     def locked_generate():
         try:
             yield from generate()
+        except (requests.RequestException, ValueError, KeyError, TypeError, OSError) as error:
+            fields = {"type": "stopped", "reason": f"Turn failed: {error}", "memory": str(messages)}
+            record_event(fields)
+            yield json.dumps(fields) + "\n"
         finally:
             turn_lock.release()
 
