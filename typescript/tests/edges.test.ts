@@ -46,6 +46,9 @@ test('workspace limits, symlinks, invalid UTF8, glob classes and repair semantic
   assert.equal(await adapter.readNumbered('newlines'), '   1: a\n   2: b\n   3: c');
   assert.equal((await adapter.edit('newlines', 'a\nb', 'changed')).content, 'changed\nc\n');
   assert.deepEqual(lines('a\vb\fc\x85d\u2028e\u2029'), ['a', 'b', 'c', 'd', 'e']);
+  await writeFile(path.join(dir, 'bom'), '\uFEFFone');
+  assert.equal(await adapter.search('one', 'bom'), 'bom:1: \uFEFFone');
+  assert.equal((await adapter.edit('bom', 'one', 'new')).content, '\uFEFFnew');
 });
 
 test('catalog edge formats, project instruction cap, and absent directories', async t => {

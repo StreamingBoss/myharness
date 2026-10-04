@@ -82,8 +82,7 @@
     "files": {}
   },
   "files": {
-    "😀.txt": "a\r\nb\rc
-d\n"
+    "😀.txt": "a\r\nb\rc\u2028d\n"
   },
   "name": "unicode_lines"
 }

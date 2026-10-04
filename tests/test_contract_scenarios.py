@@ -69,6 +69,8 @@ class ContractScenarios(unittest.TestCase):
         scenario_dir = Path(__file__).with_name("scenarios")
         for file in sorted(scenario_dir.glob("*.json")):
             with self.subTest(file=file.name):
+                harness.workspace = self.root / file.stem
+                harness.workspace.mkdir()
                 self.run_scenario(json.loads(file.read_text()))
 
     def run_scenario(self, scenario):

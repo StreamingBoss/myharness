@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -56,4 +56,18 @@ test('executable launchers handle help, successful startup and connection failur
   assert.equal((await fetch(base + '/bootstrap')).status, 200);
   child.kill('SIGINT'); await new Promise(resolve => child.once('close', resolve));
   const direct = await execute('dist/typescript/src/node/headless.js', ['hello', '--tools', 'pwd'], env); assert.equal(direct.code, 0); assert.match(direct.text, /"content":"hello"/);
+});
+
+test('web launcher selects TypeScript, honors its port and stops after Ollama startup failure', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'myharness-web-launch-')); t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(path.join(root, 'web.sh'), await readFile('web.sh'));
+  await writeFile(path.join(root, 'ollama.sh'), '#!/bin/sh\nexit "${SH_TEST_STATUS:-0}"\n', { mode: 0o700 });
+  await writeFile(path.join(root, 'npm'), '#!/bin/sh\nprintf "backend=%s args=%s\\n" "$MYHARNESS_PORT" "$*"\n', { mode: 0o700 });
+  const execute = (port: string, status = '0') => new Promise<{ code: number | null; text: string }>(resolve => {
+    const child = spawn('bash', [path.join(root, 'web.sh')], { env: { ...process.env, PATH: root + ':' + process.env.PATH, MYHARNESS_PORT: port, SH_TEST_STATUS: status } }); let text = '';
+    child.stdout.on('data', data => { text += String(data); }); child.on('close', code => resolve({ code, text }));
+  });
+  const standard = await execute(''); assert.equal(standard.code, 0); assert.match(standard.text, /backend=5000 args=run start:ts/);
+  const override = await execute('5001'); assert.match(override.text, /localhost:5001/); assert.match(override.text, /backend=5001/);
+  const failed = await execute('', '1'); assert.equal(failed.code, 1); assert.match(failed.text, /Could not start Ollama/); assert.ok(!failed.text.includes('backend='));
 });

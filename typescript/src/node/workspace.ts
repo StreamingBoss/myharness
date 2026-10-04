@@ -73,7 +73,7 @@ export class WorkspaceAdapter {
     for (const relative of files) {
       if (!matcher(path.basename(relative)) && !matcher(relative)) continue;
       try {
-        const text = new TextDecoder('utf-8', { fatal: true }).decode(await readFile(this.pathFor(relative)));
+        const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(this.pathFor(relative)));
         if (text.includes("\0")) continue;
         for (const [index, line] of lines(text).entries()) {
           if (!line.includes(pattern)) continue;
@@ -136,7 +136,7 @@ export class WorkspaceAdapter {
 
 /** Match Python's strict UTF-8 text reads and universal newline handling. */
 export async function readText(file: string): Promise<string> {
-  return new TextDecoder('utf-8', { fatal: true }).decode(await readFile(file)).replace(/\r\n?/g, '\n');
+  return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(file)).replace(/\r\n?/g, '\n');
 }
 
 export const ESCAPE_NOTE = 'the harness turned literal \\n sequences sent by the model into real line breaks';

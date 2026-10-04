@@ -13,6 +13,9 @@ the migration. Browser execution is a subsequent milestone with its own runtime
 adapters; do not combine browser limitations with language-porting changes.
 Keep `harness.py` as the minimal Python reference.
 
+The Phase 1/2 paths below describe the historical Python layout. Those modules
+now live under `tests/python_reference/` after the Phase 3 runtime cutover.
+
 ## Phase 1: establish a tested behavioral baseline
 
 **Status: complete on October 4, 2026.** The deterministic suite has 100% line
@@ -90,9 +93,16 @@ Flask or UI modules.
 
 ## Phase 3: port the backend to TypeScript
 
-**Status: in progress on October 4, 2026.** Start by porting the strict,
-transport-free core and exercising the shared scenarios before adding Node
-runtime adapters or switching the HTTP host.
+**Status: complete on October 4, 2026.** The strict, transport-free core and
+session-owned Node backend implement the full harness. The existing UI and
+direct headless runner use that backend. Every TypeScript backend module has
+100% line, branch, function and statement coverage. Shared HTTP scenarios
+compare Python and TypeScript events, model requests, memory and file effects.
+Chromium checks cover same-origin hydration/history and separate-origin
+approval/export. An isolated production-Ollama check returned `OK` and saved
+its session. `web.sh` now starts TypeScript. The full Python backend is retired
+to `tests/python_reference/` as a test oracle; Flask is a development dependency.
+`harness.py` remains unchanged.
 
 - Create a strict TypeScript core with explicit types for configuration, messages,
   tool calls, client actions, state, and events. Use asynchronous iteration for
@@ -123,12 +133,15 @@ runtime adapters or switching the HTTP host.
   is satisfied; then retire the old full backend and its dependencies. Preserve
   the minimal Python reference and update setup, architecture, and handover docs.
 
-**Gate:** strict type checking, TS unit/coverage checks, shared contract scenarios,
+**Gate: passed.** Strict type checking, TS unit/coverage checks, shared contract scenarios,
 headless checks, and UI smoke checks pass. A separately isolated real-Ollama smoke
 check confirms the production adapter when Ollama is available. Any intentional
 behavior difference must be documented and reflected in the contract before cutover.
 
-## Following milestone: browser runtime
+## Phase 4: browser runtime and educational distribution
+
+**Status: planned; not implemented by Phase 3.** The UI runs in the browser;
+the current full backend runs in Node. Browser execution needs its own adapters.
 
 Reuse the same TypeScript core with a Worker host, browser workspace adapter, and
 chosen model adapter. Decide live-model delivery and supported tools separately.
@@ -140,5 +153,5 @@ Python-to-TypeScript replacement.
 
 Run integrations on isolated ports/workspaces/settings and never interact with
 the owner's port-5000 session. Keep phases reviewable as separate changes. Do
-not commit unless requested. These phases authorize a plan, not an implementation
-change in the current documentation task.
+not commit unless requested. The user has authorized implementation through
+Phase 3. Phase 4 remains the next milestone.
