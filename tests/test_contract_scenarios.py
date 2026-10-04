@@ -83,9 +83,21 @@ class ContractScenarios(unittest.TestCase):
                 yield json.dumps(chunk)
 
         approval = scenario.get("approval")
+        for name, content in scenario.get('files', {}).items():
+            target = harness.workspace / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content)
+        class Answer:
+            def wait(self, timeout):
+                for pending in harness.pending_approvals.values():
+                    pending['approved'] = approval == 'approve'
+                if approval == 'stop':
+                    harness.stop_requested.set()
+            def set(self):
+                pass
         patches = [patch.object(harness, "stream_chat", side_effect=stream_chat)]
-        if approval == "deny":
-            patches.append(patch.object(harness.threading, "Event", DenyImmediately))
+        if approval:
+            patches.append(patch.object(harness.threading, "Event", Answer))
         with patches[0]:
             if len(patches) == 2:
                 with patches[1]:
@@ -103,6 +115,8 @@ class ContractScenarios(unittest.TestCase):
             self.assertEqual(harness.messages[-1]["content"] if harness.messages else scenario["request"]["message"], expected["last_content"])
         for relative in expected.get("absent_files", []):
             self.assertFalse((harness.workspace / relative).exists())
+        for relative, content in expected.get('files', {}).items():
+            self.assertEqual((harness.workspace / relative).read_text(), content)
 
 
 if __name__ == "__main__":

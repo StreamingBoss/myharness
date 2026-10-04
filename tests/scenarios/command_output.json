@@ -1,0 +1,63 @@
+{
+  "request": {
+    "message": "Do the work",
+    "use_memory": true,
+    "tools": [
+      "run_command"
+    ],
+    "ask_approval": false,
+    "agent": "",
+    "prompt": ""
+  },
+  "model_turns": [
+    [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "run_command",
+                "arguments": {
+                  "command": "printf result"
+                }
+              }
+            }
+          ]
+        },
+        "done": true,
+        "prompt_eval_count": 10,
+        "eval_count": 1
+      }
+    ],
+    [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "Done"
+        },
+        "done": true,
+        "prompt_eval_count": 15,
+        "eval_count": 2
+      }
+    ]
+  ],
+  "expect": {
+    "event_types": [
+      "request",
+      "response",
+      "command",
+      "tool",
+      "request",
+      "response"
+    ],
+    "memory_roles": [
+      "user",
+      "assistant",
+      "tool",
+      "assistant"
+    ]
+  },
+  "name": "command_output"
+}

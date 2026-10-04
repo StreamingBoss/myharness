@@ -1,0 +1,56 @@
+{
+  "approval": "stop",
+  "request": {
+    "message": "Do the work",
+    "use_memory": true,
+    "tools": [
+      "write_file"
+    ],
+    "ask_approval": true,
+    "agent": "",
+    "prompt": ""
+  },
+  "model_turns": [
+    [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "write_file",
+                "arguments": {
+                  "path": "stopped.txt",
+                  "content": "hello"
+                }
+              }
+            }
+          ]
+        },
+        "done": true,
+        "prompt_eval_count": 10,
+        "eval_count": 1
+      }
+    ]
+  ],
+  "expect": {
+    "event_types": [
+      "request",
+      "response",
+      "approval",
+      "change",
+      "tool",
+      "stopped"
+    ],
+    "memory_roles": [
+      "user",
+      "assistant",
+      "tool"
+    ],
+    "absent_files": [
+      "stopped.txt"
+    ]
+  },
+  "name": "stopped_write"
+}

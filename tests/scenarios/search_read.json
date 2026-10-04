@@ -1,0 +1,93 @@
+{
+  "files": {
+    "source.txt": "needle\nsecond\n"
+  },
+  "request": {
+    "message": "Do the work",
+    "use_memory": true,
+    "tools": [
+      "search",
+      "read_file"
+    ],
+    "ask_approval": false,
+    "agent": "",
+    "prompt": ""
+  },
+  "model_turns": [
+    [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "search",
+                "arguments": {
+                  "pattern": "needle"
+                }
+              }
+            }
+          ]
+        },
+        "done": true,
+        "prompt_eval_count": 10,
+        "eval_count": 1
+      }
+    ],
+    [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "read_file",
+                "arguments": {
+                  "path": "source.txt",
+                  "start_line": 2
+                }
+              }
+            }
+          ]
+        },
+        "done": true,
+        "prompt_eval_count": 10,
+        "eval_count": 1
+      }
+    ],
+    [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "Done"
+        },
+        "done": true,
+        "prompt_eval_count": 15,
+        "eval_count": 2
+      }
+    ]
+  ],
+  "expect": {
+    "event_types": [
+      "request",
+      "response",
+      "tool",
+      "request",
+      "response",
+      "tool",
+      "request",
+      "response"
+    ],
+    "memory_roles": [
+      "user",
+      "assistant",
+      "tool",
+      "assistant",
+      "tool",
+      "assistant"
+    ]
+  },
+  "name": "search_read"
+}

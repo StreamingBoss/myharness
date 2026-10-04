@@ -1,88 +1,62 @@
-import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import test from 'node:test';
+import { NodeHarness } from '../src/node/harness.js';
+import { createHarnessServer } from '../src/node/http.js';
+import type { CoreEvent, ModelChunk, ModelRequest } from '../src/core.js';
 
-import { HarnessCore, type ChatMessage, type CoreEvent, type ModelChunk, type ToolDefinition, type ToolResult, type TurnHost } from "../src/core.js";
-
-interface Scenario {
-  name: string;
-  request: { message: string; use_memory: boolean; tools: string[]; ask_approval: boolean; agent: string; prompt: string };
-  approval?: "deny";
-  model_turns: ModelChunk[][];
-  expect: { event_types: string[]; memory_roles: string[]; last_content?: string; absent_files?: string[] };
-}
-
-class ScenarioHost implements TurnHost {
-  readonly maxSteps = 20;
-  readonly memory: ChatMessage[] = [];
-  readonly events: CoreEvent[] = [];
-  readonly files = new Set<string>();
-  private tokenCount = 0;
-  private readonly turns: ModelChunk[][];
-  private approval = false;
-
-  constructor(turns: ModelChunk[][]) { this.turns = structuredClone(turns); }
-  setApproval(denied: boolean): void { this.approval = denied; }
-  stopped(): boolean { return false; }
-  model(): string { return "scripted"; }
-  contextLength(): number { return 3_000; }
-  lastPromptTokens(): number { return this.tokenCount; }
-  setLastPromptTokens(value: number): void { this.tokenCount = value; }
-  memoryText(): string { return JSON.stringify(this.memory); }
-  systemMessages(): ChatMessage[] { return []; }
-  estimateTokens(): number { return 1; }
-  trimContext(): CoreEvent | undefined { return undefined; }
-  async *compactContext(): AsyncGenerator<CoreEvent> { return; }
-  async *streamChat(): AsyncGenerator<string> {
-    for (const chunk of this.turns.shift() ?? []) yield JSON.stringify(chunk);
-  }
-  splitJson(): string[] { return ["", "", ""]; }
-  skillContext(): Record<string, unknown> { return {}; }
-  async runTool(name: string, arguments_: Record<string, unknown>): Promise<ToolResult> {
-    if (name === "write_file") return { kind: "change", change: arguments_ };
-    return { kind: "text", text: `error: unknown tool '${name}'` };
-  }
-  async *applyChange(_name: string, change: unknown): AsyncGenerator<CoreEvent, string, void> {
-    const values = change as { path?: string };
-    const path_ = values.path ?? "";
-    if (this.approval) {
-      yield { type: "approval", id: "approval", name: "write_file", path: path_, diff: "", note: "" };
-      yield { type: "change", path: path_, diff: "", approved: false, note: "" };
-      return "refused: the user did not approve this change. Ask them what to do instead.";
+for (const file of readdirSync('tests/scenarios').filter(name => name.endsWith('.json')).sort()) {
+  test(`Python/TypeScript HTTP parity: ${file}`, async t => {
+    const scenario = JSON.parse(readFileSync(path.join('tests/scenarios', file), 'utf8'));
+    const root = await mkdtemp(path.join(tmpdir(), 'myharness-parity-')); t.after(() => rm(root, { recursive: true, force: true }));
+    for (const [name, text] of Object.entries(scenario.files ?? {})) { await mkdir(path.dirname(path.join(root, name)), { recursive: true }); await writeFile(path.join(root, name), String(text)); }
+    const requests: ModelRequest[] = [];
+    const turns = structuredClone(scenario.model_turns) as ModelChunk[][];
+    const harness = new NodeHarness({ workspace: root, projectRoot: root, model: 'qwen3:8b', contextLength: 3000, ollama: {
+      async *streamChat(payload) { requests.push(structuredClone(payload)); for (const chunk of turns.shift()!) yield JSON.stringify(chunk); }
+    } });
+    const server = createHarnessServer(harness); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => server.close());
+    const address = server.address(); assert.ok(address && typeof address !== 'string'); const base = `http://127.0.0.1:${address.port}`;
+    const response = await fetch(base + '/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(scenario.request) });
+    assert.equal(response.status, 200);
+    const reader = response.body!.getReader(); const decoder = new TextDecoder(); let buffer = ''; const events: CoreEvent[] = [];
+    while (true) {
+      const chunk = await reader.read(); buffer += decoder.decode(chunk.value);
+      let newline = buffer.indexOf('\n');
+      while (newline >= 0) {
+        const event = JSON.parse(buffer.slice(0, newline)) as CoreEvent; buffer = buffer.slice(newline + 1); events.push(event);
+        if (event.type === 'approval') {
+          if (scenario.approval === 'stop') await fetch(base + '/stop', { method: 'POST' });
+          else await fetch(base + '/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: event.id, approved: scenario.approval === 'approve' }) });
+        }
+        newline = buffer.indexOf('\n');
+      }
+      if (chunk.done) break;
     }
-    this.files.add(path_);
-    yield { type: "change", path: path_, diff: "", approved: true, note: "" };
-    return `ok: created '${path_}'`;
-  }
-  async *executeCommand(command: string): AsyncGenerator<CoreEvent, string, void> {
-    yield { type: "command", command, approved: true, output: "", status: "exit code 0" };
-    return "exit code 0\n(no output)";
-  }
-  recordEvent(event: CoreEvent): void { this.events.push(event); }
-}
-
-const definitions = (names: string[]): ToolDefinition[] => names.map((name) => ({
-  type: "function", function: { name, description: name, parameters: {} },
-}));
-
-for (const file of readdirSync("tests/scenarios").filter((entry) => entry.endsWith(".json")).sort()) {
-  test(`shared scenario: ${file}`, async () => {
-    const scenario = JSON.parse(readFileSync(path.join("tests/scenarios", file), "utf8")) as Scenario;
-    const host = new ScenarioHost(scenario.model_turns);
-    host.setApproval(scenario.approval === "deny");
-    const userMessage: ChatMessage = { role: "user", content: scenario.request.message };
-    const conversation = scenario.request.use_memory ? host.memory : [userMessage];
-    if (scenario.request.use_memory) conversation.push(userMessage);
-    const events: CoreEvent[] = [];
-    for await (const event of new HarnessCore(host).runTurn({
-      userMessage, conversation, setup: { agent: scenario.request.agent, prompt: scenario.request.prompt },
-      enabledTools: scenario.request.tools, selectedTools: definitions(scenario.request.tools),
-      useMemory: scenario.request.use_memory,
-    })) events.push(event);
-    assert.deepEqual(events.map((event) => event.type), scenario.expect.event_types);
-    assert.deepEqual(host.memory.map((message) => message.role), scenario.expect.memory_roles);
-    if (scenario.expect.last_content) assert.equal((host.memory.at(-1) ?? userMessage).content, scenario.expect.last_content);
-    for (const absent of scenario.expect.absent_files ?? []) assert.equal(host.files.has(absent), false);
+    assert.deepEqual(events.map(event => event.type), scenario.expect.event_types);
+    assert.deepEqual(harness.state.memory.map(message => message.role), scenario.expect.memory_roles);
+    for (const [name, text] of Object.entries(scenario.expect.files ?? {})) assert.equal(await readFile(path.join(root, name), 'utf8'), text);
+    const python = spawnSync('.venv/bin/python', ['tests/parity_host.py'], { input: JSON.stringify(scenario), encoding: 'utf8' });
+    assert.equal(python.status, 0, python.stderr);
+    const reference = JSON.parse(python.stdout);
+    // Only generated approval IDs and the isolated workspace roots vary.
+    const normalize = (value: unknown, workspace: string): unknown => {
+      const encoded = JSON.stringify(value).replaceAll(workspace, '<workspace>');
+      const data = JSON.parse(encoded);
+      if (Array.isArray(data)) return data.map(item => {
+        if (item.type === 'approval') item.id = '<approval>';
+        if (item.parts) item.parts = JSON.parse(item.parts.join(''));
+        if (item.arguments) item.arguments = JSON.parse(item.arguments);
+        return item;
+      });
+      return data;
+    };
+    assert.deepEqual(normalize(events, root), normalize(reference.events, reference.root));
+    assert.deepEqual(normalize(requests, root), normalize(reference.requests, reference.root));
+    assert.deepEqual(normalize(harness.state.memory, root), normalize(reference.memory, reference.root));
   });
 }

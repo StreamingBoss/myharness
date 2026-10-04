@@ -1302,7 +1302,7 @@ document.getElementById("rename-session").addEventListener("click", async () => 
   session = await response.json();
   const listing = await (await fetch(api("/sessions"))).json(); fillSessionSelect(listing.sessions, session.id);
 });
-document.getElementById("export-session").addEventListener("click", () => { location.href = "/sessions/" + session.id + "/export"; });
+document.getElementById("export-session").addEventListener("click", () => { location.href = api("/sessions/" + session.id + "/export"); });
 document.getElementById("import-session").addEventListener("change", async (e) => {
   const file = e.target.files[0]; if (!file) return;
   try {
