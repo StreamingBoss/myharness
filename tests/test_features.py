@@ -13,7 +13,13 @@ class Features(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.old_workspace = harness.workspace
+        self.old_sessions_dir = harness.SESSIONS_DIR
+        self.old_active_session = harness.active_session
+        self.old_active_session_id = harness.active_session_id
         harness.workspace = Path(self.temp.name)
+        harness.SESSIONS_DIR = Path(self.temp.name) / 'sessions'
+        harness.active_session = {}
+        harness.active_session_id = ''
         harness.messages.clear()
         harness.context_length = 3000
         harness.last_prompt_tokens = 0
@@ -22,6 +28,9 @@ class Features(unittest.TestCase):
 
     def tearDown(self):
         harness.workspace = self.old_workspace
+        harness.SESSIONS_DIR = self.old_sessions_dir
+        harness.active_session = self.old_active_session
+        harness.active_session_id = self.old_active_session_id
         self.temp.cleanup()
         harness.messages.clear()
 
@@ -237,6 +246,49 @@ class Features(unittest.TestCase):
         harness.last_prompt_tokens = 1234
         self.client.post('/reset')
         self.assertEqual(harness.last_prompt_tokens, 0)
+
+    def test_session_round_trip_snapshots_and_import(self):
+        session = harness.new_session('Review parser')
+        session_id = session['id']
+        self.write('AGENTS.md', 'first project rule')
+        with patch.object(harness, 'stream_chat', side_effect=self.fake_stream):
+            events = [json.loads(line) for line in self.client.post('/chat', json={
+                **self.chat_data(agent='coder', tools=['use_skill']), 'session_id': session_id
+            }).data.splitlines()]
+        saved = json.loads(harness.session_path(session_id).read_text())
+        self.assertEqual(saved['name'], 'Review parser')
+        self.assertEqual(saved['memory'], harness.messages)
+        self.assertEqual(saved['snapshots']['agent']['name'], 'coder')
+        self.assertTrue(any(event['type'] == 'chat_user' for event in saved['events']))
+        # Current files changing cannot change an existing session's instructions.
+        self.write('AGENTS.md', 'changed project rule')
+        with patch.object(harness, 'load_prompts', return_value={'': 'changed prompt'}):
+            self.assertIn('first project rule', harness.system_messages(harness.conversation_setup, True)[0]['content'])
+        exported = self.client.get(f'/sessions/{session_id}/export')
+        self.assertEqual(exported.status_code, 200)
+        imported = self.client.post('/sessions/import', data=exported.data,
+                                    content_type='application/json')
+        self.assertEqual(imported.status_code, 201)
+        self.assertNotEqual(imported.json['session']['id'], session_id)
+        self.assertEqual(len(self.client.get('/sessions').json['sessions']), 2)
+
+    def test_session_rejects_bad_import_and_stale_turn(self):
+        session = harness.new_session()
+        self.assertEqual(self.client.post('/sessions/import', json={'version': 99}).status_code, 400)
+        response = self.client.post('/chat', json={**self.chat_data(), 'session_id': 'stale'})
+        self.assertEqual(response.status_code, 409)
+
+    def test_resuming_never_reruns_incomplete_tool(self):
+        session = harness.new_session()
+        harness.messages[:] = [{"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "run_command", "arguments": {"command": "touch unsafe"}}}
+        ]}]
+        harness.save_active_session()
+        loaded = json.loads(harness.session_path(session['id']).read_text())
+        harness.activate_session(loaded)
+        self.assertEqual(harness.messages[-1]['role'], 'tool')
+        self.assertIn('ended before this tool ran', harness.messages[-1]['content'])
+        self.assertTrue(any(e['type'] == 'stopped' for e in harness.active_session['events']))
 
 
 if __name__ == '__main__':

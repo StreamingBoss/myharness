@@ -10,6 +10,13 @@ harness does: what is sent to the model, what comes back, token costs, memory, t
 So every feature should be **visible in the GUI and explained in tooltips**. Explanations matter
 more than polish.
 
+The learning goal is understanding **what a harness is and what it brings**, not
+learning how to program one. **The UI and backend must be clearly separate, and
+the full backend must run without the UI.** This is a required direction for
+future development, not a claim about the current Flask implementation. Read
+[AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md) before changing the
+architecture. A browser edition or TypeScript rewrite must preserve this contract.
+
 - Runs against **Ollama**, installed natively on **Windows**; the code runs in **WSL2** and reaches it
   at `http://localhost:11434`. Models are stored on `D:\Users\emman\.ollama\models` (C: is nearly full).
 - Hardware: RTX 3060 12 GB. One 7-8B model fits at a time.
@@ -38,9 +45,14 @@ Run: `./web.sh`, open http://localhost:5000. Python env is `.venv` (Flask, reque
 
 ## 3. Architecture
 
+This section describes the current implementation. The required UI-independent
+backend architecture is documented in [ARCHITECTURE.md](ARCHITECTURE.md); the
+existing minimal CLI is not equivalent to a headless full harness.
+
 Flask serves one page. `POST /chat` streams newline-delimited JSON events; the page renders them.
-The server holds all state in module globals (single user): `messages` (the "memory"),
-`conversation_setup`, `workspace`, `pending_approvals`, `stop_requested`.
+The active local session owns the retained model memory, setup, snapshots, transcript events and
+model-affecting settings. Browser-only display preferences stay in local storage. One session runs
+at a time; locks, pending approvals and Stop remain transient runtime state.
 
 **The agent loop** (`chat_endpoint` -> `generate()` in `web/app.py`): up to `MAX_STEPS` (20) calls to
 Ollama `/api/chat` (streaming). If the reply has `tool_calls`, the harness runs them, appends
@@ -55,6 +67,8 @@ The system message is rebuilt every request and never stored in memory. Thinking
 stored.
 
 **GUI** (3 regions + bars):
+- Session bar: saved-session picker, New session, Rename, Export and Import. Sessions are UTF-8 JSON
+  under git-ignored `sessions/`; exports contain no project files.
 - Settings bar: System prompt, Agent, Project folder (+ Browse).
 - Left: chat (Markdown, thinking bubbles, diff/approval boxes), input (Enter sends, Ctrl+Enter new
   line), checkboxes: Harness memory, Hide thinking, Tools (+ one per tool), Ask before changes and
@@ -175,7 +189,7 @@ this does not substitute for the owner's browser. No requests were sent to port 
 - Placeholders `{model_name}` / `{{ personality }}` in library prompts are sent literally.
 
 **Longer roadmap:** task-list tool; git auto-commit/undo per turn; permission rules ("always allow
-`python3 *`"); saved sessions; sub-agents; model dropdown / other providers / side-by-side
+`python3 *`"); sub-agents; model dropdown / other providers / side-by-side
 comparison; MCP and a web-fetch tool; split `app.py` and `index.html`; add automated tests.
 
 ## 8. Working style the owner expects

@@ -52,6 +52,9 @@
     color: white;
     cursor: pointer;
   }
+  #session-bar { display: flex; align-items: center; gap: 7px; padding: 6px 16px; background: #1a1a1a; border-bottom: 1px solid #444; font-size: 12px; }
+  #session-bar select, #session-bar input, #session-bar button { padding: 5px 7px; border-radius: 5px; border: 1px solid #555; background: #303030; color: #ddd; }
+  #session-status { color: #8acb88; min-width: 52px; }
   #settings-bar :disabled { opacity: 0.5; cursor: default; }
   #project-error { color: #ff6b6b; }
   #lock-note { color: #e0b050; cursor: help; }
@@ -358,6 +361,14 @@
 </head>
 <body>
 
+<div id="session-bar" title="Sessions are saved locally after each event. They retain the transcript, model memory, selected tools, approval choice and frozen prompt, agent and skills. Export contains the session but never project files. Display preferences stay in this browser.">
+  <label for="session-select">Session:</label><select id="session-select"></select>
+  <button id="new-session">New session</button><button id="rename-session">Rename</button>
+  <button id="export-session">Export</button>
+  <label for="import-session">Import</label><input id="import-session" type="file" accept="application/json,.json" hidden>
+  <span id="session-status">saved</span>
+</div>
+
 <div id="settings-bar">
   <span class="setting" title="The product's base instructions, sent as the system message: the very first message of every request (look at the start of each SENT block). These are real prompts from Cursor, Codex, Claude and others. The ~tokens number is what the prompt costs on EVERY request, before you type anything. It is chosen once per conversation and locks after your first message, because changing it mid-conversation confuses the model and throws away Ollama's cache.">
     <label for="prompt" class="help">System prompt:</label>
@@ -465,6 +476,30 @@ const projectInput = document.getElementById("project");
 const setProjectBtn = document.getElementById("set-project");
 const projectError = document.getElementById("project-error");
 const initialTerminal = terminalEl.textContent;
+let session = {{ session | tojson }};
+let sessionEvents = session.events || [];
+const sessionSelect = document.getElementById("session-select");
+const sessionStatus = document.getElementById("session-status");
+
+function markSessionSaving() { sessionStatus.textContent = "saving…"; }
+async function saveSessionSettings() {
+  if (!session.id) return;
+  markSessionSaving();
+  const settings = {use_memory: memoryCheckbox.checked, tools: currentTools(),
+    ask_approval: askApprovalCheckbox.checked};
+  try {
+    const response = await fetch("/sessions/" + session.id, {method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({settings})});
+    if (!response.ok) throw new Error((await response.json()).error);
+    session = await response.json(); sessionStatus.textContent = "saved";
+  } catch (error) { sessionStatus.textContent = "save failed"; }
+}
+
+function fillSessionSelect(items, selected) {
+  sessionSelect.replaceChildren();
+  for (const item of items) sessionSelect.add(new Option(item.name + " — " + item.workspace, item.id));
+  sessionSelect.value = selected;
+}
+fillSessionSelect({{ sessions | tojson }}, session.id);
 
 function updateContextMeter(used, windowSize = {{ context_length }}) {
   const usage = windowSize ? 100 * used / windowSize : 0;
@@ -494,7 +529,7 @@ compactBtn.addEventListener("click", async () => {
   try {
     const response = await fetch("/compact", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({use_memory: memoryCheckbox.checked}),
+      body: JSON.stringify({use_memory: memoryCheckbox.checked, session_id: session.id}),
     });
     if (!response.ok) throw new Error((await response.json()).error);
     const reader = response.body.getReader();
@@ -547,6 +582,52 @@ function printBlock(title, body, className = "") {
   terminalEl.scrollTop = terminalEl.scrollHeight;
 }
 
+function replaySessionEvent(event) {
+  // Replay is display-only: it never calls the model, tools, approvals, or project endpoints.
+  if (event.type === "chat_user") renderChatBubble("user", event.content || "");
+  else if (event.type === "request") printBlock("SENT to Ollama (saved)", event.parts, "sent");
+  else if (event.type === "response") {
+    printBlock("RECEIVED from Ollama (saved)", event.parts, "received");
+    if (event.tokens) printBlock("TOKENS", event.tokens);
+    if (event.tokens_in !== undefined) updateContextMeter(event.tokens_in, event.context_length);
+  } else if (event.type === "thinking") renderChatBubble("thinking", event.content || "");
+  else if (event.type === "chunk") { if (event.content) renderChatBubble("assistant", event.content); }
+  else if (event.type === "tool") {
+    printBlock("TOOL — the harness ran " + event.name, "arguments: " + event.arguments + "\nresult:    " + event.result);
+    addDivider("used tool " + event.name);
+  } else if (event.type === "command") {
+    printBlock("COMMAND — " + (event.approved ? event.status : "refused"), "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
+  } else if (event.type === "change") {
+    printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (refused)"), (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
+  } else if (event.type === "context") handleContextEvent(event);
+  else if (event.type === "project_instructions") addDivider("— project instructions refreshed" + (event.changed ? " (changed)" : "") + " —");
+  else if (event.type === "reset") addDivider("— memory reset —");
+  else if (event.type === "stopped") { printBlock("STOPPED", event.reason); addDivider(event.reason); }
+}
+
+function replaySession() {
+  messagesEl.replaceChildren();
+  terminalEl.textContent = initialTerminal;
+  let assistant = null, assistantText = "", thinking = null, thinkingText = "";
+  for (const event of sessionEvents) {
+    if (event.type === "chunk") {
+      if (!assistant) assistant = renderChatBubble("assistant", "");
+      assistantText += event.content || "";
+      renderMarkdown(assistant, assistantText);
+      continue;
+    }
+    if (event.type === "thinking") {
+      if (!thinking) thinking = renderChatBubble("thinking", "");
+      thinkingText += event.content || ""; thinking.textContent = thinkingText;
+      continue;
+    }
+    replaySessionEvent(event);
+    if (["tool", "chat_user", "stopped", "context"].includes(event.type)) {
+      assistant = null; assistantText = ""; thinking = null; thinkingText = "";
+    }
+  }
+}
+
 async function sendMessage() {
   const text = input.value.trim();
   if (!text) return;
@@ -564,6 +645,7 @@ async function sendMessage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        session_id: session.id,
         message: text,
         use_memory: memoryCheckbox.checked,
         ask_approval: askApprovalCheckbox.checked,
@@ -963,6 +1045,12 @@ for (const p of prompts) {
   option.disabled = !p.fits;
   promptSelect.add(option);
 }
+if (session.snapshots?.prompt?.name && !prompts.some(p => p.name === session.snapshots.prompt.name)) {
+  promptSelect.add(new Option(session.snapshots.prompt.name + " (saved with this session)", session.snapshots.prompt.name));
+}
+if (session.snapshots?.agent?.name && !agents.some(a => a.name === session.snapshots.agent.name)) {
+  agents.push({name: session.snapshots.agent.name, source: "saved session", tools: session.snapshots.agent.value?.tools || []});
+}
 
 promptSelect.addEventListener("change", () => {
   addDivider("— system prompt: " + (promptSelect.value || "none") + " —");
@@ -1101,12 +1189,68 @@ if (locked) {
   conversationLocked = true;
   setControlsDisabled(false);
 }
+if (session.setup) {
+  promptSelect.value = session.setup.prompt || "";
+  agentSelect.value = session.setup.agent || "";
+}
 updateContextMeter({{ last_prompt_tokens }} || null);
 refreshExplorer();
 
 document.getElementById("hide-thinking").addEventListener("change", (e) => {
   messagesEl.classList.toggle("hide-thinking", e.target.checked);
+  try { localStorage.setItem("hideThinking", e.target.checked ? "1" : ""); } catch {}
 });
+
+for (const el of [memoryCheckbox, toolsCheckbox, askApprovalCheckbox, ...toolCheckboxes]) {
+  el.addEventListener("change", saveSessionSettings);
+}
+exploreView.addEventListener("change", () => {
+  try { localStorage.setItem("exploreView", exploreView.value); } catch {}
+});
+
+sessionSelect.addEventListener("change", async () => {
+  if (!sessionSelect.value || sessionSelect.value === session.id) return;
+  const response = await fetch("/sessions/" + sessionSelect.value + "/activate", {method: "POST"});
+  if (!response.ok) { sessionStatus.textContent = (await response.json()).error; sessionSelect.value = session.id; return; }
+  location.reload();
+});
+document.getElementById("new-session").addEventListener("click", async () => {
+  const response = await fetch("/sessions", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+  if (!response.ok) { sessionStatus.textContent = (await response.json()).error; return; }
+  location.reload();
+});
+document.getElementById("rename-session").addEventListener("click", async () => {
+  const name = prompt("Session name:", session.name); if (!name || !name.trim()) return;
+  const response = await fetch("/sessions/" + session.id, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name})});
+  if (!response.ok) { sessionStatus.textContent = "save failed"; return; }
+  session = await response.json();
+  const listing = await (await fetch("/sessions")).json(); fillSessionSelect(listing.sessions, session.id);
+});
+document.getElementById("export-session").addEventListener("click", () => { location.href = "/sessions/" + session.id + "/export"; });
+document.getElementById("import-session").addEventListener("change", async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    const response = await fetch("/sessions/import", {method:"POST", headers:{"Content-Type":"application/json"}, body:await file.text()});
+    const result = await response.json(); if (!response.ok) throw new Error(result.error);
+    fillSessionSelect(result.sessions, session.id); sessionStatus.textContent = "imported";
+  } catch (error) { sessionStatus.textContent = error.message; }
+  e.target.value = "";
+});
+
+// Hydrate the session only after all renderer and control helpers exist.
+if (session.settings) {
+  memoryCheckbox.checked = session.settings.use_memory !== false;
+  askApprovalCheckbox.checked = session.settings.ask_approval !== false;
+  for (const checkbox of toolCheckboxes) checkbox.checked = (session.settings.tools || []).includes(checkbox.value);
+  toolsCheckbox.checked = toolCheckboxes.some(c => c.checked);
+  try {
+    const hideThinking = localStorage.getItem("hideThinking") === "1";
+    document.getElementById("hide-thinking").checked = hideThinking;
+    messagesEl.classList.toggle("hide-thinking", hideThinking);
+    exploreView.value = localStorage.getItem("exploreView") || "memory";
+  } catch {}
+  replaySession();
+}
 
 sendBtn.addEventListener("click", sendMessage);
 stopBtn.addEventListener("click", () => {

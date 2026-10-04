@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import uuid
+import copy
 from datetime import datetime
 from pathlib import Path
 
@@ -26,7 +27,7 @@ MODEL = "qwen3:8b"
 
 app = Flask(__name__)
 
-messages: list[dict] = []  # same role as the list in harness.py — the whole "memory"
+messages: list[dict] = []  # alias to the active session's retained model memory
 context_length: int = 0
 last_prompt_tokens = 0  # real prompt_eval_count; estimates never replace this meter value
 turn_lock = threading.Lock()  # chat and compaction must not mutate memory concurrently
@@ -44,6 +45,170 @@ PROJECT_SKILLS_DIR = Path("skills")  # inside the project folder
 conversation_setup = {"agent": "", "prompt": ""}
 
 SETTINGS_FILE = PROJECT_ROOT / "settings.json"  # remembers the project folder across restarts
+SESSIONS_DIR = PROJECT_ROOT / "sessions"
+SESSION_FORMAT = "myharness-session"
+SESSION_VERSION = 1
+active_session: dict = {}
+active_session_id = ""
+
+
+def utcnow() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def default_session(name: str = "New session") -> dict:
+    """The persistent, UI-independent state of one conversation."""
+    now = utcnow()
+    return {
+        "format": SESSION_FORMAT, "version": SESSION_VERSION,
+        "id": uuid.uuid4().hex, "name": name, "created_at": now, "updated_at": now,
+        "model": MODEL, "context_length": context_length,
+        "workspace": str(workspace), "memory": [], "last_prompt_tokens": 0,
+        "setup": {"agent": "", "prompt": ""}, "snapshots": {},
+        "project_instructions": None, "events": [],
+        "settings": {"use_memory": True, "tools": [t["function"]["name"] for t in TOOLS],
+                     "ask_approval": True},
+    }
+
+
+def session_path(session_id: str) -> Path:
+    return SESSIONS_DIR / f"{session_id}.json"
+
+
+def validate_session(data: object) -> dict:
+    if not isinstance(data, dict) or data.get("format") != SESSION_FORMAT or data.get("version") != SESSION_VERSION:
+        raise ValueError("not a supported myharness session export")
+    for key, kind in [("id", str), ("name", str), ("workspace", str), ("memory", list),
+                      ("events", list), ("settings", dict), ("setup", dict), ("snapshots", dict)]:
+        if not isinstance(data.get(key), kind):
+            raise ValueError(f"session field '{key}' is invalid")
+    if not isinstance(data.get("model"), str) or not isinstance(data.get("context_length"), int):
+        raise ValueError("session model metadata is invalid")
+    return data
+
+
+def save_active_session() -> None:
+    """Atomically persist after every durable state change."""
+    if not active_session.get("id"):
+        return
+    active_session["updated_at"] = utcnow()
+    SESSIONS_DIR.mkdir(exist_ok=True)
+    target = session_path(active_session["id"])
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps(active_session, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(target)
+
+
+def activate_session(data: dict) -> None:
+    """Make a saved session the sole source of live conversation state."""
+    global active_session, active_session_id, messages, conversation_setup, workspace, last_prompt_tokens, MODEL, context_length
+    active_session = validate_session(data)
+    # Older session files may include browser-only settings. Ignore and remove them
+    # when the session is next saved.
+    for key in ("hide_thinking", "explore", "chat_width", "memory_height", "draft"):
+        active_session["settings"].pop(key, None)
+    active_session_id = active_session["id"]
+    MODEL = active_session.get("model", MODEL)
+    context_length = active_session.get("context_length", context_length)
+    messages = active_session["memory"]
+    conversation_setup = active_session["setup"]
+    saved_workspace = Path(active_session["workspace"])
+    # An absent original project is deliberately not replaced by another folder.
+    workspace = saved_workspace.resolve() if saved_workspace.is_dir() else saved_workspace
+    last_prompt_tokens = active_session.get("last_prompt_tokens", 0)
+    recover_interrupted_session()
+    # Like Claude's root instruction files, refresh when a session starts/resumes,
+    # then hold the loaded text stable until compaction or a project switch.
+    if workspace.is_dir() and active_session.get("snapshots"):
+        previous = active_session.get("project_instructions")
+        refreshed = load_project_instructions()
+        active_session["project_instructions"] = refreshed
+        if refreshed != previous:
+            active_session["events"].append({"type": "project_instructions", "action": "refreshed",
+                                             "changed": True, "at": utcnow()})
+
+
+def recover_interrupted_session() -> None:
+    """A resumed transcript never re-runs work whose outcome was unknown."""
+    repaired = False
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        calls = message.get("tool_calls", []) if message.get("role") == "assistant" else []
+        if not calls:
+            index += 1
+            continue
+        results = 0
+        cursor = index + 1
+        while cursor < len(messages) and messages[cursor].get("role") == "tool":
+            results += 1
+            cursor += 1
+        for call in calls[results:]:
+            name = call.get("function", {}).get("name", "unknown")
+            messages.insert(cursor, {"role": "tool", "tool_name": name,
+                                     "content": "stopped: the previous harness process ended before this tool ran"})
+            cursor += 1
+            repaired = True
+        index = cursor
+    if repaired:
+        active_session["events"].append({"type": "stopped", "reason": "recovered interrupted turn; pending tools were not rerun"})
+
+
+def new_session(name: str = "New session") -> dict:
+    data = default_session(name)
+    activate_session(data)
+    save_active_session()
+    return data
+
+
+def record_event(fields: dict) -> None:
+    """Events are structured transcript records; browser replay never executes them."""
+    if active_session.get("id"):
+        active_session["events"].append(copy.deepcopy(fields))
+        save_active_session()
+
+
+def session_summary(data: dict) -> dict:
+    return {key: data[key] for key in ("id", "name", "created_at", "updated_at", "workspace", "model")}
+
+
+def list_sessions() -> list[dict]:
+    if not SESSIONS_DIR.exists():
+        return []
+    result = []
+    for file in SESSIONS_DIR.glob("*.json"):
+        try:
+            result.append(session_summary(validate_session(json.loads(file.read_text(encoding="utf-8")))))
+        except (OSError, ValueError, json.JSONDecodeError, KeyError):
+            continue
+    return sorted(result, key=lambda item: item["updated_at"], reverse=True)
+
+
+def snapshot_instructions(setup: dict) -> None:
+    """Freeze prompt, agent and skills at a conversation's first remembered turn."""
+    if not active_session.get("id") or active_session.get("snapshots"):
+        return
+    agent = load_agents().get(setup["agent"])
+    prompts = load_prompts()
+    active_session["snapshots"] = {
+        "prompt": {"name": setup["prompt"], "text": prompts.get(setup["prompt"], "")},
+        "agent": {"name": setup["agent"], "value": copy.deepcopy(agent) if agent else None},
+        "skills": copy.deepcopy(load_skills()),
+    }
+    active_session["project_instructions"] = load_project_instructions()
+    save_active_session()
+
+
+def restore_latest_session() -> None:
+    sessions = list_sessions()
+    if sessions:
+        try:
+            activate_session(json.loads(session_path(sessions[0]["id"]).read_text(encoding="utf-8")))
+            save_active_session()
+            return
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+    new_session()
 
 # the project folder: the file tools can only see this folder; changed from the page
 workspace = (PROJECT_ROOT / "workspace").resolve()
@@ -228,7 +393,7 @@ def run_command(command: str) -> dict:
 
 
 def use_skill(name: str) -> str:
-    skills = load_skills()
+    skills = effective_skills()
     if name not in skills:
         available = ", ".join(skills) or "(none)"
         raise ValueError(f"there is no skill '{name}'. Available skills: {available}")
@@ -498,9 +663,28 @@ def load_skills() -> dict[str, dict]:
     return skills
 
 
+def selected_prompt(name: str) -> str:
+    snapshot = active_session.get("snapshots", {}).get("prompt") if active_session.get("id") else None
+    if snapshot and snapshot.get("name") == name:
+        return snapshot.get("text", "")
+    return load_prompts().get(name, "")
+
+
+def selected_agent(name: str) -> dict | None:
+    snapshot = active_session.get("snapshots", {}).get("agent") if active_session.get("id") else None
+    if snapshot and snapshot.get("name") == name:
+        return snapshot.get("value")
+    return load_agents().get(name)
+
+
+def effective_skills() -> dict[str, dict]:
+    snapshot = active_session.get("snapshots", {}).get("skills") if active_session.get("id") else None
+    return snapshot if snapshot is not None else load_skills()
+
+
 def skills_section() -> str:
     # progressive disclosure: only names and descriptions go in every request
-    skills = load_skills()
+    skills = effective_skills()
     if not skills:
         return ""
     lines = "\n".join(f"- {s['name']}: {s['description']}" for s in skills.values())
@@ -537,7 +721,7 @@ def skill_context(context: list[dict]) -> dict:
                 if line.strip() and any(line in content for content in contents)
             ],
         }
-        for name, skill in load_skills().items()
+        for name, skill in effective_skills().items()
     }
 
 
@@ -552,10 +736,12 @@ def load_project_instructions() -> tuple[str, str] | None:
 def system_messages(setup: dict, with_skills: bool) -> list[dict]:
     # the system message = product prompt, agent, project instructions, then the skill list
     # (when use_skill is checked); added in front of every request, never stored in memory
-    agent = load_agents().get(setup["agent"])
-    project = load_project_instructions()
+    agent = selected_agent(setup["agent"])
+    project = active_session.get("project_instructions") if active_session.get("id") else None
+    if project is None:
+        project = load_project_instructions()
     parts = [
-        load_prompts().get(setup["prompt"]),
+        selected_prompt(setup["prompt"]),
         agent["prompt"] if agent else None,
         f"# Project instructions ({project[0]})\n\n{project[1]}" if project else None,
         skills_section() if with_skills else None,
@@ -738,6 +924,10 @@ def compact_context(conversation: list[dict]):
             raise ValueError("the summary did not reduce the context")
         conversation[:boundary] = replacement
         last_prompt_tokens = 0  # measure the shortened prompt on the next normal request
+        if active_session.get("id"):
+            active_session["project_instructions"] = load_project_instructions()
+            active_session["last_prompt_tokens"] = last_prompt_tokens
+            save_active_session()
         yield {"type": "context", "action": "compact", "reason": f"— compacted {boundary} earlier messages —",
                "summary": summary, "memory": str(messages)}
     except (requests.RequestException, ValueError, KeyError, TypeError) as error:
@@ -746,6 +936,8 @@ def compact_context(conversation: list[dict]):
 
 @app.route("/compact", methods=["POST"])
 def compact_endpoint():
+    if request.json.get("session_id") and request.json["session_id"] != active_session_id:
+        return {"error": "This browser tab is no longer on the active session."}, 409
     if not request.json.get("use_memory", True):
         return {"error": "Enable Harness memory to compact."}, 400
     if not turn_lock.acquire(blocking=False):
@@ -754,7 +946,9 @@ def compact_endpoint():
 
     def generate():
         try:
-            yield from (json.dumps(event) + "\n" for event in compact_context(messages))
+            for context_event in compact_context(messages):
+                record_event(context_event)
+                yield json.dumps(context_event) + "\n"
         finally:
             turn_lock.release()
     return Response(generate(), mimetype="application/x-ndjson")
@@ -777,6 +971,8 @@ def index():
         project=str(workspace),
         # the page locks the agent and prompt choice while a conversation is in memory
         locked=conversation_setup if messages else None,
+        session=active_session,
+        sessions=list_sessions(),
     )
 
 
@@ -800,8 +996,87 @@ def set_project():
     if not path.is_dir():
         return {"error": f"'{raw}' is a file, not a folder"}, 400
     workspace = path
+    if active_session.get("id"):
+        active_session["workspace"] = str(workspace)
+        active_session["project_instructions"] = load_project_instructions()
+        record_event({"type": "session", "action": "project", "workspace": str(workspace)})
+        record_event({"type": "project_instructions", "action": "refreshed", "changed": True})
     SETTINGS_FILE.write_text(json.dumps({"project": str(workspace)}, indent=2) + "\n")
     return {"path": str(workspace), "agents": agent_list()}
+
+
+@app.route("/sessions", methods=["GET", "POST"])
+def sessions_endpoint():
+    if request.method == "GET":
+        return {"active_id": active_session_id, "sessions": list_sessions()}
+    if turn_lock.locked():
+        return {"error": "Wait for the running turn before changing sessions."}, 409
+    data = new_session(request.json.get("name", "New session").strip() or "New session")
+    return {"session": data, "sessions": list_sessions()}
+
+
+@app.route("/sessions/<session_id>", methods=["GET", "PATCH"])
+def session_endpoint(session_id: str):
+    if request.method == "GET":
+        try:
+            return validate_session(json.loads(session_path(session_id).read_text(encoding="utf-8")))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {"error": "Session not found or invalid."}, 404
+    if session_id != active_session_id:
+        return {"error": "This browser tab is no longer on the active session."}, 409
+    name = request.json.get("name")
+    settings = request.json.get("settings")
+    if isinstance(name, str) and name.strip():
+        active_session["name"] = name.strip()
+    if isinstance(settings, dict):
+        active_session["settings"].update({k: v for k, v in settings.items()
+                                           if k in active_session["settings"]})
+    save_active_session()
+    return active_session
+
+
+@app.route("/sessions/<session_id>/activate", methods=["POST"])
+def activate_session_endpoint(session_id: str):
+    if turn_lock.locked():
+        return {"error": "Wait for the running turn before changing sessions."}, 409
+    try:
+        activate_session(json.loads(session_path(session_id).read_text(encoding="utf-8")))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"error": "Session not found or invalid."}, 404
+    if not workspace.is_dir():
+        active_session["missing_workspace"] = True
+    else:
+        active_session.pop("missing_workspace", None)
+    save_active_session()
+    return active_session
+
+
+@app.route("/sessions/<session_id>/export")
+def export_session(session_id: str):
+    try:
+        data = validate_session(json.loads(session_path(session_id).read_text(encoding="utf-8")))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"error": "Session not found or invalid."}, 404
+    return Response(json.dumps(data, ensure_ascii=False, indent=2) + "\n", mimetype="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="{data["name"][:60] or "session"}.json"'})
+
+
+@app.route("/sessions/import", methods=["POST"])
+def import_session():
+    try:
+        data = validate_session(request.get_json(force=True))
+        data = copy.deepcopy(data)
+        data["id"] = uuid.uuid4().hex
+        data["name"] = f'{data["name"]} (imported)'
+        data["created_at"] = data["updated_at"] = utcnow()
+        SESSIONS_DIR.mkdir(exist_ok=True)
+        target = session_path(data["id"])
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(target)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return {"error": "Choose a valid myharness session JSON export."}, 400
+    return {"session": session_summary(data), "sessions": list_sessions()}, 201
 
 
 @app.route("/browse")
@@ -847,7 +1122,7 @@ def explore():
         setup = dict(conversation_setup)  # locked for this conversation
     else:
         setup = {"agent": request.json["agent"], "prompt": request.json["prompt"]}
-    agent = load_agents().get(setup["agent"])
+    agent = selected_agent(setup["agent"])
     tools = [t for t in TOOLS if t["function"]["name"] in request.json["tools"]]
     show = requests.post(f"{OLLAMA_URL}/api/show", json={"model": MODEL}).json()
 
@@ -862,7 +1137,7 @@ def explore():
         f"The reconstruction is only written for Qwen templates, and the model is {MODEL}."
     )
     return {
-        "system_prompt": load_prompts().get(setup["prompt"], ""),
+        "system_prompt": selected_prompt(setup["prompt"]),
         "prompt_name": setup["prompt"],
         "agent": agent,
         "agent_name": setup["agent"],
@@ -870,24 +1145,33 @@ def explore():
         "template": show.get("template", ""),
         "parameters": show.get("parameters", ""),
         "final": final,
-        "skills": list(load_skills().values()),
+        "skills": list(effective_skills().values()),
         "skills_section": skills_section(),
         "skills_listed": with_skills,
-        "project_instructions": load_project_instructions(),
+        "project_instructions": active_session.get("project_instructions") or load_project_instructions(),
         "skill_context": skill_context(system_messages(setup, with_skills) + history),
     }
 
 
 @app.route("/reset", methods=["POST"])
 def reset():
-    global last_prompt_tokens
+    global last_prompt_tokens, conversation_setup
     messages.clear()
     last_prompt_tokens = 0
+    if active_session.get("id"):
+        active_session["last_prompt_tokens"] = 0
+        conversation_setup = active_session["setup"] = {"agent": "", "prompt": ""}
+        active_session["snapshots"] = {}
+        record_event({"type": "reset", "reason": "memory reset"})
     return {"memory": str(messages)}
 
 
 @app.route("/chat", methods=["POST"])
 def chat_endpoint():
+    if request.json.get("session_id") and request.json["session_id"] != active_session_id:
+        return {"error": "This browser tab is no longer on the active session."}, 409
+    if active_session.get("missing_workspace") or not workspace.is_dir():
+        return {"error": "The saved project folder is missing. Choose a replacement folder before continuing."}, 409
     user_input = request.json["message"]
     use_memory = request.json["use_memory"]
     # names of the tools ticked in the page; empty when tools are off
@@ -899,6 +1183,7 @@ def chat_endpoint():
         if not messages:
             # a new conversation: its agent and system prompt are fixed until memory is cleared
             conversation_setup.update(setup)
+            snapshot_instructions(setup)
         setup = dict(conversation_setup)
 
     system = system_messages(setup, with_skills="use_skill" in enabled_tools)
@@ -908,7 +1193,7 @@ def chat_endpoint():
     manual_skill = ""
     if user_input.startswith("/"):
         word, _, rest = user_input[1:].partition(" ")
-        skill = load_skills().get(word)
+        skill = effective_skills().get(word)
         if skill:
             manual_skill = word
             user_input = (
@@ -922,8 +1207,15 @@ def chat_endpoint():
     stop_requested.clear()
     if use_memory:
         messages.append(user_message)
+    if active_session.get("id"):
+        active_session["settings"].update({"use_memory": use_memory, "tools": enabled_tools,
+                                            "ask_approval": ask_approval})
+        active_session["last_prompt_tokens"] = last_prompt_tokens
+        save_active_session()
+        record_event({"type": "chat_user", "content": user_input})
 
     def event(**fields) -> str:
+        record_event(fields)
         return json.dumps(fields) + "\n"
 
     def apply_change(name: str, target: Path, new_text: str, note: str):
@@ -1094,6 +1386,8 @@ def chat_endpoint():
             tokens_in = chunk.get("prompt_eval_count", 0)
             if use_memory:
                 last_prompt_tokens = tokens_in
+                if active_session.get("id"):
+                    active_session["last_prompt_tokens"] = tokens_in
             tokens_out = chunk.get("eval_count", 0)
             tokens_used = tokens_in + tokens_out
             tokens = (
@@ -1157,6 +1451,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     load_saved_workspace()
+    restore_latest_session()
     print(f"Model: {MODEL}  (context window: {context_length} tokens)")
     print(f"Project folder: {workspace}")
     print("Serving on http://localhost:5000")
