@@ -362,7 +362,7 @@
 <body>
 
 <div id="session-bar" title="Sessions are saved locally after each event. They retain the transcript, model memory, selected tools, approval choice and frozen prompt, agent and skills. Export contains the session but never project files. Display preferences stay in this browser.">
-  <label for="session-select">Session:</label><select id="session-select"></select>
+  <label for="session-select">Session:</label><select id="session-select"></select><button id="load-session">Load session</button>
   <button id="new-session">New session</button><button id="rename-session">Rename</button>
   <button id="export-session">Export</button>
   <label for="import-session">Import</label><input id="import-session" type="file" accept="application/json,.json" hidden>
@@ -496,7 +496,10 @@ async function saveSessionSettings() {
 
 function fillSessionSelect(items, selected) {
   sessionSelect.replaceChildren();
-  for (const item of items) sessionSelect.add(new Option(item.name + " — " + item.workspace, item.id));
+  for (const item of items) {
+    const date = new Date(item.created_at).toLocaleString();
+    sessionSelect.add(new Option(item.name + " — " + date + " — " + item.workspace, item.id));
+  }
   sessionSelect.value = selected;
 }
 fillSessionSelect({{ sessions | tojson }}, session.id);
@@ -1208,12 +1211,19 @@ exploreView.addEventListener("change", () => {
   try { localStorage.setItem("exploreView", exploreView.value); } catch {}
 });
 
-sessionSelect.addEventListener("change", async () => {
+async function loadSelectedSession() {
   if (!sessionSelect.value || sessionSelect.value === session.id) return;
-  const response = await fetch("/sessions/" + sessionSelect.value + "/activate", {method: "POST"});
-  if (!response.ok) { sessionStatus.textContent = (await response.json()).error; sessionSelect.value = session.id; return; }
-  location.reload();
-});
+  try {
+    const response = await fetch("/sessions/" + sessionSelect.value + "/activate", {method: "POST"});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not load this session.");
+    location.reload();
+  } catch (error) {
+    sessionStatus.textContent = error.message || "Could not load this session.";
+    sessionSelect.value = session.id;
+  }
+}
+document.getElementById("load-session").addEventListener("click", loadSelectedSession);
 document.getElementById("new-session").addEventListener("click", async () => {
   const response = await fetch("/sessions", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
   if (!response.ok) { sessionStatus.textContent = (await response.json()).error; return; }

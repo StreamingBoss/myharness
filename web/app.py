@@ -169,7 +169,44 @@ def record_event(fields: dict) -> None:
 
 
 def session_summary(data: dict) -> dict:
-    return {key: data[key] for key in ("id", "name", "created_at", "updated_at", "workspace", "model")}
+    summary = {key: data[key] for key in ("id", "name", "created_at", "updated_at", "workspace", "model")}
+    if summary["name"] == "New session":
+        summary["name"] = session_title_from_history(data) or "New session"
+    return summary
+
+
+def session_title(message: str) -> str:
+    compact = " ".join(message.split())
+    return compact[:60] + ("…" if len(compact) > 60 else "")
+
+
+def session_title_from_history(data: dict) -> str:
+    for event in data.get("events", []):
+        if event.get("type") == "chat_user" and isinstance(event.get("content"), str):
+            return session_title(event["content"])
+    for message in data.get("memory", []):
+        if message.get("role") == "user" and isinstance(message.get("content"), str):
+            return session_title(message["content"])
+    return ""
+
+
+def unique_session_name(name: str, exclude_id: str = "") -> str:
+    """Keep human-facing session names distinct without exposing opaque IDs."""
+    used = set()
+    if SESSIONS_DIR.exists():
+        for file in SESSIONS_DIR.glob("*.json"):
+            try:
+                data = validate_session(json.loads(file.read_text(encoding="utf-8")))
+                if data["id"] != exclude_id:
+                    used.add(data["name"])
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+    if name not in used:
+        return name
+    number = 2
+    while f"{name} ({number})" in used:
+        number += 1
+    return f"{name} ({number})"
 
 
 def list_sessions() -> list[dict]:
@@ -1027,7 +1064,7 @@ def session_endpoint(session_id: str):
     name = request.json.get("name")
     settings = request.json.get("settings")
     if isinstance(name, str) and name.strip():
-        active_session["name"] = name.strip()
+        active_session["name"] = unique_session_name(name.strip(), active_session_id)
     if isinstance(settings, dict):
         active_session["settings"].update({k: v for k, v in settings.items()
                                            if k in active_session["settings"]})
@@ -1067,7 +1104,7 @@ def import_session():
         data = validate_session(request.get_json(force=True))
         data = copy.deepcopy(data)
         data["id"] = uuid.uuid4().hex
-        data["name"] = f'{data["name"]} (imported)'
+        data["name"] = unique_session_name(f'{data["name"]} (imported)')
         data["created_at"] = data["updated_at"] = utcnow()
         SESSIONS_DIR.mkdir(exist_ok=True)
         target = session_path(data["id"])
@@ -1208,6 +1245,8 @@ def chat_endpoint():
     if use_memory:
         messages.append(user_message)
     if active_session.get("id"):
+        if active_session["name"] == "New session":
+            active_session["name"] = unique_session_name(session_title(user_input) or "New session", active_session_id)
         active_session["settings"].update({"use_memory": use_memory, "tools": enabled_tools,
                                             "ask_approval": ask_approval})
         active_session["last_prompt_tokens"] = last_prompt_tokens

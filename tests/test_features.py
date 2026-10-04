@@ -290,6 +290,34 @@ class Features(unittest.TestCase):
         self.assertIn('ended before this tool ran', harness.messages[-1]['content'])
         self.assertTrue(any(e['type'] == 'stopped' for e in harness.active_session['events']))
 
+    def test_session_activate_endpoint_switches_state(self):
+        first = harness.new_session('first')
+        harness.messages.append({'role': 'user', 'content': 'keep this'})
+        harness.save_active_session()
+        second = harness.new_session('second')
+        response = self.client.post(f'/sessions/{first["id"]}/activate')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(harness.active_session_id, first['id'])
+        self.assertEqual(harness.messages, [{'role': 'user', 'content': 'keep this'}])
+        self.assertNotEqual(harness.active_session_id, second['id'])
+
+    def test_untitled_session_uses_its_first_message_in_the_picker(self):
+        session = harness.new_session()
+        harness.active_session['events'].append({'type': 'chat_user', 'content': 'Investigate the parser crash'})
+        harness.save_active_session()
+        listing = self.client.get('/sessions').json['sessions']
+        self.assertEqual(listing[0]['name'], 'Investigate the parser crash')
+
+    def test_generated_and_renamed_session_names_are_unique(self):
+        first = harness.new_session()
+        harness.active_session['name'] = harness.unique_session_name('Same task', first['id'])
+        harness.save_active_session()
+        second = harness.new_session()
+        self.assertEqual(harness.unique_session_name('Same task', second['id']), 'Same task (2)')
+        response = self.client.patch(f'/sessions/{second["id"]}', json={'name': 'Same task'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['name'], 'Same task (2)')
+
 
 if __name__ == '__main__':
     unittest.main()
