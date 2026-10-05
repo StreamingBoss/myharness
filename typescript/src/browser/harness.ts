@@ -12,18 +12,23 @@ import { BrowserModel } from './model.js';
 import { DEMO_MODEL } from './demo.js';
 import { OllamaAdapter } from '../ollama.js';
 import { LocalWorkspace, type LocalDirectory, type StoredProject } from './local.js';
+import { parseConfig } from '../mcp/manager.js';
+import { isObject } from '../mcp/protocol.js';
 
 export interface BrowserOptions {
   storage: BrowserStorage; library: Library; seed: Record<string, string>;
   modelPort?: ModelPort; model?: string; contextLength?: number; approvalTimeoutMs?: number;
+  mcpTimeouts?: { connectTimeoutMs?: number; probeTimeoutMs?: number };
 }
+/** MCP configuration with header values; header values live only in Worker memory. */
+interface McpConfigHolder { value?: unknown }
 
 /** Complete browser backend. It runs directly or in a Worker, without a page. */
 export class BrowserHarness extends Harness {
-  private constructor(private readonly browser: BrowserOptions, private readonly projects: Map<string, StoredProject>, workspace: string, private readonly router: ProviderRouter) {
+  private constructor(private readonly browser: BrowserOptions, private readonly projects: Map<string, StoredProject>, workspace: string, private readonly router: ProviderRouter, private readonly mcpConfig: McpConfigHolder = {}) {
     super({ workspace, model: browser.model ?? 'qwen3:8b', contextLength: browser.contextLength ?? 8192,
       ...(browser.modelPort ? { ollama: browser.modelPort } : { modelAdapter: router }), sessions: new BrowserSessions(browser.storage),
-      ...(browser.approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs: browser.approvalTimeoutMs }), runtime: {
+      ...(browser.approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs: browser.approvalTimeoutMs }), ...(browser.mcpTimeouts ? { mcpTimeouts: browser.mcpTimeouts } : {}), runtime: {
         name: 'browser', supportedTools: TOOL_NAMES.filter(name => name !== 'run_command'),
         capabilities: { workspace: 'virtual text files or user-granted local folder', commands: false, persistence: 'IndexedDB', inference: 'external model provider' },
         workspace(folder) {
@@ -37,6 +42,12 @@ export class BrowserHarness extends Harness {
         resolveProject: absolutePath,
         saveProject: folder => browser.storage.put('settings', 'workspace', folder),
         async executeCommand() { throw new BackendError('Bash commands are unavailable in the browser. Use the Node runtime for run_command.'); },
+        mcp: {
+          source: 'imported MCP configuration (browser storage)', fetch,
+          stdioUnsupported: 'stdio servers start local processes, which a browser cannot do. Use the Node runtime.',
+          networkHint: 'Check that the MCP server allows this page origin and the MCP request headers (CORS).',
+          loadConfig: async () => mcpConfig.value ?? await browser.storage.get('settings', 'mcp-config'),
+        },
       } });
   }
 
@@ -50,6 +61,17 @@ export class BrowserHarness extends Harness {
     const harness = new BrowserHarness(options, projects, workspace, router);
     await harness.initialize();
     return harness;
+  }
+
+  /** Validates and stores an MCP configuration, then reconnects. Header values are not persisted. */
+  async configureMcp(value: unknown): Promise<Record<string, unknown>> {
+    this.idle('configuring MCP servers');
+    try { parseConfig(value); } catch (error) { throw new BackendError((error as Error).message); }
+    const stored = structuredClone(value) as { mcpServers?: Record<string, unknown> };
+    for (const server of Object.values(stored.mcpServers ?? {})) if (isObject(server)) delete server.headers;
+    await this.browser.storage.put('settings', 'mcp-config', stored);
+    this.mcpConfig.value = value;
+    return this.reloadMcp();
   }
 
   override async bootstrap(): Promise<Record<string, unknown>> {

@@ -1,17 +1,19 @@
 import path from 'node:path';
 import { homedir } from 'node:os';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { Harness, BackendError, type HarnessOptions as SharedOptions } from '../harness.js';
 import { Catalog } from './catalog.js';
 import { WorkspaceAdapter } from './workspace.js';
 import { OllamaAdapter } from './ollama.js';
 import { executeCommand } from './commands.js';
+import { StdioChannel } from './mcp-stdio.js';
 import { TOOL_NAMES } from './tools.js';
 import { ProviderRouter } from '../providers.js';
 import { json } from '../format.js';
 export { BackendError } from '../harness.js';
 export type { TurnAction, HarnessState, ModelPort } from '../harness.js';
-export type HarnessOptions = Omit<SharedOptions, 'runtime'>;
+export type HarnessOptions = Omit<SharedOptions, 'runtime'> & { /** MCP configuration file; never read from the project folder. */ mcpConfigFile?: string };
 
 /** Node capabilities for the shared backend; no UI or Worker dependencies. */
 export class NodeHarness extends Harness {
@@ -27,6 +29,16 @@ export class NodeHarness extends Harness {
       },
       async saveProject(folder) { if (options.settingsFile) await writeFile(options.settingsFile, json({ project: folder }, 2) + '\n'); },
       executeCommand: (command, workspace, signal) => executeCommand(command, workspace, signal, options.commandTimeoutMs),
+      mcp: {
+        source: options.mcpConfigFile ?? '(no MCP configuration file)', fetch, environment: process.env,
+        stdio: config => new StdioChannel(config, options.projectRoot ?? process.cwd()),
+        async loadConfig() {
+          const file = options.mcpConfigFile;
+          if (!file || !existsSync(file)) return undefined;
+          try { return JSON.parse(await readFile(file, 'utf8')); }
+          catch (error) { throw new Error(`${file}: ${(error as Error).message}`); }
+        },
+      },
     } });
   }
 }

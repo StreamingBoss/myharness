@@ -24,7 +24,7 @@ export async function headless(args: string[], load = loadHarness, output = cons
     }
     status = harness.stopped() ? 130 : 0;
   } catch (error) { output(`headless harness failed: ${(error as Error).message}`); status = 1; }
-  finally { process.off('SIGINT', stop); }
+  finally { process.off('SIGINT', stop); await harness?.close(); }
   return status;
 }
 if (import.meta.url === pathToFileURL(process.argv[1]!).href) process.exitCode = await headless(process.argv.slice(2));

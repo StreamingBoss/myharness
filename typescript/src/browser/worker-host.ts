@@ -60,6 +60,9 @@ export class WorkerHost {
         case 'listModels': value = await backend.listModels(modelConfiguration(payload)); break;
         case 'configureModel': await backend.configureModel(modelConfiguration(payload)); value = { ok: true }; break;
         case 'forgetApiKey': backend.forgetApiKey(); value = { ok: true }; break;
+        case 'mcp': value = backend.mcpStatus(); break;
+        case 'reloadMcp': value = await backend.reloadMcp(); break;
+        case 'configureMcp': value = await backend.configureMcp(payload); break;
         default: throw new BackendError('Unknown backend action', 404);
       }
       this.send({ id, type: 'result', value });

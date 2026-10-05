@@ -30,3 +30,35 @@ test('terminal content completes the live and replayed answer without duplicatio
   assert.match(html, /if \(event.type === "response"\) \[assistant, assistantText\] = completeReply/);
   assert.match(html, /\[assistantDiv, replyText\] = completeReply/);
 });
+
+const requestCalls = [];
+const requestContext = {
+  document: { createElement(tag) { return { tag, children: [], append(value) { this.children.push(value); } }; } },
+  terminalEl: { appendChild(value) { requestCalls.push(value); }, scrollHeight: 100 },
+};
+const requestSource = html.slice(html.indexOf('const SEP ='), html.indexOf('\nfunction replaySessionEvent'));
+new Script(requestSource, { filename: 'ui-request-helper.js' }).runInNewContext(requestContext);
+
+test('native provider requests highlight user input and preserve request data', () => {
+  for (const [provider, wire_request] of [
+    ['gemini', { input: [{ type: 'user_input', content: [{ type: 'text', text: 'hello <script> & "world"' }] }, { type: 'model_output', content: [{ type: 'text', text: 'reply' }] }, { type: 'user_input', content: [{ type: 'text', text: 'follow up' }] }] }],
+    ['openai', { input: [{ role: 'user', content: 'hello @@USER:0@@' }, { role: 'assistant', content: 'reply' }], store: false }],
+    ['anthropic', { messages: [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'reply' }] }],
+    ['gemini', { system_instruction: 'no user message', tools: null }],
+  ]) {
+    const parts = requestContext.nativeRequestParts(wire_request);
+    assert.deepEqual(JSON.parse(parts.join('')), wire_request);
+    requestContext.printModelRequest({ provider, wire_request }, true);
+    const block = requestCalls.at(-1);
+    const highlights = block.children.filter(child => child.tag === 'b');
+    assert.equal(highlights.length, provider === 'gemini' ? (wire_request.input ? 2 : 0) : 1);
+    assert.match(block.children[0], new RegExp('SENT to ' + provider + ' \\(saved\\)'));
+    for (const highlight of highlights) assert.match(highlight.textContent, /user/);
+  }
+  requestContext.printModelRequest({ parts: ['before', 'user input', 'after'] }, false);
+  assert.equal(requestCalls.at(-1).children[2].textContent, 'user input');
+  requestContext.printBlock('plain', 'plain text');
+  assert.equal(requestCalls.at(-1).children[1], 'plain text');
+  requestContext.printBlock('empty', ['before', '', 'after']);
+  assert.equal(requestCalls.at(-1).children.filter(child => child.tag === 'b').length, 0);
+});

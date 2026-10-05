@@ -1,4 +1,5 @@
 import type { Agent, Skill } from './catalog.js';
+import type { McpRuntime } from './mcp/manager.js';
 
 /** Runtime capabilities; the shared backend never imports OS or browser APIs. */
 export interface WorkspacePort {
@@ -31,4 +32,6 @@ export interface RuntimePort {
   resolveProject(raw: string): string;
   saveProject(folder: string): Promise<void>;
   executeCommand(command: string, workspace: string, signal: AbortSignal): Promise<{ output: string; status: string }>;
+  /** MCP transports and configuration. Without it, MCP is reported as unsupported. */
+  readonly mcp?: McpRuntime;
 }

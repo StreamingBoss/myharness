@@ -21,6 +21,13 @@ test('browser hydrates the existing UI, streams a terminal reply, and restores s
   await page.locator('#input').fill('hello'); await page.locator('#send').click();
   await page.getByText('Hello from TypeScript', { exact: true }).first().waitFor();
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  assert.equal(await page.locator('#terminal .sent b').first().evaluate(element => getComputedStyle(element).color), 'rgb(255, 92, 92)');
+  await page.evaluate(() => {
+    // Exercise native cloud display without credentials or network inference.
+    (window as unknown as { printModelRequest(event: unknown, saved: boolean): void }).printModelRequest({ provider: 'gemini', wire_request: { input: [{ type: 'user_input', content: [{ type: 'text', text: 'Gemini user input' }] }] } }, false);
+  });
+  assert.match(await page.locator('#terminal .sent b').last().innerText(), /Gemini user input/);
+  assert.equal(await page.locator('#terminal .sent b').last().evaluate(element => getComputedStyle(element).color), 'rgb(255, 92, 92)');
   await page.reload(); await page.getByText('Hello from TypeScript', { exact: true }).first().waitFor();
   assert.deepEqual(errors, []);
 });

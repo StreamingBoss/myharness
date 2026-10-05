@@ -295,6 +295,8 @@
     padding: 0 10px 10px 0;
   }
   .toggle.tool { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
+  .mcp-group { margin-left: 14px; font-size: 12px; color: #c792ea; white-space: nowrap; cursor: help; }
+  #mcp-reload { margin-left: 8px; }
   .toggle:has(input:disabled) { opacity: 0.5; cursor: default; }
   #input-row button {
     margin-left: 8px;
@@ -425,7 +427,7 @@
   <div id="tools-row">
     <label class="toggle" title="Tools let the model ask the harness to run a function (read a file, get the time...). The model never runs anything itself: it replies with a tool call, the harness runs it and sends the result back in a new request. Unchecked: no tools are described to the model, so it doesn't know they exist."><input id="use-tools" type="checkbox" checked> <span class="help">Tools:</span></label>
     <span id="tool-list"></span>
-    <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added); before run_command runs, it shows the command. The harness then waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written and commands run immediately. Careful: the project-folder limit only applies to the file tools; a shell command can do anything your user account can (cd .., rm...), so approval is the real protection."><input id="ask-approval" type="checkbox" checked> <span class="help">Ask before changes and commands</span></label>
+    <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added); before run_command runs, it shows the command; before an MCP tool runs, it shows the server, the tool and its arguments. The harness then waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written, and commands and MCP tools run, immediately. Careful: the project-folder limit only applies to the file tools; a shell command can do anything your user account can (cd .., rm...), so approval is the real protection."><input id="ask-approval" type="checkbox" checked> <span class="help">Ask before changes and commands</span></label>
   </div>
 </div>
 
@@ -453,11 +455,13 @@ Model: loading…
       <option value="agent">harness agent</option>
       <option value="project">harness project file</option>
       <option value="tools">harness tools</option>
+      <option value="mcp">MCP servers</option>
       <option value="skills">harness skills</option>
       <option value="template">model template</option>
       <option value="tokens">tokenization of a saved request</option>
       <option value="final">prompt reconstruction (Qwen)</option>
     </select>
+    <button id="mcp-reload" hidden title="Ask the backend to re-read its MCP configuration file and reconnect every server. The tool list below the chat is rebuilt from what the servers report.">Reload MCP servers</button>
     <span id="explore-note"></span>
   </div>
   <pre id="memory"></pre>
@@ -585,24 +589,48 @@ function renderChatBubble(role, text) {
 
 const SEP = "-".repeat(40);
 
-// body is a string, or [before, bold, after] to make the middle part bold
+// Alternating plain/highlighted pieces keep user input visible in native requests.
+function nativeRequestParts(request) {
+  const highlighted = [];
+  let marker = "@@USER:";
+  const original = JSON.stringify(request);
+  while (original.includes(marker)) marker = "@" + marker;
+  const encoded = JSON.stringify(request, (key, value) => {
+    if (value && typeof value === "object" && (value.role === "user" || value.type === "user_input")) {
+      const index = highlighted.push(JSON.stringify(value, null, 2)) - 1;
+      return marker + index + "@@";
+    }
+    return value;
+  }, 2);
+  const parts = encoded.split(new RegExp('"' + marker + '(\\d+)@@"'));
+  return parts.map((part, index) => {
+    if (!(index % 2)) return part;
+    const before = parts[index - 1];
+    const indent = before.slice(before.lastIndexOf("\n") + 1).match(/^\s*/)[0];
+    return highlighted[Number(part)].replaceAll("\n", "\n" + indent);
+  });
+}
+
+// body is plain text or alternating plain/highlighted pieces.
 function printBlock(title, body, className = "") {
   const span = document.createElement("span");
   span.className = className;
-  const [before, bold, after] = Array.isArray(body) ? body : [body, "", ""];
-  span.append(SEP + "\n" + title + "\n" + SEP + "\n" + before);
-  if (bold) {
-    const b = document.createElement("b");
-    b.textContent = bold;
-    span.append(b);
-  }
-  span.append(after + "\n\n");
+  span.append(SEP + "\n" + title + "\n" + SEP + "\n");
+  const parts = Array.isArray(body) ? body : [body];
+  parts.forEach((part, index) => {
+    if (index % 2 && part) {
+      const b = document.createElement("b");
+      b.textContent = part;
+      span.append(b);
+    } else span.append(part);
+  });
+  span.append("\n\n");
   terminalEl.appendChild(span);
   terminalEl.scrollTop = terminalEl.scrollHeight;
 }
 
 function printModelRequest(event, saved) {
-  if (event.wire_request) printBlock('SENT to ' + event.provider + (saved ? ' (saved)' : ''), JSON.stringify(event.wire_request, null, 2), 'sent');
+  if (event.wire_request) printBlock('SENT to ' + event.provider + (saved ? ' (saved)' : ''), nativeRequestParts(event.wire_request), 'sent');
   else printBlock('SENT to model' + (saved ? ' (saved)' : ''), event.parts, 'sent');
 }
 
@@ -623,7 +651,9 @@ function replaySessionEvent(event) {
     printBlock("COMMAND — " + (event.approved ? event.status : "refused"), "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
   } else if (event.type === "change") {
     printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (refused)"), (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
-  } else if (event.type === "context") handleContextEvent(event);
+  } else if (event.type === "mcp") renderMcpEvent(event, false);
+  else if (event.type === "mcp_prompt") addDivider("used MCP prompt " + event.name + " from " + event.server);
+  else if (event.type === "context") handleContextEvent(event);
   else if (event.type === "project_instructions") addDivider("— project instructions refreshed" + (event.changed ? " (changed)" : "") + " —");
   else if (event.type === "reset") addDivider("— memory reset —");
   else if (event.type === "stopped") { printBlock("STOPPED", event.reason); addDivider(event.reason); }
@@ -753,6 +783,14 @@ async function sendMessage() {
           replyText = "";
           thinkingDiv = null;
           thinkingText = "";
+        } else if (event.type === "approval" && event.server !== undefined) {
+          changeBox = renderChangeBox("MCP tool " + event.tool + " on server '" + event.server + "' wants to run with these arguments:",
+                                      event.arguments, mcpHints(event.annotations));
+          addApprovalButtons(changeBox, event.id);
+        } else if (event.type === "mcp") {
+          renderMcpEvent(event, true);
+        } else if (event.type === "mcp_prompt") {
+          addDivider("used MCP prompt " + event.name + " from " + event.server);
         } else if (event.type === "approval") {
           changeBox = event.command !== undefined
             ? renderChangeBox("run_command wants to run, in " + projectInput.value + ":",
@@ -846,12 +884,15 @@ setupDivider(document.getElementById("vsplitter"), "memoryHeight", setMemoryHeig
 const exploreView = document.getElementById("explore-view");
 const exploreEl = document.getElementById("explore");
 const exploreNote = document.getElementById("explore-note");
+const mcpReloadBtn = document.getElementById("mcp-reload");
+mcpReloadBtn.addEventListener("click", reloadMcp);
 
 const EXPLORE_NOTES = {
   memory: "The messages list the harness keeps: the model's only memory, re-sent with every request. Tool calls and results are stored too; the system message and the thinking are not.",
   system: "The library prompt chosen at the top. It's the first part of the system message, at the very start of every request.",
   agent: "The agent's instructions, added after the system prompt in the same system message. Its tools line presets the tool checkboxes.",
   project: "AGENTS.md from the project folder root, added after the agent and before the skills. Read again for every model call: edits and project-folder changes apply immediately, even while the agent and system prompt are locked. Only AGENTS.md is used.",
+  mcp: "MCP servers from the backend's configuration file. The harness connects to each, detects its protocol era (modern 2026-07-28 or a legacy initialize handshake), and turns what it reports into tools, instructions, resources and prompts. Use a prompt by typing /mcp__server__prompt followed by its arguments. The wire log shows the JSON-RPC messages.",
   tools: "The checked tools, exactly as the harness sends them: a separate 'tools' field of the request, next to 'messages'. The model's template then turns them into text inside the system part; see 'final prompt'.",
   skills: "Green = text present in the harness context: names/descriptions in the system message, instruction lines in retained messages or the active turn. Updates as skills load via use_skill, /name or read_file; clears when that text leaves memory. Ollama may truncate overflowing requests without reporting which text remains. Skills are skills/<name>/SKILL.md files, in myharness or in the project folder.",
   template: "Comes with the model, from Ollama (/api/show). The template is the program that turns the system message, the tools and the conversation into the single text the model reads. The parameters are the model's default settings.",
@@ -922,6 +963,39 @@ function renderSkills(data, context) {
   }
 }
 
+function mcpText(mcp) {
+  if (!mcp.supported) return "MCP is unavailable: " + mcp.reason;
+  const lines = ["Configuration: " + mcp.source];
+  if (mcp.error) lines.push("Configuration error: " + mcp.error);
+  if (!mcp.servers.length) lines.push("", "(no MCP servers configured)");
+  for (const server of mcp.servers) {
+    lines.push("", "== " + server.name + " — " + server.status + (server.transport ? " (" + server.transport + ")" : ""));
+    if (server.error) lines.push("error: " + server.error);
+    if (server.era) lines.push("protocol: " + server.protocol_version + " (" + server.era + (server.era === "modern" ? ": server/discover, metadata on every request" : ": initialize handshake") + ")");
+    if (server.server_info) lines.push("server: " + JSON.stringify(server.server_info) + " (self-reported)");
+    if (server.instructions) lines.push("instructions (added to the system message when its tools are checked):", "  " + server.instructions.replaceAll("\n", "\n  "));
+    for (const tool of server.tools) lines.push("tool " + tool.qualified + ": " + tool.description + (tool.annotations ? "  hints " + JSON.stringify(tool.annotations) : ""));
+    if (server.resources) lines.push("resources: " + server.resources + " (read with list_mcp_resources / read_mcp_resource)");
+    for (const prompt of server.prompts) lines.push("prompt /" + prompt.qualified + " " + prompt.arguments.map(arg => arg.required ? "<" + arg.name + ">" : "[" + arg.name + "]").join(" ") + (prompt.description ? ": " + prompt.description : ""));
+    for (const warning of server.warnings) lines.push("warning: " + warning);
+    if (server.stderr.length) lines.push("stderr (last lines):", ...server.stderr.map(line => "  " + line));
+    if (server.log.length) lines.push("wire log:", ...server.log.map(entry => "  " + entry.direction.padEnd(8) + " " + entry.text));
+  }
+  return lines.join("\n");
+}
+
+async function reloadMcp() {
+  mcpReloadBtn.disabled = true;
+  try {
+    const response = await backendFetch(api("/mcp/reload"), { method: "POST" });
+    if (!response.ok) throw new Error((await response.json()).error);
+    const boot = await backendFetch(api("/bootstrap"));
+    initialize(await boot.json());
+  } catch (error) {
+    exploreNote.textContent = "Reload failed: " + error.message;
+  } finally { mcpReloadBtn.disabled = false; }
+}
+
 async function refreshExplorer() {
   if (!initialized) return;
   const view = exploreView.value;
@@ -932,6 +1006,7 @@ async function refreshExplorer() {
     await tokenViewer.refresh(session.id); return;
   }
   const showMemory = view === "memory";
+  mcpReloadBtn.hidden = view !== "mcp";
   memoryEl.hidden = !showMemory;
   exploreEl.hidden = showMemory;
   let note = EXPLORE_NOTES[view];
@@ -965,6 +1040,8 @@ async function refreshExplorer() {
       : "none: create AGENTS.md in the project folder";
   } else if (view === "tools") {
     text = data.tools === "[]" ? "(no tools checked: the request has no 'tools' field)" : data.tools;
+  } else if (view === "mcp") {
+    text = mcpText(data.mcp);
   } else if (view === "skills") {
     skillsExplorerData = data;
     renderSkills(data, activeSkillContext || data.skill_context);
@@ -991,6 +1068,31 @@ for (const el of [promptSelect, agentSelect, toolsCheckbox, memoryCheckbox, ...t
 function renderMarkdown(div, text) {
   div.classList.add("markdown");
   div.innerHTML = DOMPurify.sanitize(marked.parse(text));
+}
+
+// MCP annotations come from the server; they describe the tool but are not verified.
+function mcpHints(annotations) {
+  if (!annotations || typeof annotations !== "object") return "";
+  const hints = Object.entries(annotations).map(([key, value]) => key + "=" + JSON.stringify(value)).join(", ");
+  return hints ? "server hints, not verified by the harness: " + hints : "";
+}
+
+function renderMcpEvent(event, live) {
+  const label = event.server + "/" + event.tool;
+  if (live) {
+    if (!changeBox) changeBox = renderChangeBox("MCP tool " + label + ":", event.arguments);
+    if (event.approved) {
+      const out = document.createElement("pre");
+      out.className = "command-output";
+      out.textContent = event.result || "(no content)";
+      changeBox.querySelector(".change-actions").before(out);
+    }
+    setChangeStatus(changeBox, event.approved, event.is_error ? "ran: the server reported an error" : "ran");
+    changeBox = null;
+  }
+  const wire = event.request ? "\n\nJSON-RPC request:\n" + JSON.stringify(event.request, null, 2) + "\n\nJSON-RPC response:\n" + JSON.stringify(event.response, null, 2) : "";
+  printBlock("MCP — " + label + (event.approved ? " over " + event.transport + ", protocol " + event.protocol_version : " (refused)"),
+             "arguments: " + event.arguments + (event.approved ? "\nresult:    " + event.result + wire : ""));
 }
 
 function renderChangeBox(title, diff, note) {
@@ -1052,7 +1154,7 @@ function setChangeStatus(box, approved, doneLabel) {
 
 function setControlsDisabled(disabled) {
   for (const el of [input, sendBtn, resetBtn, compactBtn, clearBtn, memoryCheckbox, toolsCheckbox,
-                    askApprovalCheckbox, projectInput, setProjectBtn, browseBtn]) {
+                    askApprovalCheckbox, projectInput, setProjectBtn, browseBtn, mcpReloadBtn]) {
     el.disabled = disabled;
   }
   compactBtn.disabled = disabled || !memoryCheckbox.checked;
@@ -1225,10 +1327,22 @@ async function clearConversation() {
 function renderTools(tools) {
   const list = document.getElementById("tool-list");
   list.replaceChildren();
+  let group = null;
   for (const tool of tools) {
+    if (tool.source === "mcp" && tool.server !== group) {
+      group = tool.server;
+      const heading = document.createElement("span");
+      heading.className = "mcp-group";
+      heading.textContent = group ? "MCP " + group + ":" : "MCP resources:";
+      heading.title = group
+        ? "Tools reported by the MCP server '" + group + "'. The harness adds the server name to each tool name, sends the server's descriptions and schemas to the model, and forwards calls to the server. Calls ask for approval like commands: the harness cannot see what an external tool does. See Explore → MCP servers."
+        : "Harness tools for reading MCP resources (data offered by servers). Reads are not approved, like read_file; the content enters the conversation.";
+      list.append(heading);
+    }
     const label = document.createElement("label");
     label.className = "toggle tool";
     label.title = "What the model is told: \"" + tool.description + "\"\n\nWhile checked, this description is sent with every request, which costs input tokens.";
+    if (tool.source === "mcp") label.title += "\nMCP tools are off in new sessions: tick them to offer them to the model.";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.className = "tool-checkbox";

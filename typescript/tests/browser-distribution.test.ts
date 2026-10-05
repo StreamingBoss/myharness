@@ -40,6 +40,15 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   assert.equal(await page.locator('#browser-model-mode').inputValue(), 'ollama');
   assert.equal(await page.locator('#browser-model-mode option[value=demo], #browser-examples').count(), 0);
   assert.equal(await page.locator('#browser-context-limit').inputValue(), '8192');
+  assert.equal(await page.getByText('How this version works', { exact: true }).count(), 0);
+  assert.equal(await page.locator('#browser-token-budgets').isVisible(), false);
+  await page.locator('#browser-model-mode').selectOption('gemini');
+  assert.equal(await page.locator('#browser-token-budgets').isVisible(), true);
+  await page.getByText('Harness token budgets', { exact: true }).click();
+  assert.match(await page.locator('#browser-token-budgets').innerText(), /configured budgets.*not the model’s advertised limits/);
+  assert.equal(await page.locator('#browser-context-limit').inputValue(), '8192');
+  assert.equal(await page.locator('#browser-output-limit').inputValue(), '2048');
+  await page.locator('#browser-model-mode').selectOption('ollama');
   assert.equal(await page.locator('#browser-api-key').isVisible(), false);
   assert.equal(await page.locator('#browser-model').evaluate(element => element.tagName), 'SELECT');
   await page.waitForFunction(() => !(document.querySelector('#browser-model') as HTMLSelectElement).disabled);
@@ -76,6 +85,7 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   const address = ollama.address(); assert.ok(address && typeof address !== 'string');
   const modelURL = `http://127.0.0.1:${address.port}`;
   await page.locator('#browser-model-mode').selectOption('ollama');
+  assert.equal(await page.locator('#browser-token-budgets').isVisible(), false);
   await page.locator('#browser-ollama-url').fill(modelURL); await page.locator('#browser-ollama-url').press('Tab');
   await page.waitForFunction(() => document.querySelector('#browser-model option[value="small:4b"]'));
   await page.locator('#browser-model').selectOption('small:4b');

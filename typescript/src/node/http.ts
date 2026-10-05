@@ -73,6 +73,8 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
         }
       }
       if (request.method === 'POST' && route === '/model') { const value = await body(request); if (value.apiKey !== undefined) throw new BackendError('Node HTTP uses server environment credentials.'); await harness.configureModel(modelConfiguration(value)); send(response, 200, { ok: true }); return; }
+      if (request.method === 'GET' && route === '/mcp') { send(response, 200, harness.mcpStatus()); return; }
+      if (request.method === 'POST' && route === '/mcp/reload') { send(response, 200, await harness.reloadMcp()); return; }
       if (request.method === 'POST' && route === '/reset') { await harness.reset(); send(response, 200, { memory: harness.memoryText() }); return; }
       if (request.method === 'POST' && route === '/stop') { harness.stop(); send(response, 200, { ok: true }); return; }
       if (request.method === 'POST' && route === '/approve') {

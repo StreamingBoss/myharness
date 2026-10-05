@@ -67,7 +67,8 @@ export interface Turn {
 export type ToolResult =
   | { kind: "text"; text: string }
   | { kind: "change"; change: unknown }
-  | { kind: "command"; command: string };
+  | { kind: "command"; command: string }
+  | { kind: "mcp"; call: unknown };
 
 /** Runtime boundary. No Node, browser, HTTP, or UI types appear in this API. */
 export interface TurnHost {
@@ -82,7 +83,7 @@ export interface TurnHost {
   lastPromptTokens(): number;
   setLastPromptTokens(value: number): void;
   memoryText(): string;
-  systemMessages(setup: Turn["setup"], withSkills: boolean): ChatMessage[];
+  systemMessages(setup: Turn["setup"], withSkills: boolean, enabledTools?: string[]): ChatMessage[];
   estimateTokens(system: ChatMessage[], conversation: ChatMessage[], tools: ToolDefinition[]): number;
   trimContext(system: ChatMessage[], conversation: ChatMessage[], tools: ToolDefinition[]): CoreEvent | undefined;
   compactContext(conversation: ChatMessage[]): AsyncIterable<CoreEvent>;
@@ -92,6 +93,8 @@ export interface TurnHost {
   runTool(name: string, toolArguments: Record<string, unknown>, enabled: string[]): Promise<ToolResult>;
   applyChange(name: string, change: unknown): AsyncGenerator<CoreEvent, string, void>;
   executeCommand(command: string): AsyncGenerator<CoreEvent, string, void>;
+  /** Asks approval for, then performs, an MCP tool call. */
+  executeMcp?(call: unknown): AsyncGenerator<CoreEvent, string, void>;
   recordEvent(event: CoreEvent): void;
   requestMetadata?(payload: ModelRequest): Record<string, unknown>;
 }
@@ -109,7 +112,7 @@ export class HarnessCore {
 
     let compactAttempted = false;
     for (let step = 0; step < this.host.maxSteps; step += 1) {
-      const system = this.host.systemMessages(turn.setup, turn.enabledTools.includes("use_skill"));
+      const system = this.host.systemMessages(turn.setup, turn.enabledTools.includes("use_skill"), turn.enabledTools);
       if (turn.useMemory) {
         const estimated = this.host.estimateTokens(system, turn.conversation, turn.selectedTools) + (this.host.maxOutputTokens?.() ?? 0);
         const pressure = Math.max(this.host.lastPromptTokens(), estimated);
@@ -223,9 +226,9 @@ export class HarnessCore {
 
   private async *resolveToolResult(name: string, result: ToolResult): AsyncGenerator<CoreEvent, string, void> {
     if (result.kind === "text") return result.text;
-    const action = result.kind === "change"
-      ? this.host.applyChange(name, result.change)
-      : this.host.executeCommand(result.command);
+    const action = result.kind === "change" ? this.host.applyChange(name, result.change)
+      : result.kind === "command" ? this.host.executeCommand(result.command)
+      : this.host.executeMcp!(result.call);
     return yield* this.forwardAction(action);
   }
 

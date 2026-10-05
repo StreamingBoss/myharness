@@ -10,6 +10,7 @@ import { ESCAPE_NOTE, unescape } from './workspace.js';
 import { createSession, sessionSummary, sessionTitle, type SessionRecord, type SessionPort } from './sessions.js';
 import { TOOLS, TOOL_NAMES } from './tools.js';
 import { unavailable, savedModelRequest, type InspectionPort, type TokenInspection } from './tokenization.js';
+import { McpManager, type McpToolCall } from './mcp/manager.js';
 
 export interface TurnAction {
   message: string; useMemory: boolean; tools: string[]; askApproval: boolean; agent: string; prompt: string; sessionId?: string;
@@ -24,6 +25,7 @@ export interface ModelPort extends InspectionPort {
 export interface HarnessOptions {
   workspace: string; model: string; contextLength: number; ollama?: ModelPort; modelAdapter?: ModelAdapter; provider?: Provider; maxOutputTokens?: number; sessions?: SessionPort; runtime: RuntimePort;
   projectRoot?: string; settingsFile?: string; approvalTimeoutMs?: number; commandTimeoutMs?: number;
+  mcpTimeouts?: { connectTimeoutMs?: number; probeTimeoutMs?: number };
 }
 export class BackendError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -34,6 +36,8 @@ type Change = { path: string; content: string; note?: string };
 export class Harness implements TurnHost {
   readonly maxSteps = 20;
   readonly state: HarnessState;
+  /** MCP servers: external tools, instructions, resources and prompts. */
+  readonly mcp: McpManager;
   private workspace: WorkspacePort;
   private catalog: CatalogPort;
   private readonly modelPort: ModelPort;
@@ -55,6 +59,7 @@ export class Harness implements TurnHost {
     this.adapter = options.modelAdapter ?? new LegacyModelAdapter(options.ollama!);
     this.modelPort = options.ollama ?? {} as ModelPort;
     this.sessions = options.sessions;
+    this.mcp = new McpManager(options.runtime.mcp, options.mcpTimeouts);
     this.state = { ...(options.provider ? { provider: options.provider } : {}), ...(options.maxOutputTokens ? { maxOutputTokens: options.maxOutputTokens } : {}), model: options.model, contextLength: options.contextLength, lastPromptTokens: 0, memory: [], workspace: this.workspace.root, stopped: false };
     this.session = createSession({ model: options.model, context_length: options.contextLength, workspace: this.workspace.root, ...(options.provider ? { provider: options.provider } : {}), ...(options.maxOutputTokens ? { max_output_tokens: options.maxOutputTokens } : {}) });
     this.state.memory = this.session.memory;
@@ -72,7 +77,18 @@ export class Harness implements TurnHost {
     const records = await this.listSessions();
     if (records.length) await this.activateSession(records[0]!.id);
     else await this.saveSession();
+    await this.mcp.load();
   }
+  /** Re-reads the MCP configuration and reconnects every server. */
+  async reloadMcp(): Promise<Record<string, unknown>> {
+    this.idle('reloading MCP servers');
+    this.running = true;
+    try { await this.mcp.load(); } finally { this.running = false; }
+    return this.mcp.status();
+  }
+  mcpStatus(): Record<string, unknown> { return this.mcp.status(); }
+  /** Ends MCP connections, including stdio server processes. */
+  async close(): Promise<void> { await this.mcp.close(); }
   async newSession(name = 'New session'): Promise<SessionRecord> {
     this.idle('changing sessions');
     this.session = createSession({ model: this.state.model, context_length: this.state.contextLength, workspace: this.state.workspace, ...(this.state.provider ? { provider: this.state.provider } : {}), ...(this.state.maxOutputTokens ? { max_output_tokens: this.state.maxOutputTokens } : {}) }, name.trim() || 'New session');
@@ -196,7 +212,7 @@ export class Harness implements TurnHost {
   }
   async bootstrap(): Promise<Record<string, unknown>> {
     return { provider: this.modelProvider() ?? (this.state.model === 'scripted-demo' ? 'demo' : 'ollama'), ready: this.adapter.ready(this.state.provider ?? 'ollama'), max_output_tokens: this.state.maxOutputTokens, working_context_limit: this.state.contextLength, model: this.state.model, context_length: this.state.contextLength, last_prompt_tokens: this.state.lastPromptTokens,
-      memory: this.memoryText(), runtime: this.options.runtime.name, capabilities: this.options.runtime.capabilities, tools: TOOLS.map(tool => ({ name: tool.function.name, description: tool.function.description, supported: this.options.runtime.supportedTools.includes(tool.function.name) })),
+      memory: this.memoryText(), runtime: this.options.runtime.name, capabilities: this.options.runtime.capabilities, tools: [...TOOLS.map(tool => ({ name: tool.function.name, description: tool.function.description, supported: this.options.runtime.supportedTools.includes(tool.function.name) })), ...this.mcp.toolList()], mcp: this.mcp.status(),
       agents: this.agentList(), prompts: Object.entries(this.catalog.prompts()).map(([name, text]) => ({ name, tokens: Math.floor(characters(text) / 4), fits: Math.floor(characters(text) / 4) < this.state.contextLength })),
       project: this.state.workspace, locked: this.state.memory.length ? this.session.setup : null, session: this.activeSessionRecord(), sessions: (await this.listSessions()).map(sessionSummary) };
   }
@@ -210,11 +226,15 @@ export class Harness implements TurnHost {
     this.currentAskApproval = action.askApproval;
     try {
       await this.workspace.refresh();
-      let message = action.message, manualSkill = '';
+      let message = action.message, manualSkill = '', prompt: CoreEvent | undefined;
       if (message.startsWith('/')) {
         const word = message.slice(1).split(' ')[0]!;
         const skill = this.effectiveSkills()[word];
         if (skill) { manualSkill = word; message = `<skill name="${word}">\n${skill.body}\n</skill>\n\n${message.slice(word.length + 2).trim() || 'Use this skill.'}`; }
+        else if (word.startsWith('mcp__')) {
+          const expansion = await this.mcp.prompt(word, message.slice(word.length + 1), this.controller.signal);
+          if (expansion) { message = expansion.text; prompt = { type: 'mcp_prompt', server: expansion.server, name: expansion.name }; }
+        }
       }
       let setup = { agent: action.agent, prompt: action.prompt };
       if (action.useMemory) {
@@ -230,12 +250,15 @@ export class Harness implements TurnHost {
       const userMessage: ChatMessage = { role: 'user', content: message };
       const conversation = action.useMemory ? this.state.memory : [userMessage];
       if (action.useMemory) conversation.push(userMessage);
-      const enabledTools = action.tools.filter(name => this.options.runtime.supportedTools.includes(name));
-      this.session.settings = { use_memory: action.useMemory, tools: enabledTools, ask_approval: action.askApproval };
+      const mcpTools = this.mcp.definitions();
+      const enabledTools = action.tools.filter(name => this.options.runtime.supportedTools.includes(name) || mcpTools.some(tool => tool.function.name === name));
+      // A disconnected MCP server keeps its tools selected for when it returns.
+      this.session.settings = { use_memory: action.useMemory, tools: action.tools.filter(name => enabledTools.includes(name) || this.mcp.owns(name)), ask_approval: action.askApproval };
       if (this.session.name === 'New session') this.session.name = await this.uniqueName(sessionTitle(message) || 'New session', this.session.id);
       this.recordEvent({ type: 'chat_user', content: message });
+      if (prompt) { this.recordEvent(prompt); yield prompt; }
       await this.saveSession();
-      const turn: Turn = { userMessage, conversation, setup, enabledTools, selectedTools: TOOLS.filter(tool => enabledTools.includes(tool.function.name)), useMemory: action.useMemory, manualSkill };
+      const turn: Turn = { userMessage, conversation, setup, enabledTools, selectedTools: [...TOOLS, ...mcpTools].filter(tool => enabledTools.includes(tool.function.name)), useMemory: action.useMemory, manualSkill };
       for await (const event of new HarnessCore(this).runTurn(turn)) { await this.saveSession(); yield event; }
     } catch (error) {
       const event = { type: 'stopped', reason: this.stopped() ? 'stopped by the user' : `Turn failed: ${String(error instanceof Error ? error.message : error)}`, memory: this.memoryText() };
@@ -266,10 +289,10 @@ export class Harness implements TurnHost {
     return snapshot?.name === name ? snapshot.value : this.catalog.agents()[name] ?? null;
   }
   private effectiveSkills(): Record<string, Skill> { return this.session.snapshots.skills ?? this.catalog.skills(); }
-  systemMessages(setup: Turn['setup'], withSkills: boolean): ChatMessage[] {
+  systemMessages(setup: Turn['setup'], withSkills: boolean, enabledTools: string[] = []): ChatMessage[] {
     const agent = this.selectedAgent(setup.agent);
     const project = this.session.project_instructions ?? this.catalog.projectInstructions();
-    const text = [this.selectedPrompt(setup.prompt), agent?.prompt, project ? `# Project instructions (${project[0]})\n\n${project[1]}` : '', withSkills ? skillsSection(this.effectiveSkills()) : ''].filter(Boolean).join('\n\n');
+    const text = [this.selectedPrompt(setup.prompt), agent?.prompt, project ? `# Project instructions (${project[0]})\n\n${project[1]}` : '', this.mcp.instructions(enabledTools), withSkills ? skillsSection(this.effectiveSkills()) : ''].filter(Boolean).join('\n\n');
     return text ? [{ role: 'system', content: text }] : [];
   }
   estimateTokens = estimateTokens;
@@ -308,6 +331,7 @@ export class Harness implements TurnHost {
   private async uniqueName(name: string, excludeId: string): Promise<string> { return this.sessions ? this.sessions.uniqueName(name, excludeId) : name; }
 
   async runTool(name: string, args: Record<string, unknown>, enabled: string[]): Promise<ToolResult> {
+    if (this.mcp.owns(name)) return enabled.includes(name) ? this.mcp.prepare(name, args, this.controller.signal) : { kind: 'text', text: `error: unknown tool '${name}'` };
     if (!enabled.includes(name) || !TOOL_NAMES.includes(name)) return { kind: 'text', text: `error: unknown tool '${name}'` };
     if (!this.options.runtime.supportedTools.includes(name)) return { kind: 'text', text: `unsupported: '${name}' is unavailable in the ${this.options.runtime.name} runtime` };
     try {
@@ -379,6 +403,19 @@ export class Harness implements TurnHost {
     const result = await this.options.runtime.executeCommand(command, this.workspace.root, this.controller.signal);
     yield { type: 'command', command, approved: true, output: result.output, status: result.status };
     return result.output ? `${result.status}\noutput:\n${result.output}` : `${result.status}\n(no output)`;
+  }
+  /** MCP tool calls are external effects: approval is required while approvals are on. */
+  async *executeMcp(raw: unknown): AsyncGenerator<CoreEvent, string, void> {
+    const call = raw as McpToolCall, args = json(call.arguments, 2);
+    const fields = { name: call.name, server: call.server, tool: call.tool, arguments: args };
+    const approved = yield* this.askUser({ ...fields, annotations: call.annotations });
+    if (this.stopped() || !approved) {
+      yield { type: 'mcp', ...fields, approved: false, result: '', is_error: false };
+      return this.stopped() ? STOPPED_RESULT : 'refused: the user did not approve this MCP tool call. Ask them what to do instead.';
+    }
+    const outcome = await this.mcp.call(call, this.controller.signal);
+    yield { type: 'mcp', ...fields, approved: true, result: outcome.text, is_error: outcome.isError, protocol_version: outcome.version, transport: outcome.transport, request: outcome.request ?? null, response: outcome.response ?? null };
+    return this.stopped() ? STOPPED_RESULT : outcome.text;
   }
   private stringArgument(args: Record<string, unknown>, name: string, fallback?: string): string {
     const value = args[name] ?? fallback; if (typeof value !== 'string') throw new Error(`bad arguments for '${name}'`); return value;
@@ -484,10 +521,10 @@ export class Harness implements TurnHost {
   async explore(action: Omit<TurnAction, 'message' | 'askApproval'>): Promise<Record<string, unknown>> {
     await this.workspace.refresh();
     const setup = action.useMemory && this.state.memory.length ? this.session.setup : { agent: action.agent, prompt: action.prompt };
-    const tools = TOOLS.filter(tool => action.tools.includes(tool.function.name) && this.options.runtime.supportedTools.includes(tool.function.name)), show = this.adapter.ready(this.state.provider ?? 'ollama') ? await this.adapter.describe(this.model()) : { template: 'Enter this provider’s API key to connect. Its internal template is not exposed.', parameters: '' };
+    const tools = [...TOOLS.filter(tool => this.options.runtime.supportedTools.includes(tool.function.name)), ...this.mcp.definitions()].filter(tool => action.tools.includes(tool.function.name)), show = this.adapter.ready(this.state.provider ?? 'ollama') ? await this.adapter.describe(this.model()) : { template: 'Enter this provider’s API key to connect. Its internal template is not exposed.', parameters: '' };
     const history = action.useMemory ? this.state.memory : [], withSkills = action.tools.includes('use_skill');
-    const system = this.systemMessages(setup, withSkills);
-    return { system_prompt: this.selectedPrompt(setup.prompt), prompt_name: setup.prompt, agent: this.selectedAgent(setup.agent), agent_name: setup.agent,
+    const system = this.systemMessages(setup, withSkills, action.tools);
+    return { mcp: this.mcp.status(), system_prompt: this.selectedPrompt(setup.prompt), prompt_name: setup.prompt, agent: this.selectedAgent(setup.agent), agent_name: setup.agent,
       tools: json(tools, 2), template: show.template ?? '', parameters: show.parameters ?? '', final: this.model().includes('qwen') ? renderQwenPrompt([...system, ...history, { role: 'user', content: '(your next message)' }], tools) : `The reconstruction is only written for Qwen templates, and the model is ${this.model()}.`,
       skills: Object.values(this.effectiveSkills()), skills_section: skillsSection(this.effectiveSkills()), skills_listed: withSkills, project_instructions: this.session.project_instructions ?? this.catalog.projectInstructions(), skill_context: this.skillContext([...system, ...history]) };
   }

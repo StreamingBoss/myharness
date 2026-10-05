@@ -26,12 +26,13 @@ export function browserFetch(client: WorkerClient) {
         else if (method === 'PATCH' && !session[2]) action = 'patchSession';
         else if (method === 'POST' && session[2] === 'activate') action = 'activateSession';
       } else if (method === 'GET') {
-        if (route === '/bootstrap' || route === '/sessions') action = route.slice(1);
+        if (route === '/bootstrap' || route === '/sessions' || route === '/mcp') action = route.slice(1);
         else if (route === '/browse') { action = 'browse'; const path = url.searchParams.get('path'); payload = path ? { path } : {}; }
       } else if (method === 'POST') {
         if (route === '/sessions') action = 'newSession';
         else if (route === '/sessions/import') { action = 'importSession'; status = 201; }
         else if (['/reset', '/stop', '/approve', '/explore', '/project', '/tokenize'].includes(route)) action = route.slice(1);
+        else if (route === '/mcp/reload') action = 'reloadMcp';
       }
       if (!action) throw new BackendError('Not found', 404);
       return Response.json(await client.call(action, payload), { status });

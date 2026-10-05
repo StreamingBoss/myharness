@@ -27,7 +27,7 @@ export async function loadHarness(env: NodeJS.ProcessEnv = process.env): Promise
   if (maxOutput !== undefined && (!Number.isInteger(maxOutput) || maxOutput <= 0 || maxOutput >= contextLength)) throw new Error('MYHARNESS_MAX_OUTPUT_TOKENS must be positive and smaller than context length');
   const harness = new NodeHarness({ workspace, model, contextLength, modelAdapter: router,
     ...(provider !== 'ollama' ? { provider } : {}), ...(maxOutput === undefined ? {} : { maxOutputTokens: maxOutput }),
-    projectRoot: root, settingsFile, sessions: new SessionStore(env.MYHARNESS_SESSIONS ?? path.join(root, 'sessions')) });
+    projectRoot: root, settingsFile, mcpConfigFile: path.resolve(env.MYHARNESS_MCP ?? path.join(root, 'mcp.json')), sessions: new SessionStore(env.MYHARNESS_SESSIONS ?? path.join(root, 'sessions')) });
   await harness.initialize();
   return harness;
 }
