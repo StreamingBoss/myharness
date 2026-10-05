@@ -51,6 +51,7 @@ export class WorkerHost {
           value = { ok: true }; break;
         case 'project': if (typeof payload.path !== 'string') throw new BackendError('path must be a string'); value = await backend.setProject(payload.path); break;
         case 'browse': value = backend.browse(typeof payload.path === 'string' ? payload.path : backend.state.workspace); break;
+        case 'tokenize': value = await backend.tokenize(payload.event_index as number, typeof payload.session_id === 'string' ? payload.session_id : undefined); break;
         case 'explore': value = await backend.explore(turnAction(payload, false)); break;
         case 'importProject': value = await backend.importProject(payload); break;
         case 'exportProject': value = await backend.exportProject(); break;

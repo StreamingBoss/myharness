@@ -22,6 +22,8 @@ direct headless runner use the same backend, tools and approval policy.
 | Context | Measured input tokens, estimated pressure, trimmed tool output and visible summary requests. |
 | Sessions | Saved transcript, retained memory and instruction snapshots; reset memory while keeping the transcript visible. |
 
+The bottom **Explore → tokenization of a saved request** view can inspect individual model calls. It shows token pieces and IDs where a configured/provider tokenizer exposes them, and explicitly explains count-only or unavailable results. See [TOKENIZATION.md](TOKENIZATION.md) for Ollama tokenizer setup, remote Gemini configuration, and exactness limits.
+
 The **Chat** pane shows answers and actions. **Internals** shows the API exchange
 and tool effects. **Explore** shows the pieces used to build a request, the model's
 Ollama template, and an illustrative Qwen prompt reconstruction. Hover over the

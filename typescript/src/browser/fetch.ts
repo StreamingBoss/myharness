@@ -31,7 +31,7 @@ export function browserFetch(client: WorkerClient) {
       } else if (method === 'POST') {
         if (route === '/sessions') action = 'newSession';
         else if (route === '/sessions/import') { action = 'importSession'; status = 201; }
-        else if (['/reset', '/stop', '/approve', '/explore', '/project'].includes(route)) action = route.slice(1);
+        else if (['/reset', '/stop', '/approve', '/explore', '/project', '/tokenize'].includes(route)) action = route.slice(1);
       }
       if (!action) throw new BackendError('Not found', 404);
       return Response.json(await client.call(action, payload), { status });

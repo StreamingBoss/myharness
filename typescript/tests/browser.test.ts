@@ -15,7 +15,7 @@ test('browser hydrates the existing UI, streams a terminal reply, and restores s
   await harness.initialize();
   const server = createHarnessServer(harness); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => server.close());
   const address = server.address(); assert.ok(address && typeof address !== 'string');
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
+  const browser = await chromium.launch({ executablePath: process.env.MYHARNESS_TEST_CHROMIUM ?? chromium.executablePath(), headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
   await page.locator('#input').fill('hello'); await page.locator('#send').click();
@@ -35,7 +35,7 @@ test('a separately served UI approves a write and exports the backend session', 
   await harness.initialize(); const backend = createHarnessServer(harness, { uiOrigins: origin });
   await new Promise<void>(resolve => backend.listen(0, '127.0.0.1', resolve)); t.after(() => backend.close());
   const address = backend.address(); assert.ok(address && typeof address !== 'string'); const base = `http://127.0.0.1:${address.port}`;
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
+  const browser = await chromium.launch({ executablePath: process.env.MYHARNESS_TEST_CHROMIUM ?? chromium.executablePath(), headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(origin + '/?api=' + encodeURIComponent(base)); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 10);
   await page.locator('#input').fill('write'); await page.locator('#send').click(); await page.getByRole('button', { name: 'Approve', exact: true }).click();
