@@ -357,6 +357,17 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+#tokenization { overflow: auto; padding: 12px; font: 13px system-ui; }
+#tokenization p, #tokenization li { line-height: 1.5; }
+#tokenization pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.token-controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.token-controls select { max-width: 400px; }
+.token-chips { display: flex; flex-wrap: wrap; gap: 3px; margin: 12px 0; }
+.token-chip { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; font: 13px monospace; border: 1px solid transparent; padding: 4px; cursor: pointer; }
+.token-chip:focus { outline: 2px solid #fff; }
+.token-colour-0 { background: #234854; color: #b5ecff; }
+.token-colour-1 { background: #443457; color: #f2caff; }
+#token-details { border: 1px solid #666; padding: 8px; }
 </style>
 </head>
 <body>
@@ -421,7 +432,7 @@
 <div id="splitter" title="Drag to resize the chat and Internals panes"></div>
 
 <div id="internals-pane">
-  <div class="pane-header" title="Everything exchanged with Ollama. SENT (orange): the full request, rebuilt every time; your new message is in red. RECEIVED (green): the model's response with its statistics; the model's message is in blue. TOKENS: input + output tokens out of the context window. TOOL and FILE CHANGE: what the harness ran for the model.">Internals</div>
+  <div class="pane-header" title="Model API exchanges. SENT (orange): the full request, rebuilt every time; your new message is in red. RECEIVED (green): the model's response with its statistics; the model's message is in blue. TOKENS: input + output tokens out of the context window. TOOL and FILE CHANGE: what the harness ran for the model.">Internals</div>
   <pre id="terminal">----------------------------------------
 MODEL
 ----------------------------------------
@@ -444,14 +455,17 @@ Model: loading…
       <option value="tools">harness tools</option>
       <option value="skills">harness skills</option>
       <option value="template">model template</option>
+      <option value="tokens">tokenization of a saved request</option>
       <option value="final">prompt reconstruction (Qwen)</option>
     </select>
     <span id="explore-note"></span>
   </div>
   <pre id="memory"></pre>
   <pre id="explore" hidden></pre>
+  <div id="tokenization" hidden></div>
 </div>
 
+<script src="/static/tokenization.js"></script>
 <script>
 const messagesEl = document.getElementById("messages");
 const terminalEl = document.getElementById("terminal");
@@ -481,6 +495,7 @@ let sessionEvents = [];
 let toolCheckboxes = [];
 let contextLength = 0;
 let initialized = false;
+const tokenViewer = new TokenViewer(document.getElementById('tokenization'), (path, options) => backendFetch(api(path), options), busy => setControlsDisabled(busy));
 const sessionSelect = document.getElementById("session-select");
 const sessionStatus = document.getElementById("session-status");
 
@@ -516,7 +531,7 @@ function updateContextMeter(used, windowSize = contextLength) {
 
 function handleContextEvent(event) {
   if (event.action === "compact_request") {
-    printBlock("SENT to Ollama — compaction", JSON.stringify(event.payload, null, 2), "sent");
+    printBlock("SENT to model — compaction", JSON.stringify(event.wire_request || event.payload, null, 2), "sent");
   } else if (event.action === "compact_response") {
     printBlock("RECEIVED from model — compaction", JSON.stringify(event.response, null, 2), "received");
   } else {
@@ -586,10 +601,15 @@ function printBlock(title, body, className = "") {
   terminalEl.scrollTop = terminalEl.scrollHeight;
 }
 
+function printModelRequest(event, saved) {
+  if (event.wire_request) printBlock('SENT to ' + event.provider + (saved ? ' (saved)' : ''), JSON.stringify(event.wire_request, null, 2), 'sent');
+  else printBlock('SENT to model' + (saved ? ' (saved)' : ''), event.parts, 'sent');
+}
+
 function replaySessionEvent(event) {
   // Replay is display-only: it never calls the model, tools, approvals, or project endpoints.
   if (event.type === "chat_user") renderChatBubble("user", event.content || "");
-  else if (event.type === "request") printBlock("SENT to Ollama (saved)", event.parts, "sent");
+  else if (event.type === "request") printModelRequest(event, true);
   else if (event.type === "response") {
     printBlock("RECEIVED from model (saved)", event.parts, "received");
     if (event.tokens) printBlock("TOKENS", event.tokens);
@@ -702,7 +722,7 @@ async function sendMessage() {
         if (event.type === "context") {
           handleContextEvent(event);
         } else if (event.type === "request") {
-          printBlock("SENT to model", event.parts, "sent");
+          printModelRequest(event, false);
           memoryEl.textContent = event.memory;
         } else if (event.type === "skill") {
           addDivider("— skill loaded: " + event.name + " —");
@@ -905,6 +925,12 @@ function renderSkills(data, context) {
 async function refreshExplorer() {
   if (!initialized) return;
   const view = exploreView.value;
+  document.getElementById('tokenization').hidden = view !== 'tokens';
+  if (view === 'tokens') {
+    memoryEl.hidden = true; exploreEl.hidden = true;
+    exploreNote.textContent = 'Inspect the saved request for a specific model call. Source, coverage and limitations appear below.';
+    await tokenViewer.refresh(session.id); return;
+  }
   const showMemory = view === "memory";
   memoryEl.hidden = !showMemory;
   exploreEl.hidden = showMemory;

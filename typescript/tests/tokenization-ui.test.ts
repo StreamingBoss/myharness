@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { chromium } from 'playwright';
+import { NodeHarness } from '../src/node/harness.js';
+import { SessionStore } from '../src/node/sessions.js';
+import { createHarnessServer } from '../src/node/http.js';
+import { unavailable } from '../src/tokenization.js';
+
+const launch = () => chromium.launch({ executablePath: process.env.MYHARNESS_TEST_CHROMIUM ?? chromium.executablePath(), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+
+test('bottom viewer explains exactness, shows real pieces/bytes and restores inspection without network calls', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'myharness-token-ui-')); t.after(() => rm(root, { recursive: true, force: true }));
+  let inspected = 0;
+  const harness = new NodeHarness({ workspace: root, projectRoot: root, model: 'gemini-test', contextLength: 4096, sessions: new SessionStore(path.join(root, 'sessions')), ollama: {
+    provider: 'gemini-vertex', requestMetadata: () => ({ provider: 'gemini-vertex', wire_request: { contents: [{ role: 'user', parts: [{ text: 'ü <img onerror=bad()>' }] }], generationConfig: {} } }),
+    async *streamChat() { yield JSON.stringify({ message: { content: 'hello' }, done: true, prompt_eval_count: 12 }); }, async request() { return {}; },
+    async inspectTokens(payload) { inspected++; return { ...unavailable(payload.model, 'gemini-vertex', 'Actual provider pieces for message text; not the full inference input.'), fidelity: 'provider-content', source: 'Scripted Vertex API response', coverage: 'User message text only.', limitations: ['Hidden role markers and tool serialization are excluded.'], count: 3,
+      groups: [{ label: 'User text', tokens: [{ id: '9007199254740993', bytes: [195] }, { id: '2', bytes: [188] }, { id: '3', bytes: [32, 10, 9] }] }] }; },
+  } }); await harness.initialize();
+  const server = createHarnessServer(harness); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => server.close()); const address = server.address(); assert.ok(address && typeof address !== 'string');
+  const browser = await launch(); t.after(() => browser.close()); const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
+  await page.locator('#explore-view').selectOption('tokens'); await page.getByText('Send a message first; no saved request is available.').waitFor(); assert.equal(inspected, 0);
+  await page.locator('#input').fill('ü'); await page.locator('#send').click(); await page.getByText('hello', { exact: true }).first().waitFor();
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.locator('#token-inspect').waitFor({ state: 'visible' }); await page.waitForFunction(() => !(document.querySelector('#token-inspect') as HTMLButtonElement).disabled);
+  assert.match(await page.locator('#terminal').textContent() ?? '', /SENT to gemini-vertex/); assert.match(await page.locator('#terminal').textContent() ?? '', /generationConfig/);
+  await page.locator('#token-inspect').click(); await page.getByText('Provider tokenization of text', { exact: true }).waitFor(); assert.equal(inspected, 1);
+  assert.equal(await page.locator('.token-chip').count(), 3); await page.locator('.token-chip').first().click();
+  const detail = await page.locator('#token-details').textContent(); assert.match(detail!, /9007199254740993/); assert.match(detail!, /C3/); assert.match(detail!, /part of a UTF-8/);
+  assert.match(await page.locator('#token-summary').textContent() ?? '', /Input count reported during generation: 12/); assert.equal(await page.locator('#tokenization img').count(), 0);
+  await page.reload(); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0); await page.locator('#explore-view').selectOption('tokens'); await page.locator('.token-chip').first().waitFor(); assert.equal(inspected, 1);
+  await page.locator('#explore-view').selectOption('memory'); assert.equal(await page.locator('#tokenization').isVisible(), false); assert.equal(await page.locator('#memory').isVisible(), true); assert.deepEqual(errors, []);
+});
+
+test('viewer distinguishes count-only, configured-tokenizer, unavailable and failed inspection and ignores stale responses', async t => {
+  const browser = await launch(); t.after(() => browser.close()); const page = await browser.newPage();
+  await page.setContent('<div id="root"></div>'); await page.addScriptTag({ path: 'web/static/tokenization.js' });
+  await page.evaluate(() => {
+    const scope = globalThis as unknown as { TokenViewer: new (...args: unknown[]) => { render(data: unknown): void; refresh(id: string): Promise<void>; run(): Promise<void> }; viewer: { render(data: unknown): void; refresh(id: string): Promise<void>; run(): Promise<void> }; reply: unknown; status: number; mode: string; resolve: (response: Response) => void; busy: boolean[] };
+    scope.status = 200; scope.mode = 'success'; scope.busy = [];
+    scope.viewer = new scope.TokenViewer(document.querySelector('#root'), async (url: string) => {
+      if (scope.mode === 'wait') return new Promise(resolve => { scope.resolve = resolve; });
+      if (url.startsWith('/sessions/')) return Response.json({ events: [{ type: 'request', parts: [JSON.stringify({ model: 'qwen', messages: [] })] }, { type: 'context', action: 'compact_request', payload: { model: 'qwen' } }] }, { status: scope.status });
+      return Response.json(scope.reply, { status: scope.status });
+    }, (value: boolean) => scope.busy.push(value));
+  });
+  const base = { model: 'qwen', provider: 'ollama', source: 'configured tokenizer', explanation: 'Separately tokenized; not inference capture.', coverage: 'Rendered prompt.', limitations: ['Model match is operator configured.'], groups: [] };
+  await page.evaluate(data => (globalThis as unknown as { viewer: { render(data: unknown): void } }).viewer.render(data), { ...base, fidelity: 'configured-tokenizer', count: 0, renderedPrompt: '<|marker|>' });
+  await page.getByText('Configured tokenizer · separate tokenization', { exact: true }).waitFor(); await page.getByText('Ollama-rendered prompt text (separate inspection)').click(); assert.match(await page.locator('#root').textContent() ?? '', /<\|marker\|>/);
+  await page.evaluate(data => (globalThis as unknown as { viewer: { render(data: unknown): void } }).viewer.render(data), { ...base, fidelity: 'count-only', count: 10 }); assert.match(await page.locator('#token-summary').textContent() ?? '', /Count only/); assert.equal(await page.locator('.token-chip').count(), 0);
+  await page.evaluate(data => { const s = globalThis as unknown as { viewer: { refresh(id: string): Promise<void> }; reply: unknown }; s.reply = data; return s.viewer.refresh('id'); }, { ...base, fidelity: 'unavailable' });
+  await page.locator('#token-request').selectOption('0'); await page.locator('#token-inspect').click(); await page.getByText('Token sequence unavailable', { exact: true }).waitFor(); assert.equal(await page.locator('#token-inspect').isEnabled(), true);
+  await page.evaluate(() => { (globalThis as unknown as { status: number }).status = 400; }); await page.locator('#token-inspect').click(); await page.getByText('Inspection failed. Check the connection and retry. No token sequence is shown.').waitFor();
+  await page.evaluate(() => (globalThis as unknown as { viewer: { refresh(id: string): Promise<void> } }).viewer.refresh('id')); await page.getByText('Could not load saved requests. Choose the active session and try again.').waitFor();
+  await page.evaluate(() => { const s = globalThis as unknown as { status: number; mode: string; viewer: { refresh(id: string): Promise<void> } }; s.status = 200; s.mode = 'wait'; void s.viewer.refresh('stale'); });
+  await page.evaluate(() => { const s = globalThis as unknown as { mode: string; viewer: { refresh(id: string): Promise<void> } }; s.mode = 'success'; return s.viewer.refresh('current'); });
+  await page.evaluate(() => (globalThis as unknown as { resolve(response: Response): void }).resolve(Response.json({ events: [] }))); assert.equal(await page.locator('#token-request option').count(), 2);
+});

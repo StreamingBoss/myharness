@@ -11,6 +11,7 @@ export interface ChatMessage {
   content: string;
   tool_name?: string;
   tool_calls?: ToolCall[];
+  provider_parts?: Record<string, unknown>[];
 }
 
 export interface ToolDefinition {
@@ -28,6 +29,7 @@ export interface ModelChunk {
     content?: string;
     thinking?: string;
     tool_calls?: ToolCall[];
+    provider_parts?: Record<string, unknown>[];
   };
   done?: boolean;
   prompt_eval_count?: number;
@@ -82,6 +84,7 @@ export interface TurnHost {
   applyChange(name: string, change: unknown): AsyncGenerator<CoreEvent, string, void>;
   executeCommand(command: string): AsyncGenerator<CoreEvent, string, void>;
   recordEvent(event: CoreEvent): void;
+  requestMetadata?(payload: ModelRequest): Record<string, unknown>;
 }
 
 export const STOPPED_RESULT = "stopped: the user stopped the turn before this tool ran";
@@ -131,6 +134,7 @@ export class HarnessCore {
         messages: payload.messages.map((message) => message === turn.userMessage ? MARKER : message),
       };
       yield this.emit({
+        ...this.host.requestMetadata?.(payload),
         type: "request", parts: this.host.splitJson(shown, turn.userMessage), memory: this.host.memoryText(),
         skill_context: this.host.skillContext([...system, ...turn.conversation]),
       });
@@ -138,6 +142,7 @@ export class HarnessCore {
       const reply: string[] = [];
       const thinking: string[] = [];
       const toolCalls: ToolCall[] = [];
+      const providerParts: Record<string, unknown>[] = [];
       let finalChunk: ModelChunk = { message: {} };
       for await (const raw of this.host.streamChat(payload)) {
         if (this.host.stopped()) break;
@@ -148,6 +153,7 @@ export class HarnessCore {
         reply.push(content);
         thinking.push(thought);
         toolCalls.push(...(chunk.message.tool_calls ?? []));
+        providerParts.push(...(chunk.message.provider_parts ?? []));
         if (thought) yield this.emit({ type: "thinking", content: thought });
         if (!chunk.done) yield this.emit({ type: "chunk", content });
       }
@@ -158,7 +164,7 @@ export class HarnessCore {
         yield this.emit(this.stoppedEvent());
         return;
       }
-      const assistant: ChatMessage = { role: "assistant", content: answer, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) };
+      const assistant: ChatMessage = { role: "assistant", content: answer, ...(providerParts.length ? { provider_parts: providerParts } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) };
       turn.conversation.push(assistant);
       const received: ChatMessage & { thinking?: string } = {
         ...assistant,
