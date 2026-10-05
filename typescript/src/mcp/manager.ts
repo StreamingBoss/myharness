@@ -1,6 +1,7 @@
 import type { ToolDefinition, ToolResult } from '../core.js';
 import { McpClient, withDeadline, type McpChannel, type WireEntry } from './client.js';
 import { LegacySseChannel, StreamableHttpChannel, type McpFetch } from './http.js';
+import { searchRegistry, type RegistryServer } from './registry.js';
 import { HttpStatusError, contentText, headerAnnotations, isObject, limitText, mirroredHeaders, resourceText, toolResultText, type HeaderAnnotation, type JsonObject, type RpcRequest, type RpcResponse } from './protocol.js';
 
 export type StdioConfig = { kind: 'stdio'; command: string; args: string[]; env: Record<string, string>; cwd?: string };
@@ -87,6 +88,18 @@ function expanded(config: ServerConfig, environment: Record<string, string | und
 }
 
 const sanitize = (name: string): string => name.replace(/[^A-Za-z0-9_-]/g, '_');
+
+function describe(state: ServerState): JsonObject {
+  return {
+    name: state.name, transport: state.transport, status: state.status, ...(state.error ? { error: state.error } : {}),
+    era: state.client?.era ?? null, protocol_version: state.client?.version || null, server_info: state.client?.serverInfo ?? null,
+    instructions: state.client?.instructions ?? '', capabilities: state.client?.capabilities ?? {},
+    tools: state.tools.map(tool => ({ name: tool.name, qualified: tool.qualified, description: tool.description, annotations: tool.annotations })),
+    resources: state.resources.length + state.templates.length,
+    prompts: state.prompts.map(prompt => ({ name: prompt.name, qualified: prompt.qualified, description: prompt.description, arguments: prompt.arguments })),
+    warnings: state.warnings, log: (state.client?.log ?? []) as WireEntry[], stderr: state.client?.stderr() ?? [],
+  };
+}
 
 /** Owns MCP connections for one harness. Turns servers into tools, instructions, resources and prompts. */
 export class McpManager {
@@ -252,16 +265,23 @@ export class McpManager {
     return {
       supported: this.supported, ...(this.runtime ? { source: this.runtime.source } : { reason: 'This runtime does not provide MCP capabilities.' }),
       ...(this.configError ? { error: this.configError } : {}),
-      servers: this.servers.map(state => ({
-        name: state.name, transport: state.transport, status: state.status, ...(state.error ? { error: state.error } : {}),
-        era: state.client?.era ?? null, protocol_version: state.client?.version || null, server_info: state.client?.serverInfo ?? null,
-        instructions: state.client?.instructions ?? '', capabilities: state.client?.capabilities ?? {},
-        tools: state.tools.map(tool => ({ name: tool.name, qualified: tool.qualified, description: tool.description, annotations: tool.annotations })),
-        resources: state.resources.length + state.templates.length,
-        prompts: state.prompts.map(prompt => ({ name: prompt.name, qualified: prompt.qualified, description: prompt.description, arguments: prompt.arguments })),
-        warnings: state.warnings, log: (state.client?.log ?? []) as WireEntry[], stderr: state.client?.stderr() ?? [],
-      })),
+      servers: this.servers.map(describe),
     };
+  }
+
+  /** Searches the MCP Registry through the runtime's fetch. */
+  async searchRegistry(query: { search?: string; cursor?: string }, signal?: AbortSignal): Promise<{ servers: RegistryServer[]; nextCursor: string }> {
+    if (!this.runtime?.fetch) throw new Error('this runtime cannot reach the MCP registry');
+    return searchRegistry(this.runtime.fetch, query, signal);
+  }
+
+  /** Connects to a remote server once, lists what it offers, and disconnects. Nothing is called or added. */
+  async preview(target: { type: 'http' | 'sse'; url: string }, signal: AbortSignal = new AbortController().signal): Promise<JsonObject> {
+    if (!this.runtime) throw new Error('this runtime does not provide MCP capabilities');
+    const state: ServerState = { name: 'preview', transport: target.type, status: 'connecting', tools: [], resources: [], templates: [], prompts: [], warnings: [] };
+    await this.connect(state, { kind: target.type, url: target.url, headers: {} }, signal);
+    await state.client?.close().catch(() => undefined);
+    return describe(state);
   }
   /** Bootstrap entries for the UI's tool list. */
   toolList(): JsonObject[] {

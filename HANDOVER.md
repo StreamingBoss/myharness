@@ -16,6 +16,9 @@ adds to an LLM: make behavior visible and explain it. Public setup is in
 - `scripts/build-browser.mjs`, `serve-browser.mjs`, `package-browser.mjs`:
   standalone static browser distribution and ZIP packaging.
 - `typescript/src/format.ts`: runtime-independent request/memory/prompt formatting.
+- `typescript/src/mcp/`: hand-written MCP client (all revisions), HTTP channels
+  and the manager that turns servers into tools, instructions, resources and prompts.
+  `typescript/src/node/mcp-stdio.ts` is the Node-only stdio channel.
 - `typescript/src/tokenization.ts`, `llama-tokenizer.ts`, `gemini.ts`: PR #1's
   evidence types, optional model-bound tokenizers and Node Gemini provider.
 - `web/static/tokenization.js`: view-only saved-request token inspector, with
@@ -76,6 +79,18 @@ restart it for them. Hard-refresh the browser after UI updates.
 starts the full backend directly. `MYHARNESS_*` settings are documented in README.
 `web.sh` selects port 5000 unless overridden and uses the owner's machine-specific
 Windows/WSL Ollama launcher. Public users should follow the portable Node setup.
+
+## MCP
+
+MCP configuration comes from `MYHARNESS_MCP` (default `<root>/mcp.json`) or, in the
+browser, an imported file; never from the project folder. MCP tool calls always go
+through approval while approvals are on; annotations are displayed, not trusted.
+Resource reads are not approved, like `read_file`. The registry browser only
+searches, previews remote servers and shows snippets; it never edits configuration
+or runs packages. Browser stdio servers are
+reported unsupported. Imported browser header values are not persisted. Tests use
+the scripted fixture in `typescript/tests/mcp-fixture.ts` (all eras, in-memory,
+HTTP and a real stdio process); no live MCP server is required.
 
 ## Cloud model adapters
 

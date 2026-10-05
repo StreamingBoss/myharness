@@ -296,7 +296,18 @@
   }
   .toggle.tool { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
   .mcp-group { margin-left: 14px; font-size: 12px; color: #c792ea; white-space: nowrap; cursor: help; }
-  #mcp-reload { margin-left: 8px; }
+  #mcp-reload, #mcp-find { margin-left: 8px; }
+  #mcp-registry { width: min(900px, 92vw); max-height: 85vh; background: #1e1e1e; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: 14px; }
+  #mcp-registry::backdrop { background: rgba(0, 0, 0, 0.6); }
+  #mcp-registry form { display: flex; gap: 8px; margin-bottom: 8px; }
+  #mcp-registry input[type=search] { flex: 1; }
+  .registry-note { font-size: 12px; color: #aaa; margin: 4px 0 10px; }
+  .registry-server { border-top: 1px solid #333; padding: 8px 0; }
+  .registry-server h3 { margin: 0; font-size: 14px; }
+  .registry-server .registry-name { font: 12px ui-monospace, "SF Mono", Consolas, monospace; color: #999; }
+  .registry-option { margin: 6px 0 0 12px; font-size: 12px; }
+  .registry-option button { margin-left: 6px; font-size: 12px; }
+  .registry-option pre { white-space: pre-wrap; background: #111; padding: 6px; margin: 4px 0; max-height: 300px; overflow: auto; }
   .toggle:has(input:disabled) { opacity: 0.5; cursor: default; }
   #input-row button {
     margin-left: 8px;
@@ -462,12 +473,24 @@ Model: loading…
       <option value="final">prompt reconstruction (Qwen)</option>
     </select>
     <button id="mcp-reload" hidden title="Ask the backend to re-read its MCP configuration file and reconnect every server. The tool list below the chat is rebuilt from what the servers report.">Reload MCP servers</button>
+    <button id="mcp-find" hidden title="Search the official MCP Registry (registry.modelcontextprotocol.io). It lists servers, not tools: a server's tools are only known once the harness connects to it. Preview connects to a remote server once; the configuration snippet goes into your MCP configuration file.">Find MCP servers…</button>
     <span id="explore-note"></span>
   </div>
   <pre id="memory"></pre>
   <pre id="explore" hidden></pre>
   <div id="tokenization" hidden></div>
 </div>
+
+<dialog id="mcp-registry" aria-label="MCP Registry">
+  <form method="dialog" id="mcp-registry-form">
+    <input type="search" id="mcp-registry-search" placeholder="Search the MCP Registry, e.g. filesystem, github, weather" aria-label="Search the MCP Registry">
+    <button id="mcp-registry-go" type="submit" value="search">Search</button>
+    <button id="mcp-registry-close" type="button">Close</button>
+  </form>
+  <div class="registry-note">Servers from the official MCP Registry. Entries are published by their authors and not reviewed. <b>Preview tools</b> connects once to a remote server, lists what it offers and disconnects; nothing is called. To use a server, copy its configuration into your MCP configuration file and choose <b>Reload MCP servers</b> (browser edition: <b>Import MCP config</b>).</div>
+  <div id="mcp-registry-results" role="status"></div>
+  <button id="mcp-registry-more" type="button" hidden>More results</button>
+</dialog>
 
 <script src="/static/tokenization.js"></script>
 <script>
@@ -886,6 +909,12 @@ const exploreEl = document.getElementById("explore");
 const exploreNote = document.getElementById("explore-note");
 const mcpReloadBtn = document.getElementById("mcp-reload");
 mcpReloadBtn.addEventListener("click", reloadMcp);
+const mcpFindBtn = document.getElementById("mcp-find");
+const registryDialog = document.getElementById("mcp-registry");
+mcpFindBtn.addEventListener("click", () => { registryDialog.showModal(); if (!registryCursor) searchRegistry(false); });
+document.getElementById("mcp-registry-form").addEventListener("submit", (event) => { event.preventDefault(); searchRegistry(false); });
+document.getElementById("mcp-registry-close").addEventListener("click", () => registryDialog.close());
+document.getElementById("mcp-registry-more").addEventListener("click", () => searchRegistry(true));
 
 const EXPLORE_NOTES = {
   memory: "The messages list the harness keeps: the model's only memory, re-sent with every request. Tool calls and results are stored too; the system message and the thinking are not.",
@@ -968,20 +997,93 @@ function mcpText(mcp) {
   const lines = ["Configuration: " + mcp.source];
   if (mcp.error) lines.push("Configuration error: " + mcp.error);
   if (!mcp.servers.length) lines.push("", "(no MCP servers configured)");
-  for (const server of mcp.servers) {
-    lines.push("", "== " + server.name + " — " + server.status + (server.transport ? " (" + server.transport + ")" : ""));
-    if (server.error) lines.push("error: " + server.error);
-    if (server.era) lines.push("protocol: " + server.protocol_version + " (" + server.era + (server.era === "modern" ? ": server/discover, metadata on every request" : ": initialize handshake") + ")");
-    if (server.server_info) lines.push("server: " + JSON.stringify(server.server_info) + " (self-reported)");
-    if (server.instructions) lines.push("instructions (added to the system message when its tools are checked):", "  " + server.instructions.replaceAll("\n", "\n  "));
-    for (const tool of server.tools) lines.push("tool " + tool.qualified + ": " + tool.description + (tool.annotations ? "  hints " + JSON.stringify(tool.annotations) : ""));
-    if (server.resources) lines.push("resources: " + server.resources + " (read with list_mcp_resources / read_mcp_resource)");
-    for (const prompt of server.prompts) lines.push("prompt /" + prompt.qualified + " " + prompt.arguments.map(arg => arg.required ? "<" + arg.name + ">" : "[" + arg.name + "]").join(" ") + (prompt.description ? ": " + prompt.description : ""));
-    for (const warning of server.warnings) lines.push("warning: " + warning);
-    if (server.stderr.length) lines.push("stderr (last lines):", ...server.stderr.map(line => "  " + line));
-    if (server.log.length) lines.push("wire log:", ...server.log.map(entry => "  " + entry.direction.padEnd(8) + " " + entry.text));
-  }
+  for (const server of mcp.servers) lines.push("", ...mcpServerLines(server));
   return lines.join("\n");
+}
+
+function mcpServerLines(server) {
+  const lines = ["== " + server.name + " — " + server.status + (server.transport ? " (" + server.transport + ")" : "")];
+  if (server.error) lines.push("error: " + server.error);
+  if (server.era) lines.push("protocol: " + server.protocol_version + " (" + server.era + (server.era === "modern" ? ": server/discover, metadata on every request" : ": initialize handshake") + ")");
+  if (server.server_info) lines.push("server: " + JSON.stringify(server.server_info) + " (self-reported)");
+  if (server.instructions) lines.push("instructions (added to the system message when its tools are checked):", "  " + server.instructions.replaceAll("\n", "\n  "));
+  for (const tool of server.tools) lines.push("tool " + tool.qualified + ": " + tool.description + (tool.annotations ? "  hints " + JSON.stringify(tool.annotations) : ""));
+  if (server.resources) lines.push("resources: " + server.resources + " (read with list_mcp_resources / read_mcp_resource)");
+  for (const prompt of server.prompts) lines.push("prompt /" + prompt.qualified + " " + prompt.arguments.map(arg => arg.required ? "<" + arg.name + ">" : "[" + arg.name + "]").join(" ") + (prompt.description ? ": " + prompt.description : ""));
+  for (const warning of server.warnings) lines.push("warning: " + warning);
+  if (server.stderr.length) lines.push("stderr (last lines):", ...server.stderr.map(line => "  " + line));
+  if (server.log.length) lines.push("wire log:", ...server.log.map(entry => "  " + entry.direction.padEnd(8) + " " + entry.text));
+  return lines;
+}
+
+// The registry browser only displays backend results; registry text is never inserted as HTML.
+let registryCursor = "";
+function element(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+function renderRegistryOption(option) {
+  const row = element("div", null, "registry-option");
+  row.append(element("span", option.label));
+  const output = element("pre"); output.hidden = true;
+  if (option.preview) {
+    const preview = element("button", "Preview tools");
+    preview.type = "button";
+    preview.title = "Connect once to " + option.preview.url + ", list its tools, prompts and resources, then disconnect. No tool is called.";
+    preview.addEventListener("click", async () => {
+      preview.disabled = true; output.hidden = false; output.textContent = "connecting…";
+      try {
+        const response = await backendFetch(api("/mcp/preview"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(option.preview) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error);
+        output.textContent = mcpServerLines(data).join("\n");
+      } catch (error) { output.textContent = "Preview failed: " + error.message; }
+      finally { preview.disabled = false; }
+    });
+    row.append(preview);
+  }
+  const config = element("button", option.config ? "Show configuration" : "How to add");
+  config.type = "button";
+  const copy = element("button", "Copy"); copy.type = "button"; copy.hidden = true;
+  const snippet = option.config ? JSON.stringify(option.config, null, 2) : "";
+  config.addEventListener("click", () => {
+    output.hidden = false;
+    output.textContent = (snippet ? snippet + "\n\n" : "") + option.notes.map(note => "• " + note).join("\n");
+    copy.hidden = !snippet;
+  });
+  copy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(snippet); copy.textContent = "Copied"; }
+    catch { copy.textContent = "Select the text to copy"; }
+  });
+  row.append(config, copy, output);
+  return row;
+}
+function renderRegistryServer(server) {
+  const card = element("div", null, "registry-server");
+  card.append(element("h3", server.title + (server.version ? " " + server.version : "") + (server.status !== "active" ? " (" + server.status + ")" : "")));
+  card.append(element("div", server.name + (server.repository ? " · " + server.repository : server.website ? " · " + server.website : ""), "registry-name"));
+  if (server.description) card.append(element("div", server.description));
+  if (!server.options.length) card.append(element("div", "No remote URL or package is listed.", "registry-option"));
+  for (const option of server.options) card.append(renderRegistryOption(option));
+  return card;
+}
+async function searchRegistry(more) {
+  const results = document.getElementById("mcp-registry-results"), moreBtn = document.getElementById("mcp-registry-more");
+  if (!more) { results.replaceChildren(element("div", "searching…")); registryCursor = ""; }
+  moreBtn.hidden = true;
+  const query = new URLSearchParams({ search: document.getElementById("mcp-registry-search").value.trim() });
+  if (more && registryCursor) query.set("cursor", registryCursor);
+  try {
+    const response = await backendFetch(api("/mcp/registry?" + query));
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error);
+    if (!more) results.replaceChildren();
+    for (const server of data.servers) results.append(renderRegistryServer(server));
+    if (!results.children.length) results.append(element("div", "No servers found."));
+    registryCursor = data.nextCursor; moreBtn.hidden = !registryCursor;
+  } catch (error) { results.replaceChildren(element("div", "Registry search failed: " + error.message)); }
 }
 
 async function reloadMcp() {
@@ -1006,7 +1108,7 @@ async function refreshExplorer() {
     await tokenViewer.refresh(session.id); return;
   }
   const showMemory = view === "memory";
-  mcpReloadBtn.hidden = view !== "mcp";
+  mcpReloadBtn.hidden = mcpFindBtn.hidden = view !== "mcp";
   memoryEl.hidden = !showMemory;
   exploreEl.hidden = showMemory;
   let note = EXPLORE_NOTES[view];

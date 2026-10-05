@@ -6,6 +6,7 @@ import test from 'node:test';
 import { chromium, type Page } from 'playwright';
 import { DemoModel } from '../src/browser/demo.js';
 import type { ModelRequest } from '../src/core.js';
+import { FixtureServer } from './mcp-fixture.js';
 
 async function staticServer(t: { after(callback: () => unknown): void }) {
   const child = spawn(process.execPath, ['scripts/serve-browser.mjs'], { env: { ...process.env, MYHARNESS_PORT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -96,6 +97,29 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   assert.equal(await page.locator('#browser-model').inputValue(), 'small:4b');
   assert.equal(page.workers().length, 1); assert.match(await page.locator('#browser-mode-label').innerText(), /ollama/i);
   const command = page.locator('.tool-checkbox[data-supported="false"]'); assert.equal(await command.count(), 1); assert.equal(await command.isDisabled(), true);
+  // MCP from the Worker: a CORS-enabled Streamable HTTP server; stdio is reported unsupported.
+  const fixture = new FixtureServer({ instructions: 'Browser MCP hints.' });
+  const mcp = createServer(async (request, response) => {
+    response.setHeader('access-control-allow-origin', base);
+    response.setHeader('access-control-allow-headers', 'content-type, mcp-protocol-version, mcp-method, mcp-name, authorization');
+    if (request.method === 'OPTIONS') { response.end(); return; }
+    let body = ''; for await (const chunk of request) body += String(chunk);
+    const reply = await fixture.handle(JSON.parse(body));
+    if (!reply) { response.writeHead(202); response.end(); return; }
+    response.setHeader('content-type', 'application/json'); response.end(JSON.stringify(reply));
+  });
+  await new Promise<void>(resolve => mcp.listen(0, '127.0.0.1', resolve)); t.after(() => mcp.close());
+  const mcpAddress = mcp.address(); assert.ok(mcpAddress && typeof mcpAddress !== 'string');
+  await page.locator('#browser-mcp-config').setInputFiles({ name: 'mcp.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ mcpServers: { web: { url: `http://127.0.0.1:${mcpAddress.port}/mcp`, headers: { authorization: 'Bearer browser' } }, local: { command: 'node' } } })) });
+  await page.getByText('MCP: 1 of 2 servers connected.', { exact: false }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.tool-checkbox[value="mcp__web__echo"]'));
+  assert.equal(await page.locator('.mcp-group').innerText(), 'MCP web:');
+  await page.locator('#explore-view').selectOption('mcp');
+  await page.getByText('== local — unsupported', { exact: false }).waitFor();
+  assert.match(await page.locator('#explore').innerText(), /== web — connected \(http\)[\s\S]*Browser MCP hints\./);
+  await page.locator('#explore-view').selectOption('memory');
+  // The imported configuration persists (without header values); clear it so later steps see the ten harness tools.
+  await page.evaluate(() => (window as unknown as { harness: { call(action: string, payload: unknown): Promise<unknown> } }).harness.call('configureMcp', { mcpServers: {} }));
   await send(page, 'Remember 42'); await page.getByText('Received: 42.', { exact: false }).first().waitFor();
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
   await page.locator('#explore-view').selectOption('tokens'); await page.waitForFunction(() => !(document.querySelector('#token-inspect') as HTMLButtonElement).disabled);

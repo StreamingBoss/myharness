@@ -78,6 +78,22 @@ same full backend directly without HTTP or UI. It denies actions by default;
 `--approve` explicitly approves them. Tests cover both policies and Ctrl+C.
 Use distinct session directories for concurrent backend processes.
 
+MCP checks use `typescript/tests/mcp-fixture.ts`, a scripted server for every
+protocol era, over in-memory channels, injected HTTP and a real stdio child process
+(`mcp-stdio-server.ts`). `mcp-protocol.test.ts` covers header encoding, `x-mcp-header`
+validation and result conversion. `mcp-client.test.ts` covers era detection,
+version retries, sessions, expiry, HTTP+SSE fallback, server requests, `input_required`
+results and cancellation. `mcp-manager.test.ts` covers configuration, naming,
+unsupported transports and failures. `node-mcp-stdio.test.ts` covers framing,
+stderr, process exits and shutdown escalation. `mcp-harness.test.ts` runs Node and
+browser backends without UI: approval, denial, timeout, Stop, instructions,
+prompts, resources, reload, HTTP routes and Worker RPC. `mcp-registry.test.ts`
+covers registry entry conversion for every package and remote shape, search
+paging and failures, previews and their HTTP/Worker routes, without contacting
+the real registry. `mcp-ui.test.ts` (including the registry dialog, previews,
+snippets and HTML-escaping of registry text) and `browser-distribution.test.ts`
+check the UI and the packaged Worker in Chromium.
+
 Real-model checks are optional integrations. Use scratch configuration/session
 directories and port 5001 or an ephemeral port; never touch the owner's port 5000
 or stop/reconfigure shared Ollama. The Phase 3 live check used `qwen3:8b` through

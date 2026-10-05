@@ -63,6 +63,8 @@ export class WorkerHost {
         case 'mcp': value = backend.mcpStatus(); break;
         case 'reloadMcp': value = await backend.reloadMcp(); break;
         case 'configureMcp': value = await backend.configureMcp(payload); break;
+        case 'mcpRegistry': value = await backend.searchMcpRegistry(payload); break;
+        case 'previewMcp': value = await backend.previewMcp(payload); break;
         default: throw new BackendError('Unknown backend action', 404);
       }
       this.send({ id, type: 'result', value });

@@ -7,12 +7,22 @@ import { chromium } from 'playwright';
 import { NodeHarness } from '../src/node/harness.js';
 import { SessionStore } from '../src/node/sessions.js';
 import { createHarnessServer } from '../src/node/http.js';
-import { STDIO_SERVER } from './mcp-fixture.js';
+import { FixtureServer, STDIO_SERVER, fixtureFetch } from './mcp-fixture.js';
 
 test('the UI offers MCP tools, renders an MCP approval and result, explores servers and replays the call', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'myharness-mcp-ui-')); t.after(() => rm(root, { recursive: true, force: true }));
   const config = path.join(root, 'mcp.json');
   await writeFile(config, JSON.stringify({ mcpServers: { files: { command: process.execPath, args: [STDIO_SERVER], env: { MCP_FIXTURE: JSON.stringify({ instructions: 'Echo politely.', prompts: [{ name: 'review', arguments: [{ name: 'topic', required: true }] }] }) } } } }));
+  // The backend's fetch: a scripted registry and a remote MCP server for the preview.
+  const remote = fixtureFetch(new FixtureServer({ instructions: 'Remote preview hints.' })), registryQueries: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string, init: Parameters<typeof remote>[1]) => {
+    if (!url.startsWith('https://registry.modelcontextprotocol.io/')) return remote(url, init);
+    const query = new URL(url).searchParams; registryQueries.push(query.toString());
+    const servers = query.get('cursor')
+      ? [{ server: { name: 'io.example/second', description: 'Second page', version: '1.0.0', packages: [{ registryType: 'npm', identifier: '@example/second', version: '1.0.0', transport: { type: 'stdio' }, environmentVariables: [{ name: 'SECOND_KEY', isRequired: true, isSecret: true }] }] } }]
+      : [{ server: { name: 'io.example/weather', title: 'Weather <img src=x onerror="window.injected=1">', description: 'Forecasts', version: '2.0.0', remotes: [{ type: 'streamable-http', url: 'http://remote.test/mcp' }] } }];
+    return new Response(JSON.stringify({ servers, metadata: query.get('cursor') ? {} : { nextCursor: 'io.example/weather:2.0.0' } }));
+  });
   let turn = 0;
   const harness = new NodeHarness({ workspace: root, model: 'qwen3:8b', contextLength: 8192, mcpConfigFile: config, sessions: new SessionStore(path.join(root, 'sessions')), ollama: {
     async *streamChat() { yield JSON.stringify({ message: ++turn === 1 ? { tool_calls: [{ function: { name: 'mcp__files__echo', arguments: { text: 'from the UI' } } }] } : { content: 'MCP done' }, done: true }); },
@@ -46,6 +56,25 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   assert.match(explored, /wire log:/);
   await page.locator('#mcp-reload').click();
   await page.waitForFunction(() => !(document.querySelector('#mcp-reload') as HTMLButtonElement).disabled && document.querySelectorAll('.tool-checkbox').length === 11);
+
+  await page.locator('#mcp-find').click();
+  await page.getByText('Weather <img src=x onerror="window.injected=1"> 2.0.0').waitFor();
+  assert.equal(await page.evaluate(() => (window as unknown as { injected?: number }).injected), undefined);
+  await page.getByRole('button', { name: 'Preview tools' }).click();
+  await page.getByText('== preview — connected (http)', { exact: false }).waitFor();
+  assert.match(await page.locator('.registry-option pre').first().innerText(), /tool mcp__preview__echo: Echo the text back[\s\S]*Remote preview hints\./);
+  await page.getByRole('button', { name: 'Show configuration' }).click();
+  assert.deepEqual(JSON.parse((await page.locator('.registry-option pre').first().innerText()).trim()), { mcpServers: { weather: { url: 'http://remote.test/mcp' } } });
+  await page.locator('#mcp-registry-more').click();
+  await page.getByText('io.example/second', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Show configuration' }).last().click();
+  assert.match(await page.locator('.registry-option pre').last().innerText(), /"command": "npx"[\s\S]*"SECOND_KEY": "\$\{SECOND_KEY\}"[\s\S]*• Set SECOND_KEY, a secret, in your environment\.[\s\S]*Registry entries are not reviewed\./);
+  await page.locator('#mcp-registry-search').fill('weather'); await page.locator('#mcp-registry-go').click();
+  await page.waitForFunction(() => document.querySelectorAll('.registry-server').length === 1);
+  assert.deepEqual(registryQueries, ['version=latest&limit=20', 'version=latest&limit=20&cursor=io.example%2Fweather%3A2.0.0', 'version=latest&limit=20&search=weather']);
+  await page.locator('#mcp-registry-close').click();
+  assert.equal(await page.locator('#mcp-registry').isVisible(), false);
+  assert.equal((harness.mcpStatus().servers as unknown[]).length, 1); // previews add nothing
 
   await page.reload(); await page.getByText('MCP done', { exact: true }).first().waitFor();
   assert.match(await page.locator('#terminal').innerText(), /MCP — files\/echo over stdio/);

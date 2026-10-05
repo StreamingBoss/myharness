@@ -81,6 +81,8 @@ The existing static UI renders events; it does not advance the agent loop.
 | Reset memory | `POST /reset` |
 | Compact; stream events | `POST /compact` |
 | Inspect instructions/tools/template | `POST /explore` |
+| MCP server status; reload configuration | `GET /mcp`, `POST /mcp/reload` |
+| Search the MCP Registry; preview a remote server | `GET /mcp/registry?search=&cursor=`, `POST /mcp/preview` |
 | Choose/browse project | `POST /project`, `GET /browse` |
 | List/create sessions | `GET` / `POST /sessions` |
 | Inspect/rename | `GET` / `PATCH /sessions/<id>` |
@@ -128,7 +130,8 @@ DOM or Worker; native Chromium tests also execute the packaged Worker without UI
 RPC actions include `bootstrap`, `chat`, `compact`, `approve`, `stop`, `reset`,
 `explore`, `project`, `browse`, `sessions`, `newSession`, `getSession`,
 `patchSession`, `activateSession`, `importSession`, `importProject`,
-`exportProject`, `attachLocalFolder`, `configureModel`, and `tokenize`.
+`exportProject`, `attachLocalFolder`, `configureModel`, `tokenize`, `mcp`,
+`reloadMcp`, `configureMcp`, `mcpRegistry` and `previewMcp`.
 Streams return the same structured core events. Ending a stream cancels its turn.
 An unanswered approval always denies on timeout or cancellation.
 
@@ -171,6 +174,45 @@ rather than followed during file operations.
 The browser distribution contains only static assets and bundles no Node adapters.
 The static server has no harness API. Both runtime backends remain callable without
 the UI, with approval policy enforced by the shared backend.
+
+## MCP
+
+`typescript/src/mcp/` is the hand-written MCP client. It imports no Node, DOM or
+Worker APIs. `protocol.ts` holds versions, metadata, header encoding and result
+conversion; `client.ts` detects each server's era and sends requests; `http.ts`
+implements Streamable HTTP and the deprecated HTTP+SSE transport with injected
+`fetch`; `manager.ts` turns configured servers into tools, instructions, resources
+and prompts. `node/mcp-stdio.ts` is the only stdio adapter. Runtimes declare MCP
+through `RuntimePort.mcp`; a runtime without it reports MCP unsupported.
+
+Supported revisions are 2026-07-28 (stateless: `server/discover` and per-request
+`_meta`, no sessions) and the handshake revisions 2025-11-25, 2025-06-18,
+2025-03-26 and 2024-11-05. On stdio the client probes with `server/discover` and
+falls back to `initialize` on any non-modern error or after 5 seconds. Over HTTP a
+4xx without a modern JSON-RPC error selects `initialize`, then HTTP+SSE. Modern
+`UnsupportedProtocolVersion` errors select a version from the server's list. The
+client advertises no client capabilities: legacy `ping` is answered, other server
+requests and `input_required` results are reported as unsupported.
+
+`Harness` owns the `McpManager`. `initialize()` connects configured servers in
+parallel with a 15-second limit; failures become per-server status. Tool names are
+`mcp__<server>__<tool>`. `runTool` returns an `mcp` effect and the core forwards it
+to `executeMcp`, which asks approval exactly like commands, cancels on Stop and
+emits an `mcp` event with the JSON-RPC exchange. Server instructions are added to
+the system message while the server's tools are enabled. `/mcp__<server>__<prompt>`
+expands through `prompts/get` and emits `mcp_prompt`. Disconnected tools stay in
+session settings and are omitted from requests. Bootstrap and explore include
+`mcp` status. Node reads `MYHARNESS_MCP` (default `mcp.json` in the harness root),
+never the project folder, and closes stdio servers when the HTTP server or headless
+run ends. The browser connects over HTTP only and persists imported configuration
+without header values.
+
+`mcp/registry.ts` searches the official MCP Registry (`/v0/servers`, latest
+versions, cursor paging) through the runtime's injected `fetch` and converts each
+entry into options: remote URLs and npm/PyPI/OCI/NuGet stdio packages, each with an
+`mcpServers` snippet, `${NAME}` placeholders and notes. The backend never writes
+the configuration. `previewMcp` connects once to a remote URL without headers,
+lists tools, resources and prompts, and disconnects; packages are never run.
 
 ## Shared model boundary
 

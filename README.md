@@ -18,6 +18,7 @@ Worker or in Node. Both reuse the same harness and approval policy.
 | Instructions | A base prompt, agent persona and project `AGENTS.md`, composed into the system message. |
 | Tools | The definitions sent to the model, its requested calls, and the results the harness sends back. |
 | Skills | Short descriptions offered to the model, then full instructions loaded on demand. |
+| MCP | External servers add tools, instructions, resources and prompts; each call is approved and its JSON-RPC exchange shown. |
 | Approvals | File diffs and shell commands before you approve or deny them. |
 | Context | Measured input tokens, estimated pressure, trimmed tool output and visible summary requests. |
 | Sessions | Saved transcript, retained memory and instruction snapshots; reset memory while keeping the transcript visible. |
@@ -160,9 +161,67 @@ summarizes it. The runner restores the latest saved session. Use separate
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the core interface and HTTP endpoints.
 
 Configuration uses `MYHARNESS_MODEL`, `OLLAMA_URL`, `MYHARNESS_WORKSPACE`,
-`MYHARNESS_SESSIONS`, `MYHARNESS_SETTINGS`, `MYHARNESS_ROOT` and `MYHARNESS_PORT`.
-Defaults are `qwen3:8b`, `http://localhost:11434`, the saved project or `workspace/`,
-`sessions/`, `settings.json`, the current directory and port 5001.
+`MYHARNESS_SESSIONS`, `MYHARNESS_SETTINGS`, `MYHARNESS_MCP`, `MYHARNESS_ROOT` and
+`MYHARNESS_PORT`. Defaults are `qwen3:8b`, `http://localhost:11434`, the saved
+project or `workspace/`, `sessions/`, `settings.json`, `mcp.json`, the current
+directory and port 5001.
+
+## Connect MCP servers
+
+[MCP](https://modelcontextprotocol.io) servers give the harness more tools without
+changing its code. List them in `mcp.json` in the harness folder, or in the file
+named by `MYHARNESS_MCP`. The format is the common `mcpServers` object:
+
+```json
+{
+  "mcpServers": {
+    "files": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/demo"] },
+    "docs": { "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer ${DOCS_TOKEN}" } },
+    "old": { "type": "sse", "url": "http://localhost:8080/sse" },
+    "later": { "command": "my-server", "disabled": true }
+  }
+}
+```
+
+`command` starts a local stdio server (`args`, `env` and `cwd` are optional); `url`
+connects over Streamable HTTP, and `"type": "sse"` uses the deprecated 2024-11-05
+HTTP+SSE transport. `${NAME}` and `${NAME:-default}` read environment variables.
+The file is read at startup and by **Explore → MCP servers → Reload**, never from
+the project folder, so opening a project cannot start processes.
+
+The harness speaks every published MCP revision: the stateless 2026-07-28 protocol
+(`server/discover`, metadata on every request) and the older `initialize` handshake
+(2025-11-25 back to 2024-11-05), detecting which one each server uses. What a server
+reports becomes visible harness behavior:
+
+- **Tools** appear below the chat as `mcp__<server>__<tool>`, grouped by server and
+  unticked in new sessions. Ticked tools are sent to the model like harness tools.
+  Every call asks for approval while approvals are on, because the harness cannot
+  see what an external tool does; the server's hints (such as `readOnlyHint`) are
+  shown but not trusted.
+- **Instructions** from a server join the system message while its tools are ticked.
+- **Resources** are read through `list_mcp_resources` and `read_mcp_resource`.
+- **Prompts** run as slash commands: `/mcp__<server>__<prompt> arguments…`.
+
+**Explore → MCP servers** shows each server's status, protocol revision, tools,
+prompts, warnings, recent stderr and the JSON-RPC wire log. Internals shows each
+call's request and response. Static `headers` cover token authentication; OAuth
+sign-in, sampling, elicitation, roots and change subscriptions are not supported.
+
+**Explore → MCP servers → Find MCP servers…** searches the official
+[MCP Registry](https://registry.modelcontextprotocol.io). The registry lists servers,
+not tools: a server's tools are only known once the harness connects to it.
+**Preview tools** connects once to a remote server, lists its tools, prompts and
+resources and disconnects, without calling anything. Packages (npm, PyPI, Docker,
+NuGet) are never run for a preview. **Show configuration** gives the `mcpServers`
+entry to paste into your configuration file, with `${NAME}` placeholders and notes
+for the keys or arguments it needs. Registry entries are published by their
+authors and not reviewed: check what a command runs before adding it.
+
+In the browser edition, **Import MCP config** loads the same file. The Worker can
+reach HTTP servers that allow the page origin and the MCP headers (CORS); stdio
+servers are reported unsupported. Header values stay in Worker memory and are not
+saved, so import the file again after reloading.
 
 ## Gemini, OpenAI and Claude
 
@@ -210,7 +269,7 @@ exposed by the API. Internal cloud prompt templates are unavailable.
 These adapters use the native [Gemini Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview),
 [OpenAI Responses API](https://developers.openai.com/api/docs/guides/reasoning) and
 [Claude Messages API](https://platform.claude.com/docs/en/build-with-claude/streaming).
-Text and harness function tools are supported. MCP, media, hosted tools and
+Text, harness function tools and MCP tools are supported. Media, hosted tools and
 advanced reasoning controls remain subsequent features. Authenticated cloud
 browser and headless checks have not been performed; deterministic tests use
 scripted provider responses.
@@ -221,6 +280,8 @@ This is a local, single-user learning tool. The HTTP service has no authenticati
 keep it on localhost. File tools check that resolved paths stay in the chosen
 project folder. Shell commands run with your account's permissions and are not
 sandboxed; approvals are on by default. Missing approval responses deny the action.
+MCP stdio servers also run with your permissions, and MCP tools can do whatever
+their server does; configure only servers you trust.
 
 SENT contains the actual model API payload. RECEIVED combines streamed content
 and thinking with the final statistics. The prompt reconstruction is illustrative,

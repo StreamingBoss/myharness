@@ -87,6 +87,19 @@ export class Harness implements TurnHost {
     return this.mcp.status();
   }
   mcpStatus(): Record<string, unknown> { return this.mcp.status(); }
+  /** Searches the MCP Registry. It lists servers; tools appear only after connecting (see previewMcp). */
+  async searchMcpRegistry(query: { search?: unknown; cursor?: unknown }): Promise<Record<string, unknown>> {
+    if (query.search !== undefined && typeof query.search !== 'string') throw new BackendError('search must be a string');
+    if (query.cursor !== undefined && typeof query.cursor !== 'string') throw new BackendError('cursor must be a string');
+    try { return { ...await this.mcp.searchRegistry({ ...(query.search ? { search: query.search } : {}), ...(query.cursor ? { cursor: query.cursor } : {}) }) }; }
+    catch (error) { throw new BackendError(`Could not search the MCP registry: ${(error as Error).message}`, 502); }
+  }
+  /** Lists a remote server's tools, prompts and resources without adding it. Local packages are never run. */
+  async previewMcp(value: { type?: unknown; url?: unknown }): Promise<Record<string, unknown>> {
+    if ((value.type !== 'http' && value.type !== 'sse') || typeof value.url !== 'string') throw new BackendError('Preview needs a remote server: type "http" or "sse" and a url. Packages are not run for a preview.');
+    try { return await this.mcp.preview({ type: value.type, url: value.url }); }
+    catch (error) { throw new BackendError((error as Error).message); }
+  }
   /** Ends MCP connections, including stdio server processes. */
   async close(): Promise<void> { await this.mcp.close(); }
   async newSession(name = 'New session'): Promise<SessionRecord> {
