@@ -28,7 +28,8 @@ module in `typescript/src/`, including startup and executable launchers. No
 backend code is excluded. Coverage proves execution; behavioral assertions,
 parity scenarios and UI checks provide separate evidence.
 
-Node tests cover streamed text/thinking, terminal content, tool batches/errors,
+`guard-outcomes.test.ts` covers the repeat guard and the four approval outcomes
+without any UI; `guard-ui.test.ts` checks that the UI words them. Node tests cover streamed text/thinking, terminal content, tool batches/errors,
 snapshots/setup locking, skills, approvals/denial/timeouts, Stop, process-group
 cleanup, output limits, context trim/compaction rollback, session recovery,
 import/export, workspace changes, concurrency and disconnected clients.

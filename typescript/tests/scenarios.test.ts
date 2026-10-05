@@ -49,6 +49,8 @@ for (const file of readdirSync('tests/scenarios').filter(name => name.endsWith('
       const data = JSON.parse(encoded);
       if (Array.isArray(data)) return data.map(item => {
         if (item.type === 'approval') item.id = '<approval>';
+        // The TypeScript backend adds the approval `outcome` to result events; the retired Python oracle has only `approved`.
+        delete item.outcome;
         if (item.parts) item.parts = JSON.parse(item.parts.join(''));
         if (item.arguments) item.arguments = JSON.parse(item.arguments);
         return item;

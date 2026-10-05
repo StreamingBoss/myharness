@@ -2,7 +2,7 @@ import { LegacyModelAdapter, type ModelAdapter, type ModelEvent, type Provider }
 import { ProviderRouter, providerName, configuredModel, modelConfiguration, type ModelConfiguration } from './providers.js';
 import { OllamaAdapter } from './ollama.js';
 import { createTwoFilesPatch } from 'diff';
-import { HarnessCore, STOPPED_RESULT, type ChatMessage, type CoreEvent, type ModelRequest, type ToolDefinition, type ToolResult, type Turn, type TurnHost } from './core.js';
+import { HarnessCore, STOPPED_RESULT, type ApprovalOutcome, type ChatMessage, type CoreEvent, type ModelRequest, type ToolDefinition, type ToolResult, type Turn, type TurnHost } from './core.js';
 import { characters, estimateTokens, json, lines, pythonRepr, renderQwenPrompt, retainedBoundary, sliceCharacters, splitJson } from './format.js';
 import { skillContext, skillsSection, type Skill } from './catalog.js';
 import type { CatalogPort, RuntimePort, WorkspacePort } from './runtime.js';
@@ -46,7 +46,7 @@ export class Harness implements TurnHost {
   private session: SessionRecord;
   private running = false;
   private controller = new AbortController();
-  private readonly approvals = new Map<string, (approved: boolean) => void>();
+  private readonly approvals = new Map<string, (outcome: ApprovalOutcome) => void>();
   private currentAskApproval = true;
   private readonly options: HarnessOptions;
 
@@ -152,13 +152,16 @@ export class Harness implements TurnHost {
   stop(): void {
     this.state.stopped = true;
     this.controller.abort();
-    for (const answer of this.approvals.values()) answer(false);
+    this.settleAll('cancelled');
   }
-  approve(id: string, approved: boolean): boolean {
+  /** Answer a pending approval for the user. The HTTP and Worker contracts carry only this boolean. */
+  approve(id: string, approved: boolean): boolean { return this.settle(id, approved ? 'allowed-once' : 'rejected'); }
+  private settle(id: string, outcome: ApprovalOutcome): boolean {
     const answer = this.approvals.get(id);
     if (!answer) return false;
-    answer(approved); return true;
+    answer(outcome); return true;
   }
+  private settleAll(outcome: ApprovalOutcome): void { for (const answer of [...this.approvals.values()]) answer(outcome); }
   checkSession(id?: string): void {
     if (id && id !== this.session.id) throw new BackendError('This browser tab is no longer on the active session.', 409);
   }
@@ -278,7 +281,7 @@ export class Harness implements TurnHost {
       this.recordEvent(event); yield event;
     } finally {
       this.controller.abort();
-      for (const answer of this.approvals.values()) answer(false);
+      this.settleAll('cancelled');
       this.recoverInterrupted();
       this.running = false;
       await this.saveSession();
@@ -378,16 +381,26 @@ export class Harness implements TurnHost {
     } catch (error) { return { kind: 'text', text: `error: ${(error as Error).message}` }; }
   }
 
-  private async *askUser(fields: Record<string, unknown>): AsyncGenerator<CoreEvent, boolean> {
-    if (!this.currentAskApproval) return true;
+  /**
+   * Ask the user and wait. Nothing authorizes an action except an explicit `allowed-once`: no answer in time is
+   * `unavailable`, Stop or an abandoned request is `cancelled`. With approvals switched off nothing is asked.
+   */
+  private async *askUser(fields: Record<string, unknown>): AsyncGenerator<CoreEvent, ApprovalOutcome> {
+    if (!this.currentAskApproval) return 'allowed-once';
     const id = crypto.randomUUID().replaceAll('-', '');
     let timer: ReturnType<typeof setTimeout>;
-    const answer = new Promise<boolean>(resolve => {
-      this.approvals.set(id, approved => { this.approvals.delete(id); clearTimeout(timer); resolve(approved); });
-      timer = setTimeout(() => this.approve(id, false), this.options.approvalTimeoutMs ?? 600_000);
+    const answer = new Promise<ApprovalOutcome>(resolve => {
+      this.approvals.set(id, outcome => { this.approvals.delete(id); clearTimeout(timer); resolve(outcome); });
+      timer = setTimeout(() => this.settle(id, 'unavailable'), this.options.approvalTimeoutMs ?? 600_000);
     });
     try { yield { type: 'approval', id, ...fields }; return await answer; }
-    finally { this.approve(id, false); }
+    finally { this.settle(id, 'cancelled'); }
+  }
+  /** What the model is told when an action did not run, so it can tell a refusal from silence. */
+  private refusal(outcome: ApprovalOutcome, what: string): string {
+    if (outcome === 'rejected') return `refused: the user did not approve this ${what}. Ask them what to do instead.`;
+    if (outcome === 'unavailable') return `unavailable: nobody answered the approval request, so this ${what} did not run. Do not retry it unless the user asks.`;
+    return `cancelled: the approval request for this ${what} was withdrawn before it was answered, so it did not run.`;
   }
   async *applyChange(name: string, change: unknown): AsyncGenerator<CoreEvent, string, void> {
     const value = change as Change;
@@ -398,37 +411,37 @@ export class Harness implements TurnHost {
     let diff = createTwoFilesPatch(isNew ? '/dev/null' : `a/${relative}`, `b/${relative}`, normalized(oldText), normalized(value.content), undefined, undefined, { context: 3 }).split('\n').slice(1).join('\n').trimEnd().replace(/(\d+),1(?= | @@)/g, '$1');
     if (lines(oldText).join('\n') === lines(value.content).join('\n')) diff = isNew ? 'Creating an empty file.' : value.content.endsWith('\n') ? 'Adding the final newline.' : 'Removing the final newline.';
     const note = value.note ?? '';
-    const approved = yield* this.askUser({ name, path: relative, diff, note });
-    yield { type: 'change', path: relative, diff, approved, note };
+    const outcome = yield* this.askUser({ name, path: relative, diff, note });
+    yield { type: 'change', path: relative, diff, approved: outcome === 'allowed-once', outcome, note };
     if (this.stopped()) return STOPPED_RESULT;
-    if (!approved) return 'refused: the user did not approve this change. Ask them what to do instead.';
+    if (outcome !== 'allowed-once') return this.refusal(outcome, 'change');
     const checked = this.workspace.pathFor(value.path);
     await this.workspace.writeText(checked, value.content);
     const result = `ok: ${isNew ? 'created' : 'updated'} '${relative}'`;
     return note ? `${result} (note: ${note})` : result;
   }
   async *executeCommand(command: string): AsyncGenerator<CoreEvent, string, void> {
-    const approved = yield* this.askUser({ name: 'run_command', command });
-    if (this.stopped() || !approved) {
-      yield { type: 'command', command, approved: false, output: '', status: '' };
-      return this.stopped() ? STOPPED_RESULT : 'refused: the user did not approve this command. Ask them what to do instead.';
+    const outcome = yield* this.askUser({ name: 'run_command', command });
+    if (this.stopped() || outcome !== 'allowed-once') {
+      yield { type: 'command', command, approved: false, outcome, output: '', status: '' };
+      return this.stopped() ? STOPPED_RESULT : this.refusal(outcome, 'command');
     }
     const result = await this.options.runtime.executeCommand(command, this.workspace.root, this.controller.signal);
-    yield { type: 'command', command, approved: true, output: result.output, status: result.status };
+    yield { type: 'command', command, approved: true, outcome, output: result.output, status: result.status };
     return result.output ? `${result.status}\noutput:\n${result.output}` : `${result.status}\n(no output)`;
   }
   /** MCP tool calls are external effects: approval is required while approvals are on. */
   async *executeMcp(raw: unknown): AsyncGenerator<CoreEvent, string, void> {
     const call = raw as McpToolCall, args = json(call.arguments, 2);
     const fields = { name: call.name, server: call.server, tool: call.tool, arguments: args };
-    const approved = yield* this.askUser({ ...fields, annotations: call.annotations });
-    if (this.stopped() || !approved) {
-      yield { type: 'mcp', ...fields, approved: false, result: '', is_error: false };
-      return this.stopped() ? STOPPED_RESULT : 'refused: the user did not approve this MCP tool call. Ask them what to do instead.';
+    const outcome = yield* this.askUser({ ...fields, annotations: call.annotations });
+    if (this.stopped() || outcome !== 'allowed-once') {
+      yield { type: 'mcp', ...fields, approved: false, outcome, result: '', is_error: false };
+      return this.stopped() ? STOPPED_RESULT : this.refusal(outcome, 'MCP tool call');
     }
-    const outcome = await this.mcp.call(call, this.controller.signal);
-    yield { type: 'mcp', ...fields, approved: true, result: outcome.text, is_error: outcome.isError, protocol_version: outcome.version, transport: outcome.transport, request: outcome.request ?? null, response: outcome.response ?? null };
-    return this.stopped() ? STOPPED_RESULT : outcome.text;
+    const result = await this.mcp.call(call, this.controller.signal);
+    yield { type: 'mcp', ...fields, approved: true, outcome, result: result.text, is_error: result.isError, protocol_version: result.version, transport: result.transport, request: result.request ?? null, response: result.response ?? null };
+    return this.stopped() ? STOPPED_RESULT : result.text;
   }
   private stringArgument(args: Record<string, unknown>, name: string, fallback?: string): string {
     const value = args[name] ?? fallback; if (typeof value !== 'string') throw new Error(`bad arguments for '${name}'`); return value;

@@ -1,4 +1,5 @@
 import { legacyEvents, validateToolBatch, type ModelEvent, type ModelResult } from './model.js';
+import { RepeatGuard, type RepeatReminder } from './guard.js';
 /** Transport-free agent loop shared by Node and a future browser host. */
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
@@ -64,6 +65,12 @@ export interface Turn {
   manualSkill?: string;
 }
 
+/**
+ * How an approval request ended. Only `allowed-once` lets the action run; a refusal, a withdrawn
+ * request and a request nobody answered are all denials, but the model is told which one happened.
+ */
+export type ApprovalOutcome = "allowed-once" | "rejected" | "cancelled" | "unavailable";
+
 export type ToolResult =
   | { kind: "text"; text: string }
   | { kind: "change"; change: unknown }
@@ -111,6 +118,7 @@ export class HarnessCore {
     }
 
     let compactAttempted = false;
+    const repeats = new RepeatGuard();
     for (let step = 0; step < this.host.maxSteps; step += 1) {
       const system = this.host.systemMessages(turn.setup, turn.enabledTools.includes("use_skill"), turn.enabledTools);
       if (turn.useMemory) {
@@ -194,9 +202,14 @@ export class HarnessCore {
         return;
       }
 
+      const reminders: RepeatReminder[] = [];
       for (const call of toolCalls) {
         const name = call.function.name;
         const arguments_ = call.function.arguments ?? {};
+        if (!this.host.stopped()) {
+          const reminder = repeats.observe(name, arguments_);
+          if (reminder) reminders.push(reminder);
+        }
         const result = this.host.stopped()
           ? { kind: "text", text: STOPPED_RESULT } as ToolResult
           : await this.host.runTool(name, arguments_, turn.enabledTools);
@@ -210,6 +223,12 @@ export class HarnessCore {
       if (this.host.stopped()) {
         yield this.emit(this.stoppedEvent());
         return;
+      }
+      // Reminders follow the whole tool batch so every tool result stays next to its call.
+      for (const reminder of reminders) {
+        const content = `[harness reminder] ${reminder.message}`;
+        turn.conversation.push({ role: "user", content });
+        yield this.emit({ type: "guard", name: "repeat_tool_call", tool: reminder.tool, count: reminder.count, level: reminder.level, content, memory: this.host.memoryText() });
       }
     }
     yield this.emit({ type: "stopped", reason: `stopped after ${this.host.maxSteps} calls to the model` });

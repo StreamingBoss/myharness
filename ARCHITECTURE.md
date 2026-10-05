@@ -52,7 +52,20 @@ settings and durable sessions. Direct callers may inject model/session adapters.
 HTTP, templates or browser code. It denies actions unless `--approve` is supplied.
 An unanswered approval times out to denial.
 
-Stop aborts network requests, denies pending approvals and kills Bash process
+Every approval ends in one closed outcome: `allowed-once`, `rejected` (the user said
+no), `cancelled` (Stop or an abandoned request) or `unavailable` (nobody answered in
+time). Only `allowed-once` runs anything. `change`, `command` and `mcp` events carry
+`approved` plus the `outcome`, and the model is told which denial happened. The HTTP
+and Worker `approve` actions still carry a boolean. Approvals switched off ask nothing.
+
+`guard` events record loop hygiene done by the core: when the model repeats the exact
+same tool call (same tool, same arguments in any key order) the core appends a
+`[harness reminder]` user message after the tool batch and emits `guard` with the
+tool, the count and the level. Reminders come at 3 repeats (gentle) and 5 and 8
+(detailed, quoting the arguments); refused calls count; each turn starts at zero.
+The guard advises and never blocks. See `typescript/src/guard.ts`.
+
+Stop aborts network requests, cancels pending approvals and kills Bash process
 groups. Turns reserve a session execution lock; conflicting turns, session changes,
 reset and project changes are rejected. Disconnected HTTP streams cancel the turn.
 Completed events are saved atomically; resume repairs interrupted tool batches
@@ -91,7 +104,7 @@ The existing static UI renders events; it does not advance the agent loop.
 `/chat` accepts `message`, `use_memory`, `tools`, `ask_approval`, `agent`,
 `prompt` and optional `session_id` for stale-client detection. Events include
 `request`, `thinking`, `chunk`, `response`, `tool`, `approval`, `change`,
-`command`, `skill`, `context` and `stopped`. Final `response.content` includes
+`command`, `skill`, `context`, `guard` and `stopped`. Final `response.content` includes
 terminal-chunk text. Errors and empty replies produce visible stopped events.
 Reset/session actions return JSON; their durable events remain in the transcript.
 
