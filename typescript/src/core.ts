@@ -1,8 +1,10 @@
+import { legacyEvents, validateToolBatch, type ModelEvent, type ModelResult } from './model.js';
 /** Transport-free agent loop shared by Node and a future browser host. */
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 
 export interface ToolCall {
+  id?: string;
   function: { name: string; arguments?: Record<string, unknown> };
 }
 
@@ -10,6 +12,8 @@ export interface ChatMessage {
   role: MessageRole;
   content: string;
   tool_name?: string;
+  tool_call_id?: string;
+  continuation?: { provider: string; items: Record<string, unknown>[] };
   tool_calls?: ToolCall[];
   provider_parts?: Record<string, unknown>[];
 }
@@ -40,8 +44,9 @@ export interface ModelRequest {
   model: string;
   messages: ChatMessage[];
   tools?: ToolDefinition[];
-  stream: true;
-  options: { num_ctx: number };
+  stream: boolean;
+  provider?: string;
+  options: { num_ctx: number; num_predict?: number };
 }
 
 export interface CoreEvent {
@@ -68,6 +73,10 @@ export type ToolResult =
 export interface TurnHost {
   readonly maxSteps: number;
   stopped(): boolean;
+  modelProvider?(): string | undefined;
+  maxOutputTokens?(): number | undefined;
+  streamModel?(payload: ModelRequest): AsyncIterable<ModelEvent>;
+  prepareModel?(payload: ModelRequest): Record<string, unknown> | undefined;
   model(): string;
   contextLength(): number;
   lastPromptTokens(): number;
@@ -102,7 +111,7 @@ export class HarnessCore {
     for (let step = 0; step < this.host.maxSteps; step += 1) {
       const system = this.host.systemMessages(turn.setup, turn.enabledTools.includes("use_skill"));
       if (turn.useMemory) {
-        const estimated = this.host.estimateTokens(system, turn.conversation, turn.selectedTools);
+        const estimated = this.host.estimateTokens(system, turn.conversation, turn.selectedTools) + (this.host.maxOutputTokens?.() ?? 0);
         const pressure = Math.max(this.host.lastPromptTokens(), estimated);
         if (pressure >= this.host.contextLength() * 0.75) {
           const trimmed = this.host.trimContext(system, turn.conversation, turn.selectedTools);
@@ -118,7 +127,7 @@ export class HarnessCore {
           yield this.emit(this.stoppedEvent());
           return;
         }
-        if (this.host.estimateTokens(system, turn.conversation, turn.selectedTools) >= this.host.contextLength()) {
+        if (this.host.estimateTokens(system, turn.conversation, turn.selectedTools) + (this.host.maxOutputTokens?.() ?? 0) >= this.host.contextLength()) {
           yield this.emit({ type: "stopped", reason: "context full: use Compact or Reset memory", memory: this.host.memoryText() });
           return;
         }
@@ -126,7 +135,8 @@ export class HarnessCore {
 
       const payload: ModelRequest = {
         model: this.host.model(), messages: [...system, ...turn.conversation], stream: true,
-        options: { num_ctx: this.host.contextLength() },
+        options: { num_ctx: this.host.contextLength(), ...(this.host.maxOutputTokens?.() ? { num_predict: this.host.maxOutputTokens()! } : {}) },
+        ...(this.host.modelProvider?.() ? { provider: this.host.modelProvider()! } : {}),
         ...(turn.selectedTools.length ? { tools: turn.selectedTools } : {}),
       };
       const shown = {
@@ -135,52 +145,49 @@ export class HarnessCore {
       };
       yield this.emit({
         ...this.host.requestMetadata?.(payload),
-        type: "request", parts: this.host.splitJson(shown, turn.userMessage), memory: this.host.memoryText(),
+        ...(payload.provider ? { model_request: payload } : {}),
+        type: "request", parts: this.host.splitJson(this.host.prepareModel?.(payload) ?? shown, turn.userMessage), memory: this.host.memoryText(),
         skill_context: this.host.skillContext([...system, ...turn.conversation]),
       });
 
       const reply: string[] = [];
-      const thinking: string[] = [];
-      const toolCalls: ToolCall[] = [];
-      const providerParts: Record<string, unknown>[] = [];
-      let finalChunk: ModelChunk = { message: {} };
-      for await (const raw of this.host.streamChat(payload)) {
+      let completed: ModelResult | undefined;
+      const stream = this.host.streamModel ? this.host.streamModel(payload) : legacyEvents(this.host.streamChat(payload), () => this.host.stopped());
+      for await (const event of stream) {
         if (this.host.stopped()) break;
-        const chunk = JSON.parse(raw) as ModelChunk;
-        finalChunk = chunk;
-        const content = chunk.message.content ?? "";
-        const thought = chunk.message.thinking ?? "";
-        reply.push(content);
-        thinking.push(thought);
-        toolCalls.push(...(chunk.message.tool_calls ?? []));
-        providerParts.push(...(chunk.message.provider_parts ?? []));
-        if (thought) yield this.emit({ type: "thinking", content: thought });
-        if (!chunk.done) yield this.emit({ type: "chunk", content });
+        if (event.type === 'completed') completed = event.result;
+        else {
+          reply.push(event.content);
+          if (event.thinking) yield this.emit({ type: 'thinking', content: event.thinking });
+          if (!event.terminal) yield this.emit({ type: 'chunk', content: event.content });
+        }
       }
-
       const answer = reply.join("");
       if (this.host.stopped()) {
         if (answer) turn.conversation.push({ role: "assistant", content: answer });
         yield this.emit(this.stoppedEvent());
         return;
       }
-      const assistant: ChatMessage = { role: "assistant", content: answer, ...(providerParts.length ? { provider_parts: providerParts } : {}), ...(toolCalls.length ? { tool_calls: toolCalls } : {}) };
+      if (!completed) throw new Error('Model stream ended without a completed response; no tools were executed.');
+      const assistant = completed.message, toolCalls = assistant.tool_calls ?? [];
+      if (completed.status !== 'completed') {
+        if (assistant.content) turn.conversation.push({ role: 'assistant', content: assistant.content });
+        yield this.emit({ type: 'stopped', reason: `Model response ${completed.status}; no tools were executed.`, memory: this.host.memoryText() });
+        return;
+      }
+      if (payload.provider && !['demo', 'ollama', 'vertex'].includes(payload.provider)) validateToolBatch(toolCalls, turn.selectedTools);
       turn.conversation.push(assistant);
-      const received: ChatMessage & { thinking?: string } = {
-        ...assistant,
-        ...(thinking.join("") ? { thinking: thinking.join("") } : {}),
-      };
-      const tokensIn = finalChunk.prompt_eval_count ?? 0;
-      if (turn.useMemory) this.host.setLastPromptTokens(tokensIn);
-      const tokensOut = finalChunk.eval_count ?? 0;
-      const used = tokensIn + tokensOut;
+      const received = { ...assistant, ...(completed.thinking ? { thinking: completed.thinking } : {}) };
+      const tokensIn = completed.usage.input, tokensOut = completed.usage.output;
+      if (turn.useMemory && tokensIn !== undefined) this.host.setLastPromptTokens(tokensIn);
+      const used = tokensIn !== undefined && tokensOut !== undefined ? tokensIn + tokensOut : 'unknown';
       yield this.emit({
-        type: "response", parts: this.host.splitJson({ ...finalChunk, message: MARKER }, received),
-        tokens: `[${tokensIn} in + ${tokensOut} out = ${used} |${used} / ${this.host.contextLength()} ]`,
-        tokens_in: tokensIn, context_length: this.host.contextLength(), memory: this.host.memoryText(), content: answer,
+        type: 'response', parts: this.host.splitJson({ ...completed.raw, message: MARKER }, received),
+        tokens: `[${tokensIn ?? 'unknown'} in + ${tokensOut ?? 'unknown'} out = ${used} |${used} / ${this.host.contextLength()} ]`,
+        tokens_in: tokensIn, ...(payload.provider ? { usage: completed.usage } : {}), context_length: this.host.contextLength(), memory: this.host.memoryText(), content: assistant.content,
       });
       if (!toolCalls.length) {
-        if (!answer) yield this.emit({ type: 'stopped', reason: 'The model returned an empty reply. Send another message to try again.', memory: this.host.memoryText() });
+        if (!assistant.content) yield this.emit({ type: 'stopped', reason: 'The model returned an empty reply. Send another message to try again.', memory: this.host.memoryText() });
         return;
       }
 
@@ -191,7 +198,7 @@ export class HarnessCore {
           ? { kind: "text", text: STOPPED_RESULT } as ToolResult
           : await this.host.runTool(name, arguments_, turn.enabledTools);
         const text = yield* this.resolveToolResult(name, result);
-        turn.conversation.push({ role: "tool", tool_name: name, content: text });
+        turn.conversation.push({ role: "tool", tool_name: name, content: text, ...(call.id ? { tool_call_id: call.id } : {}) });
         yield this.emit({
           type: "tool", name, arguments: JSON.stringify(arguments_), result: text, memory: this.host.memoryText(),
           skill_context: this.host.skillContext([...system, ...turn.conversation]),

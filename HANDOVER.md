@@ -76,3 +76,19 @@ restart it for them. Hard-refresh the browser after UI updates.
 starts the full backend directly. `MYHARNESS_*` settings are documented in README.
 `web.sh` selects port 5000 unless overridden and uses the owner's machine-specific
 Windows/WSL Ollama launcher. Public users should follow the portable Node setup.
+
+## Cloud model adapters
+
+The shared model boundary is `model.ts`; `cloud.ts` and `sse.ts` implement native
+Gemini Interactions, OpenAI Responses and Anthropic Messages with injected fetch.
+`providers.ts` owns selection and ephemeral credentials. Configuration lives in
+the backend; browser controls only forward RPC actions and render bootstrap.
+Provider-tagged continuation items and tool-call IDs survive session export and
+compaction retention. Current tool results are serialized from canonical memory.
+
+Keys never enter saved requests, sessions, settings or exports. Browser reload
+requires reconnection; Node supplies environment keys. Do not log provider error
+bodies or headers. Native cloud count/token inspection is unavailable rather than
+fabricated; generation usage is separate. The PR1 legacy Gemini/Vertex adapters
+and Ollama injection remain supported. Authenticated cloud checks are optional
+and currently unverified: no credentials were supplied for this change.

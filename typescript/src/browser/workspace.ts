@@ -2,10 +2,13 @@ import { minimatch } from 'minimatch';
 import { characters, lines, sliceCharacters } from '../format.js';
 import { ESCAPE_NOTE, unescape } from '../workspace.js';
 import type { WorkspacePort } from '../runtime.js';
+import type { SessionRecord } from '../sessions.js';
 
 export interface Project {
   format: 'myharness-project'; version: 1; root: string;
   files: Record<string, string>; directories: string[];
+  sessions?: SessionRecord[];
+  active_session_id?: string;
 }
 const SKIP = new Set(['.git', '.venv', 'node_modules', '__pycache__', '.mypy_cache']);
 

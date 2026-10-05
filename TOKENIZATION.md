@@ -85,18 +85,19 @@ The context length is an explicit harness budget, not discovered model metadata.
 
 ```bash
 export MYHARNESS_PROVIDER=gemini
-export MYHARNESS_MODEL=gemini-2.5-flash
+export MYHARNESS_MODEL=gemini-3.8-flash
 export GEMINI_API_KEY='your-key'
 export MYHARNESS_CONTEXT_LENGTH=32768
 export MYHARNESS_SESSIONS=/path/to/gemini-sessions
 npm run start:ts
 ```
 
-Inspection calls `countTokens` with `generateContentRequest`, covering submitted
-contents, system instructions and function declarations. This documented API
-returns counts, not individual input IDs: the viewer explicitly says **count
-only**. Generation usage can differ from a separate count request. No request
-is silently routed through Vertex AI or a substitute tokenizer.
+The native Interactions adapter reports individual input tokens as unavailable;
+measured generation usage is shown separately. It never treats a generateContent
+count as an exact Interactions count. The legacy injectable `GeminiAdapter` still
+supports `countTokens` with `generateContentRequest`, returning count-only
+evidence for its own requests. No request is silently routed through Vertex AI
+or a substitute tokenizer.
 
 ### Gemini through Vertex AI
 

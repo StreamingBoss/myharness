@@ -410,7 +410,7 @@
 
 <div id="panes">
 <div id="chat-pane">
-  <div class="pane-header" title="What a chat app shows you: your messages and the model's answers. Everything else the harness does is hidden here, and shown on the right and at the bottom.">Chat — <span id="model-name"></span><span id="context-meter" title="Input tokens from the last Ollama response (prompt_eval_count), not an estimate. Amber at 75%: old tool outputs are trimmed. Red at 90%: older messages are summarized. Ollama can silently drop the START of an overflowing prompt, including the system message. Until the next response, this shows the last measured request.">context: — / —<progress id="context-bar" max="100" value="0"></progress></span></div>
+  <div class="pane-header" title="What a chat app shows you: your messages and the model's answers. Everything else the harness does is hidden here, and shown on the right and at the bottom.">Chat — <span id="model-name"></span><span id="context-meter" title="Input tokens measured by the last provider response; unavailable counts are unknown. The working context is a harness budget, separate from the provider limit. Amber at 75%: old tool outputs are trimmed. Red at 90%: older messages are summarized. Ollama can silently drop the START of an overflowing prompt, including the system message. Until the next response, this shows the last measured request.">context: — / —<progress id="context-bar" max="100" value="0"></progress></span></div>
   <div id="messages"></div>
   <div id="input-row">
     <textarea id="input" rows="1" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line, /skill-name to use a skill)" autofocus></textarea>
@@ -1257,7 +1257,7 @@ function initialize(data) {
   locked = data.locked;
   projectInput.value = data.project;
   document.getElementById("model-name").textContent = data.model;
-  initialTerminal = "----------------------------------------\nMODEL\n----------------------------------------\nModel: " + data.model + "  (context window: " + data.context_length + " tokens)\n\n";
+  initialTerminal = "----------------------------------------\nMODEL\n----------------------------------------\nModel: " + data.model + "  (working context: " + data.context_length + " tokens)\n\n";
   terminalEl.textContent = initialTerminal;
   memoryEl.textContent = data.memory;
   renderTools(data.tools);
@@ -1271,6 +1271,7 @@ function initialize(data) {
   if (session.snapshots?.prompt?.name && !prompts.some(p => p.name === session.snapshots.prompt.name)) promptSelect.add(new Option(session.snapshots.prompt.name + " (saved with this session)", session.snapshots.prompt.name));
   if (session.snapshots?.agent?.name && !agents.some(a => a.name === session.snapshots.agent.name)) agents.push({name: session.snapshots.agent.name, source: "saved session", tools: session.snapshots.agent.value?.tools || []});
   fillAgentSelect();
+  conversationLocked = Boolean(locked);
   if (locked) {
     promptSelect.value = locked.prompt;
     agentSelect.value = locked.agent;
@@ -1290,6 +1291,8 @@ function initialize(data) {
   setControlsDisabled(false);
   refreshExplorer();
 }
+
+window.addEventListener("myharness:state", event => initialize(event.detail));
 
 backendFetch(api("/bootstrap")).then(response => response.ok ? response.json() : Promise.reject(new Error("Could not load backend state."))).then(initialize).catch(error => {
   terminalEl.textContent = initialTerminal + "\nBackend unavailable: " + error.message;

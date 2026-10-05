@@ -171,3 +171,35 @@ rather than followed during file operations.
 The browser distribution contains only static assets and bundles no Node adapters.
 The static server has no harness API. Both runtime backends remain callable without
 the UI, with approval policy enforced by the shared backend.
+
+## Shared model boundary
+
+`ModelAdapter` in `typescript/src/model.ts` prepares credential-free native
+request bodies, describes models, streams typed text/thinking/completion events
+and completes summary requests. `LegacyModelAdapter` preserves existing
+`NodeHarness({ ollama: ... })` injection; `modelAdapter` is preferred, and supplying
+both is rejected. `ProviderRouter` selects adapters and owns ephemeral keys.
+
+`CloudAdapter` uses injected fetch with official endpoints: Gemini Interactions,
+OpenAI Responses and Anthropic Messages. Stateless full-history requests keep
+conversation ownership in the harness. OpenAI requests encrypted reasoning for
+replay and uses `store: false` and non-strict function schemas. Gemini also uses
+`store: false`. Claude replay preserves ordered native content blocks/signatures.
+The shared SSE reader handles fragmented UTF8, CRLF and multiline data.
+
+Assistant messages retain provider-tagged ordered continuation items. Tool calls
+and results carry matching IDs. Tool results are rebuilt from current canonical
+memory so trimming cannot reveal an old result through native replay. Only a
+completed response with valid call objects can advance to tool execution. Missing
+terminal events, malformed calls and output limits fail before effects. Session
+records add optional provider/output-limit and continuation fields; old records
+restore as Ollama, except the scripted-demo model. Interrupted recovery matches
+call IDs and inserts stopped results without rerunning tools.
+
+Browser configuration transfers keys through Worker RPC and clears the input.
+The Worker keeps credentials in memory, separate from persisted sessions/settings.
+Cloud sessions remain inspectable after reload with inference blocked until
+reconnection. Node startup supplies environment keys to the same adapters; its
+HTTP model endpoint rejects client credentials. Model switches validate metadata
+without generating text and commit selection only after success. The backend
+requires idle configuration and starts a new session for changed selections.

@@ -39,19 +39,21 @@ npm run start:browser
 ```
 
 Open **http://localhost:5001**. This server serves static files only: the full
-harness backend runs in a Worker on your browser's machine. The default model is
-a clearly labelled **scripted demo**, with no model installation or inference.
-Try `Remember 42`, `What do you remember?`, `List files`, `Read README.md`,
-`Write note.txt: hello`, and `Edit note.txt: hello => goodbye`. Inspect SENT,
-tool results, proposed diffs and approval decisions. Disable memory or tools to
-see what changes. Demo replies and summaries follow prepared rules.
+harness backend runs in a Worker on your browser's machine. Choose a real model
+provider and click **Start new session with this model**. Local Ollama is selected
+by default. Cloud providers show an API-key field; Ollama shows its server URL. The model
+picker lists installed Ollama models or loads account models after you enter a
+cloud API key. Changing the provider, URL or API key refreshes the choices.
+The backend supplies the context and response budgets, so no model-limit settings
+are needed in the browser toolbar. Existing scripted-demo sessions remain saved,
+but startup opens a new Ollama session instead of resuming a demo.
 
 To distribute it, run `npm run package:browser` (requires the `zip` command).
 The resulting **`dist/myharness-browser.zip`** contains a standalone static site
 and backend SDK. Unzip it and serve that folder through HTTP(S), for example
 `python3 -m http.server 8000`. No Node or Python backend is required by recipients;
 any static hosting works. Opening `index.html` through `file://` is unsupported.
-The demo makes no model network requests, and all rendering assets are bundled.
+All rendering assets are bundled; inference uses your selected model provider.
 
 ### Work with local code
 
@@ -63,9 +65,9 @@ context (HTTPS or localhost) and a user gesture. Chrome and Edge support the
 [File System Access API](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access).
 Permissions can expire: open the folder again when prompted.
 
-**Import folder copy** and **Import project JSON** create virtual text projects
+**Import folder copy** and **Import JSON project** create virtual text projects
 in browser storage. Changes to these copies do not modify the original folder;
-use **Export project** to save their files. Folder copies skip binary/non-UTF8
+use **Export project** to save their files and sessions. Folder copies skip binary/non-UTF8
 files. Direct access reads UTF8 text up to 10 MiB per file and skips dependency
 directories; exporting a local project requires its included files to be text.
 The browser does not run Bash; `run_command` is visibly unavailable. Use the Node
@@ -86,7 +88,11 @@ Accept any browser local-network permission prompt for your Ollama server.
 Sessions, virtual projects and granted directory handles are saved in IndexedDB,
 scoped to this site's origin and browser profile. Changing the host or port uses
 different storage. Clearing site data removes these saves. **Export session**
-saves conversation state and frozen instructions; **Export project** saves files.
+saves the full conversation transcript, current model memory and frozen instructions.
+**Export project** saves text files and all sessions belonging to the current
+project, including the active session. **Import JSON project** restores these
+conversations and selects the exported active session. Memory reset and compaction
+do not erase the saved transcript. Older files-only project exports still import.
 
 ## Run the Node backend locally
 
@@ -141,7 +147,7 @@ and exposes `window.harness` without loading the UI. Its public SDK exports
 See [ARCHITECTURE.md](ARCHITECTURE.md) for a callable browser example.
 
 The direct runner starts the full backend and prints NDJSON events. It requires
-Ollama, but no HTTP server or browser. It denies changes and commands by default:
+a configured model provider, but no HTTP server or browser. It denies changes and commands by default:
 
 ```bash
 npm run headless:ts -- "List the project files" --tools pwd,list_files
@@ -157,6 +163,57 @@ Configuration uses `MYHARNESS_MODEL`, `OLLAMA_URL`, `MYHARNESS_WORKSPACE`,
 `MYHARNESS_SESSIONS`, `MYHARNESS_SETTINGS`, `MYHARNESS_ROOT` and `MYHARNESS_PORT`.
 Defaults are `qwen3:8b`, `http://localhost:11434`, the saved project or `workspace/`,
 `sessions/`, `settings.json`, the current directory and port 5001.
+
+## Gemini, OpenAI and Claude
+
+The browser toolbar connects directly from its Worker to the selected provider.
+Enter your provider API key, select a model and connect. Connecting refreshes the
+page state without reloading. The key input clears immediately, and keys stay in
+Worker memory: sessions, IndexedDB, exports and inspection events contain no
+credentials. **Forget API key** removes the active provider credential. After a
+reload, saved cloud transcripts remain inspectable; enter the key again to chat
+or compact. Reconnecting the same model and limits keeps the current session.
+Changing the provider, model or limits starts a new session while idle.
+
+Gemini defaults to `gemini-3.8-flash`; `gemini-3.5-flash-lite` is another selection.
+OpenAI and Claude require an explicit API model ID available on your account.
+Paid API usage is billed to your provider account. Quota and model access depend
+on that account; the harness never retries generation or substitutes a model.
+
+For Node/headless execution, set `MYHARNESS_PROVIDER` to `gemini`, `openai` or
+`anthropic`, with the matching `GEMINI_API_KEY`, `OPENAI_API_KEY` or
+`ANTHROPIC_API_KEY`. Node HTTP configuration uses these server credentials and
+rejects API keys in its configuration body. For example, with your key already
+in the environment:
+
+```bash
+MYHARNESS_PROVIDER=gemini MYHARNESS_SESSIONS=/tmp/myharness-demo-sessions \
+  npm run headless:ts -- "Read README.md" --tools read_file
+```
+
+Set `MYHARNESS_MODEL` for another model. Cloud defaults are a working context of
+8,192 tokens and at most 2,048 output tokens, editable in advanced settings or via
+`MYHARNESS_CONTEXT_LENGTH` and `MYHARNESS_MAX_OUTPUT_TOKENS`. The working context
+is the harness budget, separate from the provider's physical limit; output space
+is reserved when checking pressure. Ollama retains metadata discovery and its
+configurable `OLLAMA_URL`. The existing Vertex adapter remains available through
+`MYHARNESS_PROVIDER=vertex` and its Google Cloud environment credentials.
+
+Compaction is an additional request to the selected model, without tools, with
+up to 2,048 output tokens. Empty, interrupted, limited or ineffective summaries
+leave memory unchanged. Stop aborts requests and denies pending approvals.
+SENT shows the provider body without authentication headers; RECEIVED shows
+assembled native data, normalized calls and measured usage. Unavailable usage
+counts display as unknown. Provider thinking and summaries are shown only when
+exposed by the API. Internal cloud prompt templates are unavailable.
+
+These adapters use the native [Gemini Interactions API](https://ai.google.dev/gemini-api/docs/interactions-overview),
+[OpenAI Responses API](https://developers.openai.com/api/docs/guides/reasoning) and
+[Claude Messages API](https://platform.claude.com/docs/en/build-with-claude/streaming).
+Text and harness function tools are supported. MCP, media, hosted tools and
+advanced reasoning controls remain subsequent features. Authenticated cloud
+browser and headless checks have not been performed; deterministic tests use
+scripted provider responses.
 
 ## Scope and limits
 

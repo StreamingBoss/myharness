@@ -1,3 +1,4 @@
+import type { ModelOption } from "./model.js";
 import type { ModelRequest } from "./core.js";
 import { unavailable, type TokenInspection } from './tokenization.js';
 import { tokenizeWithLlama, type TokenizerBinding } from './llama-tokenizer.js';
@@ -6,6 +7,7 @@ export interface FetchResponse {
   readonly ok: boolean;
   readonly status: number;
   readonly body: ReadableStream<Uint8Array> | null;
+  readonly headers?: { get(name: string): string | null };
   json(): Promise<unknown>;
 }
 
@@ -78,6 +80,15 @@ export class OllamaAdapter {
     const response = await this.fetch(`${this.baseUrl}/api/${endpoint}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000) });
     if (!response.ok) throw new Error(`Ollama request failed with HTTP ${response.status}`);
     return await response.json() as Record<string, unknown>;
+  }
+
+  async listModels(): Promise<ModelOption[]> {
+    const response = await this.fetch(`${this.baseUrl}/api/tags`, { method: 'GET', signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error(`Could not list Ollama models (HTTP ${response.status}). Check the server URL and OLLAMA_ORIGINS.`);
+    const data = await response.json() as { models?: { name?: unknown }[] };
+    if (!data || !Array.isArray(data.models)) throw new Error('Ollama returned an invalid model list.');
+    const names = data.models.map(model => model?.name).filter((name): name is string => typeof name === 'string' && name.length > 0);
+    return [...new Set(names)].sort().map(id => ({ id, label: id }));
   }
 
   async contextLength(model: string): Promise<number> {

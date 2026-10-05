@@ -16,11 +16,14 @@ function global(t: { after(callback: () => void): void }, name: string, value: u
 test('IndexedDB store persists independent snapshots and session saves recover after a rejected transaction', async t => {
   const factory = new IDBFactory(), storage = await BrowserStorage.open('test', factory); t.after(() => storage.close());
   const sessions = new BrowserSessions(storage), record = createSession({ workspace: '/workspace', model: 'scripted-demo', context_length: 4096 });
+  t.mock.method(Date, 'now', () => 1_800_000_000_000);
   const original = storage.put.bind(storage); let failed = false;
   t.mock.method(storage, 'put', async (store: string, key: string, value: unknown) => { if (!failed) { failed = true; throw new Error('quota exceeded'); } await original(store, key, value); });
   await assert.rejects(sessions.save(record), /quota/); record.name = 'saved'; await sessions.save(record); record.name = 'mutated'; assert.equal((await sessions.load(record.id)).name, 'saved');
   await assert.rejects(sessions.load('missing'), /session/);
   const other = createSession({ workspace: '/workspace', model: 'scripted-demo', context_length: 4096 }); await sessions.save(other); assert.equal((await sessions.list()).length, 2);
+  assert.equal((await sessions.list())[0]!.id, other.id);
+  assert.ok(other.updated_at > (await sessions.load(record.id)).updated_at);
   // A version upgrade invokes the open database's versionchange handler and closes it.
   await new Promise<void>((resolve, reject) => { const request = factory.open('test', 2); request.onsuccess = () => { request.result.close(); resolve(); }; request.onerror = () => reject(request.error); });
   await assert.rejects(storage.get('settings', 'x'), { name: 'InvalidStateError' });
@@ -47,7 +50,19 @@ test('browser startup loads the packaged library, reports fetch failures and clo
   global(t, 'indexedDB', new IDBFactory());
   const library = { agents: {}, prompts: {}, skills: {}, workspace: { 'README.md': 'seed' } };
   t.mock.method(globalThis, 'fetch', async () => Response.json(library));
-  assert.equal((await loadBrowserHarness('startup', 'http://static/library.json')).state.workspace, '/workspace');
+  const started = await loadBrowserHarness('startup', 'http://static/library.json');
+  assert.equal(started.state.workspace, '/workspace');
+  assert.equal(started.state.model, 'qwen3:8b');
+  assert.equal((await started.bootstrap()).provider, 'ollama');
+  await started.configureModel({ provider: 'demo' });
+  const demoSession = started.activeSessionRecord().id;
+  const migrated = await loadBrowserHarness('startup', 'http://static/library.json');
+  assert.equal(migrated.state.model, 'qwen3:8b');
+  assert.equal(migrated.state.provider, 'ollama');
+  assert.equal(migrated.state.contextLength, 8192);
+  assert.equal((await migrated.getSession(demoSession)).model, 'scripted-demo');
+  assert.notEqual(migrated.activeSessionRecord().id, demoSession);
+  assert.equal((await loadBrowserHarness('startup', 'http://static/library.json')).state.model, 'qwen3:8b');
   assert.ok(sdk.BrowserHarness); assert.ok(sdk.WorkerClient); assert.ok(sdk.DemoModel); assert.ok(sdk.OllamaAdapter);
   t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 404 })); await assert.rejects(loadBrowserHarness('failed', 'http://static/library.json'), /instruction library/);
   t.mock.method(globalThis, 'fetch', async () => Response.json({ ...library, workspace: { '.': '' } }));

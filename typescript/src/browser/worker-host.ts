@@ -1,3 +1,4 @@
+import { modelConfiguration } from '../providers.js';
 import { BackendError } from '../harness.js';
 import type { CoreEvent } from '../core.js';
 import { turnAction } from '../transport.js';
@@ -56,9 +57,9 @@ export class WorkerHost {
         case 'importProject': value = await backend.importProject(payload); break;
         case 'exportProject': value = await backend.exportProject(); break;
         case 'attachLocalFolder': value = await backend.attachLocalFolder(payload.handle as LocalDirectory); break;
-        case 'configureModel':
-          if (typeof payload.mode !== 'string' || (payload.url !== undefined && typeof payload.url !== 'string') || (payload.model !== undefined && typeof payload.model !== 'string')) throw new BackendError('Invalid model settings');
-          await backend.configureModel(payload as { mode: string; model?: string; url?: string }); value = { ok: true }; break;
+        case 'listModels': value = await backend.listModels(modelConfiguration(payload)); break;
+        case 'configureModel': await backend.configureModel(modelConfiguration(payload)); value = { ok: true }; break;
+        case 'forgetApiKey': backend.forgetApiKey(); value = { ok: true }; break;
         default: throw new BackendError('Unknown backend action', 404);
       }
       this.send({ id, type: 'result', value });

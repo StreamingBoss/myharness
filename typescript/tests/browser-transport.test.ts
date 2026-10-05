@@ -41,6 +41,10 @@ test('Worker transport exposes the complete backend session/project/model lifecy
   assert.ok((await collect(client.stream('compact', { session_id: first, use_memory: true }))).some(event => event.type === 'context'));
   await collect(client.stream('compact')); await client.call('reset'); await client.call('stop'); await client.call('configureModel', { mode: 'demo' });
   await client.call('configureModel', { mode: 'demo', url: 'http://localhost', model: 'unused' });
+  await assert.rejects(client.call('listModels', { provider: 'demo' }), /real model/);
+  const listing = t.mock.method(backend, 'listModels', async (value: { provider?: string }) => { assert.equal(value.provider, 'ollama'); return [{ id: 'installed', label: 'Installed' }]; });
+  assert.deepEqual(await client.call('listModels', { provider: 'ollama' }), [{ id: 'installed', label: 'Installed' }]); listing.mock.restore();
+  await client.call('forgetApiKey');
   for (const payload of [{}, { mode: 4 }, { mode: 'demo', url: 4 }, { mode: 'demo', model: 4 }]) await assert.rejects(client.call('configureModel', payload), /settings/);
   for (const payload of [{ approved: 'true' }, { approved: true }, { approved: true, id: 'expired' }]) await assert.rejects(client.call('approve', payload), /boolean|waiting/);
   await assert.rejects(client.call('project'), /string/); await assert.rejects(client.call('unknown'), (error: BackendError) => error.status === 404);

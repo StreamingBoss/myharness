@@ -1,3 +1,4 @@
+import { modelConfiguration } from '../providers.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFile, readdir } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
@@ -71,6 +72,7 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
           send(response, 200, record); return;
         }
       }
+      if (request.method === 'POST' && route === '/model') { const value = await body(request); if (value.apiKey !== undefined) throw new BackendError('Node HTTP uses server environment credentials.'); await harness.configureModel(modelConfiguration(value)); send(response, 200, { ok: true }); return; }
       if (request.method === 'POST' && route === '/reset') { await harness.reset(); send(response, 200, { memory: harness.memoryText() }); return; }
       if (request.method === 'POST' && route === '/stop') { harness.stop(); send(response, 200, { ok: true }); return; }
       if (request.method === 'POST' && route === '/approve') {

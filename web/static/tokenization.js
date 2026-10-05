@@ -41,7 +41,7 @@
         let ordinal = 0;
         (data.events || []).forEach((event, index) => {
           if (event.type === 'request' || (event.type === 'context' && event.action === 'compact_request')) {
-            const request = event.type === 'request' ? JSON.parse(event.parts.join('')) : event.payload;
+            const request = event.type === 'request' ? (event.model_request || JSON.parse(event.parts.join(''))) : event.payload;
             const option = element('option', (++ordinal) + ' · ' + request.model + ' · ' + (event.provider || 'ollama') + (event.type === 'context' ? ' · compaction' : ''));
             option.value = String(index); this.select.append(option);
           } else if (event.type === 'tokenization') this.cache.set(String(event.request_index), event.inspection);

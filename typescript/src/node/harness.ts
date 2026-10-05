@@ -7,15 +7,16 @@ import { WorkspaceAdapter } from './workspace.js';
 import { OllamaAdapter } from './ollama.js';
 import { executeCommand } from './commands.js';
 import { TOOL_NAMES } from './tools.js';
+import { ProviderRouter } from '../providers.js';
 import { json } from '../format.js';
 export { BackendError } from '../harness.js';
 export type { TurnAction, HarnessState, ModelPort } from '../harness.js';
-export type HarnessOptions = Omit<SharedOptions, 'runtime' | 'ollama'> & { ollama?: SharedOptions['ollama'] };
+export type HarnessOptions = Omit<SharedOptions, 'runtime'>;
 
 /** Node capabilities for the shared backend; no UI or Worker dependencies. */
 export class NodeHarness extends Harness {
   constructor(options: HarnessOptions) {
-    super({ ...options, ollama: options.ollama ?? new OllamaAdapter(fetch, 'http://localhost:11434'), runtime: {
+    super({ ...options, ...(!options.ollama && !options.modelAdapter ? { modelAdapter: new ProviderRouter(fetch, { ollama: new OllamaAdapter(fetch, 'http://localhost:11434') }) } : {}), runtime: {
       name: 'Node', supportedTools: TOOL_NAMES,
       capabilities: { workspace: 'local filesystem', commands: true, persistence: 'session JSON files' },
       workspace: folder => new WorkspaceAdapter(folder),

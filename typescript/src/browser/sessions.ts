@@ -3,9 +3,12 @@ import { BrowserStorage } from './storage.js';
 
 export class BrowserSessions extends SessionStore {
   private pending: Promise<void> = Promise.resolve();
+  private lastSavedAt = 0;
   constructor(private readonly storage: BrowserStorage) { super(); }
   override async save(record: SessionRecord): Promise<void> {
-    record.updated_at = new Date().toISOString();
+    // Startup selects the latest session; saves in one millisecond must stay ordered.
+    this.lastSavedAt = Math.max(Date.now(), this.lastSavedAt + 1);
+    record.updated_at = new Date(this.lastSavedAt).toISOString();
     const snapshot = structuredClone(record);
     const persist = () => this.storage.put('sessions', snapshot.id, snapshot);
     this.pending = this.pending.then(persist, persist);

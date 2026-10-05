@@ -162,10 +162,11 @@ test('Node startup selects Gemini provider without contacting Ollama and validat
   const root = await mkdtemp(path.join(tmpdir(), 'myharness-gemini-start-')); t.after(() => rm(root, { recursive: true, force: true })); await mkdir(path.join(root, 'workspace'));
   const env = { MYHARNESS_ROOT: root, MYHARNESS_MODEL: 'gemini-test', MYHARNESS_PROVIDER: 'gemini', GEMINI_API_KEY: 'secret' };
   t.mock.method(globalThis, 'fetch', async () => { throw new Error('no request on startup'); });
-  assert.equal((await loadHarness(env)).state.contextLength, 32768);
+  assert.equal((await loadHarness(env)).state.contextLength, 8192);
+  assert.equal((await (await loadHarness({ ...env, GEMINI_API_KEY: '' })).bootstrap()).ready, false);
   await loadHarness({ ...env, MYHARNESS_PROVIDER: 'vertex', GOOGLE_CLOUD_PROJECT: 'p', GOOGLE_ACCESS_TOKEN: 'token' });
   await loadHarness({ ...env, MYHARNESS_PROVIDER: 'vertex', GOOGLE_CLOUD_PROJECT: 'p', GOOGLE_CLOUD_LOCATION: 'us-central1', GOOGLE_ACCESS_TOKEN: 'token' });
-  for (const provider of ['gemini', 'vertex', 'other']) await assert.rejects(() => loadHarness({ MYHARNESS_ROOT: root, MYHARNESS_PROVIDER: provider }));
+  for (const provider of ['vertex', 'other']) await assert.rejects(() => loadHarness({ MYHARNESS_ROOT: root, MYHARNESS_PROVIDER: provider }));
   await assert.rejects(() => loadHarness({ ...env, MYHARNESS_PROVIDER: 'other', GOOGLE_CLOUD_PROJECT: 'p', GOOGLE_ACCESS_TOKEN: 'token' }), /Choose MYHARNESS/);
   await assert.rejects(() => loadHarness({ ...env, MYHARNESS_CONTEXT_LENGTH: 'bad' }), /positive integer/);
   await assert.rejects(() => loadHarness({ ...env, MYHARNESS_CONTEXT_LENGTH: '0' }), /positive integer/);

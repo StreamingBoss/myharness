@@ -1,3 +1,4 @@
+import type { Provider } from './model.js';
 import type { ChatMessage } from './core.js';
 import type { Snapshots } from './catalog.js';
 import { TOOL_NAMES } from './tools.js';
@@ -8,6 +9,8 @@ export interface SessionRecord {
   name: string;
   created_at: string;
   updated_at: string;
+  provider?: Provider;
+  max_output_tokens?: number;
   model: string;
   context_length: number;
   workspace: string;
@@ -22,7 +25,7 @@ export interface SessionRecord {
 }
 
 const now = (): string => new Date().toISOString();
-export function createSession(input: Pick<SessionRecord, "model" | "context_length" | "workspace">, name = "New session"): SessionRecord {
+export function createSession(input: Pick<SessionRecord, "model" | "context_length" | "workspace" | "provider" | "max_output_tokens">, name = "New session"): SessionRecord {
     const time = now();
     return { format: "myharness-session", version: 1, id: crypto.randomUUID().replaceAll("-", ""), name,
       created_at: time, updated_at: time, ...input, memory: [], last_prompt_tokens: 0,

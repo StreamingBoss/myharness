@@ -18,7 +18,7 @@ const action = { message: 'List files', useMemory: true, tools: TOOLS.map(tool =
 export async function collect<T>(source: AsyncIterable<T>): Promise<T[]> { const values: T[] = []; for await (const value of source) values.push(value); return values; }
 export async function browserFixture(t: { after(callback: () => unknown): void }, modelPort?: ModelPort) {
   const factory = new IDBFactory(), storage = await BrowserStorage.open('test', factory); t.after(() => storage.close());
-  const options = { storage, library, seed: { 'README.md': 'Hello\n', 'src/main.py': 'print("hello")\n' }, ...(modelPort ? { modelPort } : {}) };
+  const options = { model: 'scripted-demo', storage, library, seed: { 'README.md': 'Hello\n', 'src/main.py': 'print("hello")\n' }, ...(modelPort ? { modelPort } : {}) };
   const backend = await BrowserHarness.open(options);
   return { backend, storage, options, factory };
 }
@@ -104,7 +104,7 @@ test('project import, browse, missing workspaces and model connection preserve b
   await storage.put('settings', 'workspace', '/gone'); await BrowserHarness.open(options);
   const record = backend.activeSessionRecord(); record.workspace = '/gone'; await new BrowserSessions(storage).save(record); await backend.activateSession(record.id); await assert.rejects(backend.exportProject(), /replacement/); await assert.rejects(collect(backend.submit(action)), /missing/); await backend.setProject('/workspace');
   for (const url of ['file:///tmp', 'http://user:pass@example.com']) await assert.rejects(backend.configureModel({ mode: 'ollama', url }), /HTTP/);
-  await assert.rejects(backend.configureModel({ mode: 'other' }), /demo or ollama/);
+  await assert.rejects(backend.configureModel({ mode: 'other' }), /Choose MYHARNESS_PROVIDER/);
   t.mock.method(globalThis, 'fetch', async () => new Response('{}', { status: 503 })); await assert.rejects(backend.configureModel({ mode: 'ollama' }), /OLLAMA_ORIGINS/);
   t.mock.restoreAll(); t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ model_info: { 'general.architecture': 'qwen3', 'qwen3.context_length': 8192 } })));
   await backend.configureModel({ mode: 'ollama', url: 'http://localhost:9999/', model: 'qwen3:8b' }); assert.equal(backend.contextLength(), 8192); assert.equal(backend.model(), 'qwen3:8b'); assert.equal((await backend.bootstrap()).ollama_url, 'http://localhost:9999');
@@ -136,4 +136,67 @@ test('browser inspection rejects requests imported from an unsupported provider 
   const imported = await backend.importSession(record); await backend.activateSession(imported.id);
   assert.match((await backend.tokenize(record.events.length - 1)).explanation, /another provider/);
   assert.equal(requests, 0);
+});
+
+test('project exports restore complete session transcripts independently of model memory', async t => {
+  const { backend } = await browserFixture(t);
+  await collect(backend.submit({ ...action, message: 'Remember original conversation', agent: 'coder', prompt: 'teaching' }));
+  for (let i = 0; i < 4; i++) await collect(backend.submit({ ...action, message: `Follow up ${i}` }));
+  const beforeCompact = backend.activeSessionRecord().events;
+  await collect(backend.compact());
+  assert.deepEqual(backend.activeSessionRecord().events.slice(0, beforeCompact.length), beforeCompact);
+  assert.ok(backend.activeSessionRecord().events.some(event => event.action === 'compact'));
+  const first = backend.activeSessionRecord();
+  await backend.newSession('Second conversation');
+  await collect(backend.submit({ ...action, message: 'Write archived.txt: original', askApproval: false }));
+  await collect(backend.submit({ ...action, message: 'Without model memory', useMemory: false }));
+  await backend.reset();
+  const second = backend.activeSessionRecord();
+  assert.equal(second.memory.length, 0);
+  await backend.newSession('Other project');
+  await backend.importProject(projectFromFiles('/unrelated', {}));
+  await collect(backend.submit({ ...action, message: 'Other project conversation' }));
+  await backend.activateSession(second.id);
+  const exported = JSON.parse(JSON.stringify(await backend.exportProject()));
+  assert.equal(exported.sessions.length, 2);
+  assert.equal(exported.active_session_id, second.id);
+  assert.deepEqual(exported.sessions.find((record: { id: string }) => record.id === first.id).events, first.events);
+  assert.deepEqual(exported.sessions.find((record: { id: string }) => record.id === second.id).events, second.events);
+  const storage = await BrowserStorage.open('restored', new IDBFactory()); t.after(() => storage.close());
+  const options = { storage, library, seed: {}, model: DEMO_MODEL };
+  const restored = await BrowserHarness.open(options);
+  await restored.importProject(exported);
+  assert.notEqual(restored.activeSessionRecord().id, second.id);
+  assert.deepEqual(restored.activeSessionRecord().events, second.events);
+  assert.deepEqual(restored.activeSessionRecord().memory, second.memory);
+  assert.equal((await restored.exportProject()).files['archived.txt'], 'original\n');
+  const reopened = await BrowserHarness.open(options);
+  assert.deepEqual(reopened.activeSessionRecord().events, second.events);
+  const importedFirst = (await reopened.listSessions()).find(record => record.name === first.name + ' (imported)')!;
+  await reopened.activateSession(importedFirst.id);
+  assert.deepEqual(reopened.activeSessionRecord().events, first.events);
+  assert.deepEqual(reopened.activeSessionRecord().memory, first.memory);
+  assert.deepEqual(reopened.activeSessionRecord().snapshots, first.snapshots);
+  assert.deepEqual(reopened.activeSessionRecord().settings, first.settings);
+  await reopened.importProject({ ...exported, active_session_id: undefined });
+  await reopened.importProject({ ...exported, sessions: [], active_session_id: undefined });
+});
+
+test('project imports validate all sessions before changing files or active conversation', async t => {
+  const { backend } = await browserFixture(t);
+  const session = backend.activeSessionRecord(), exported = await backend.exportProject();
+  for (const value of [
+    { ...exported, sessions: {} },
+    { ...exported, sessions: [session, {}] },
+    { ...exported, sessions: [{ ...session, workspace: '/other' }] },
+    { ...exported, sessions: [session, session] },
+    { ...exported, active_session_id: 'missing' },
+  ]) {
+    await assert.rejects(backend.importProject(value), /session|Session/);
+    assert.deepEqual(backend.activeSessionRecord(), session);
+    assert.deepEqual(await backend.exportProject(), exported);
+  }
+  const turn = backend.submit(action); await turn.next();
+  assert.deepEqual((await backend.exportProject()).sessions![0]!.events, backend.activeSessionRecord().events);
+  await turn.return(undefined);
 });

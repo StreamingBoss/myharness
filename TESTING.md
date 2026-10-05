@@ -83,3 +83,17 @@ directories and port 5001 or an ephemeral port; never touch the owner's port 500
 or stop/reconfigure shared Ollama. The Phase 3 live check used `qwen3:8b` through
 the production adapter, returned `OK`, retained two messages and saved one session.
 This confirms wiring, not the reliability of model tool choices or summaries.
+
+Cloud adapter checks in `cloud.test.ts` and `providers-harness.test.ts` use
+scripted native HTTP/SSE responses. They exercise fragmented Unicode, call IDs,
+ordered signed continuation replay, trimmed result serialization, terminal
+metadata, missing completion, malformed calls, unknown usage and provider errors.
+Headless tests exercise approvals, denial, Stop and compaction rollback across
+Gemini, OpenAI and Anthropic. Browser tests check secret-free persistence and
+key re-entry. `ModelControls` tests cover input clearing, state refresh without
+reload and visible failures; model-picker tests cover stale selections.
+
+Live authenticated browser/headless access remains unverified for Gemini, OpenAI
+and Anthropic. Optional checks, using supplied credentials and a scratch
+workspace, should answer, read a file, propose/approve an edit, follow up from
+memory, compact and cancel. Use ephemeral ports or 5001, never 5000.
