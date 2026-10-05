@@ -53,6 +53,26 @@ served UI approving a write and exporting the backend session through `?api=`/CO
 `tests/ui_response.test.mjs` independently checks the actual UI response helper.
 Neither claims full frontend code coverage.
 
+Browser-runtime unit tests execute `BrowserHarness` without UI or Worker and
+cover every backend adapter, including IndexedDB failure recovery, unavailable
+commands, workspace limits, external-file conflicts and approved/denied writes.
+Worker transport tests exercise every action, cancellation, crashes and stream
+errors. Eleven supported scenarios compare browser/Node ordered events, actual
+model requests, retained memory and file effects; the Bash scenario stays Node-only.
+
+`browser-distribution.test.ts` runs the built static distribution in Chromium.
+It checks Worker execution, the no-UI SDK entrypoint, unavailable commands,
+approval, IndexedDB reload/session/file persistence, exports, no network calls to
+a harness API, and a turn after the static server stops. The Ollama check uses an
+isolated CORS-aware scripted HTTP server through the real fetch adapter. Native
+filesystem handles exercise Worker transfer, approval-gated edits and handle
+persistence; the test uses OPFS handles in place of an interactive OS directory
+picker. Manual picker/OS permission behavior remains browser-specific.
+`npm run test:ts` and `coverage:ts` rebuild browser assets before these tests.
+Playwright is pinned to 1.62.0 (Chromium 151): the 1.63.0 bundled Chromium 153
+crashes when restoring OPFS handles from IndexedDB, also in an isolated reproduction
+without our backend. Recheck native-handle persistence before upgrading this pin.
+
 For headless operation, run `npm run headless:ts -- "message"`. This starts the
 same full backend directly without HTTP or UI. It denies actions by default;
 `--approve` explicitly approves them. Tests cover both policies and Ctrl+C.

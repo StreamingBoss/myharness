@@ -26,7 +26,7 @@ export class WorkerClient {
     if (message.type === 'result') { pending.resolve!(message.value); this.pending.delete(message.id); }
     else if (message.type === 'event') pending.events.push(message.event);
     else if (message.type === 'done') pending.done = true;
-    else { pending.error = new BackendError(message.message, message.status); pending.done = true; pending.reject?.(pending.error); }
+    else { pending.error = new BackendError(message.message, message.status); pending.done = true; pending.reject?.(pending.error); if (pending.reject) this.pending.delete(message.id); }
     pending.wake?.();
   };
   private readonly error = (event: { message?: string }): void => {

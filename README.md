@@ -4,11 +4,11 @@
 
 myharness is a local educational harness with a browser interface. It makes
 memory, instructions, tools, skills, approvals and context management visible:
-inspect the requests sent to Ollama, the responses it returns, and every tool
+inspect the requests sent to the model, the responses it returns, and every tool
 call in between. The goal is to understand what a harness adds to a model.
 
-The TypeScript backend runs the agent independently of the UI. The browser and
-direct headless runner use the same backend, tools and approval policy.
+The TypeScript backend runs independently of the UI, either inside a browser
+Worker or in Node. Both reuse the same harness and approval policy.
 
 ## What you can explore
 
@@ -29,7 +29,66 @@ and tool effects. **Explore** shows the pieces used to build a request, the mode
 Ollama template, and an illustrative Qwen prompt reconstruction. Hover over the
 controls for explanations.
 
-## Run locally
+## Run entirely in the browser
+
+Build and serve the browser edition with Node.js 20.19 or later:
+
+```bash
+npm ci
+npm run start:browser
+```
+
+Open **http://localhost:5001**. This server serves static files only: the full
+harness backend runs in a Worker on your browser's machine. The default model is
+a clearly labelled **scripted demo**, with no model installation or inference.
+Try `Remember 42`, `What do you remember?`, `List files`, `Read README.md`,
+`Write note.txt: hello`, and `Edit note.txt: hello => goodbye`. Inspect SENT,
+tool results, proposed diffs and approval decisions. Disable memory or tools to
+see what changes. Demo replies and summaries follow prepared rules.
+
+To distribute it, run `npm run package:browser` (requires the `zip` command).
+The resulting **`dist/myharness-browser.zip`** contains a standalone static site
+and backend SDK. Unzip it and serve that folder through HTTP(S), for example
+`python3 -m http.server 8000`. No Node or Python backend is required by recipients;
+any static hosting works. Opening `index.html` through `file://` is unsupported.
+The demo makes no model network requests, and all rendering assets are bundled.
+
+### Work with local code
+
+**Open local folder…** grants the backend direct access to a folder on the
+machine running the browser. Reads inspect its current files; approved writes
+and edits write back to disk. The backend rejects edits if the file changed
+externally while waiting for approval. Supporting browsers require a secure
+context (HTTPS or localhost) and a user gesture. Chrome and Edge support the
+[File System Access API](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access).
+Permissions can expire: open the folder again when prompted.
+
+**Import folder copy** and **Import project JSON** create virtual text projects
+in browser storage. Changes to these copies do not modify the original folder;
+use **Export project** to save their files. Folder copies skip binary/non-UTF8
+files. Direct access reads UTF8 text up to 10 MiB per file and skips dependency
+directories; exporting a local project requires its included files to be text.
+The browser does not run Bash; `run_command` is visibly unavailable. Use the Node
+edition below when you need shell commands.
+
+### Connect a real model
+
+Choose **Local Ollama**, enter its URL and model name, then start a new session.
+Ollama performs inference outside the browser; the harness, tools and approvals
+still run inside it, including direct access to your selected local-code folder.
+Install and start Ollama and pull a model as described below. Configure
+`OLLAMA_ORIGINS` on your Ollama server to allow the exact page origin, for example
+`http://localhost:5001`; see the [Ollama FAQ](https://docs.ollama.com/faq).
+For a site served through HTTPS, browser network policies may also restrict
+connections to local HTTP services. Connection failures appear in the toolbar.
+Accept any browser local-network permission prompt for your Ollama server.
+
+Sessions, virtual projects and granted directory handles are saved in IndexedDB,
+scoped to this site's origin and browser profile. Changing the host or port uses
+different storage. Clearing site data removes these saves. **Export session**
+saves conversation state and frozen instructions; **Export project** saves files.
+
+## Run the Node backend locally
 
 Use Node.js 20.19 or later, Bash and a local [Ollama](https://ollama.com/) server.
 The shell tool needs a Linux/WSL environment with process-group support.
@@ -58,7 +117,7 @@ The Ollama script contains a machine-specific Windows path; the commands above
 are the portable setup. Windows/WSL localhost connectivity depends on your WSL
 network configuration.
 
-## A five-minute experiment
+## A five-minute experiment with Ollama
 
 1. Leave Harness memory on. Say “My favourite number is 42”, then ask what it is.
    Compare the two SENT blocks: the harness sends the earlier exchange again.
@@ -74,7 +133,12 @@ network configuration.
 Tools are requests from the model; the harness executes them. A model may fail
 to request the intended tool. The internals make that difference visible.
 
-## Use the backend without the browser
+## Use the backend without the UI
+
+The browser distribution includes `headless.html`, which starts a backend Worker
+and exposes `window.harness` without loading the UI. Its public SDK exports
+`WorkerClient`, `BrowserHarness`, `BrowserStorage`, `DemoModel` and `OllamaAdapter`.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for a callable browser example.
 
 The direct runner starts the full backend and prints NDJSON events. It requires
 Ollama, but no HTTP server or browser. It denies changes and commands by default:
@@ -101,10 +165,11 @@ keep it on localhost. File tools check that resolved paths stay in the chosen
 project folder. Shell commands run with your account's permissions and are not
 sandboxed; approvals are on by default. Missing approval responses deny the action.
 
-SENT contains the actual Ollama API payload. RECEIVED combines streamed content
+SENT contains the actual model API payload. RECEIVED combines streamed content
 and thinking with the final statistics. The prompt reconstruction is illustrative,
 not a capture of Ollama's internal rendered text. Token estimates use character
-counts; the context meter uses Ollama's measured input count. Summaries are lossy.
+counts; the context meter uses Ollama's measured input count in real-model mode
+and a labelled demo estimate in scripted mode. Summaries are lossy.
 Displayed thinking is model-provided text, not a guarantee of its internal reasoning.
 
 Prompt-library files are community-collected examples from
@@ -136,5 +201,5 @@ The TypeScript backend and Python test reference have enforced 100% line and
 branch coverage. Python is only needed for development parity checks or the
 unchanged minimal `harness.py` example. The retired full backend lives under
 `tests/python_reference/`; it is no longer a supported application runtime.
-The next milestone is browser execution of the backend. Currently the UI runs
-in the browser while the backend runs in Node.
+The browser edition runs both UI and backend on the learner's machine. The Node
+edition remains available for shell tools, the HTTP API and the terminal runner.

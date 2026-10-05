@@ -19,7 +19,7 @@ export function browserFetch(client: WorkerClient) {
           async cancel() { await client.call('stop'); await iterator.return(undefined); },
         }), { headers: { 'content-type': 'application/x-ndjson' } });
       }
-      const session = route.match(/^\/sessions\/([^/]+)(?:\/(activate|export))?$/);
+      const session = route === '/sessions/import' ? null : route.match(/^\/sessions\/([^/]+)(?:\/(activate|export))?$/);
       if (session) {
         payload = { ...value, id: decodeURIComponent(session[1]!) };
         if (method === 'GET') action = 'getSession';

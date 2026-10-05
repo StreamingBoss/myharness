@@ -125,7 +125,7 @@ function match(pattern: string, file: string): boolean {
 }
 
 export function projectFromFiles(root: string, files: Record<string, string>): Project {
-  const project: Project = { format: 'myharness-project', version: 1, root: absolutePath(root), files: {}, directories: [''] };
+  const project: Project = { format: 'myharness-project', version: 1, root: absolutePath(root), files: Object.create(null) as Record<string, string>, directories: [''] };
   const workspace = new BrowserWorkspace(project, async () => {});
   const directories = new Set(['']);
   for (const [input, text] of Object.entries(files)) {

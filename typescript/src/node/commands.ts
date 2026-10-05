@@ -9,6 +9,7 @@ export async function executeCommand(command: string, workspace: string, signal:
       child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
       child.stdout.on('data', collect); child.stderr.on('data', collect);
       const kill = (reason: string) => {
+        if (killed) return;
         killed = reason;
         try { process.kill(-child.pid!, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
       };
@@ -21,4 +22,3 @@ export async function executeCommand(command: string, workspace: string, signal:
       if (signal.aborted) abort();
     });
 }
-

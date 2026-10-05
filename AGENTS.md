@@ -28,8 +28,9 @@ usable and runnable without the UI, regardless of language or execution runtime.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the contract and current status. The
 TypeScript backend implements this contract. Preserve the dependency direction:
-clients use `NodeHarness`, and runtime adapters supply the core's capabilities.
-Browser runtime work must reuse this core rather than put harness logic in UI components.
+clients use `NodeHarness`, `BrowserHarness` or the public `WorkerClient`, and runtime
+adapters supply the shared `Harness` and `HarnessCore` with their capabilities.
+Browser and Node runtimes must reuse this core rather than put harness logic in UI components.
 
 ## Current project rules
 

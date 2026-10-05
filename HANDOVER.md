@@ -7,23 +7,43 @@ adds to an LLM: make behavior visible and explain it. Public setup is in
 ## Maintained implementation
 
 - `typescript/src/core.ts`: strict, transport-free agent loop and runtime contract.
-- `typescript/src/node/harness.ts`: session-owned backend with tools, approvals,
+- `typescript/src/harness.ts`: shared session backend with tools, approvals,
   cancellation, catalogs, snapshots, state inspection and context management.
 - `typescript/src/node/`: model, filesystem, persistence, startup, HTTP and CLI adapters.
+- `typescript/src/browser/`: Worker transport, public client, IndexedDB, virtual
+  workspace/local-directory adapters and scripted/optional Ollama models.
+- `typescript/ui/browser.ts`: browser controls; no harness decisions.
+- `scripts/build-browser.mjs`, `serve-browser.mjs`, `package-browser.mjs`:
+  standalone static browser distribution and ZIP packaging.
 - `typescript/src/format.ts`: runtime-independent request/memory/prompt formatting.
+- `typescript/src/tokenization.ts`, `llama-tokenizer.ts`, `gemini.ts`: PR #1's
+  evidence types, optional model-bound tokenizers and Node Gemini provider.
+- `web/static/tokenization.js`: view-only saved-request token inspector, with
+  Worker and HTTP transports. Scripted demo counts must remain labelled estimates.
 - `web/templates/index.html` and `web/static/`: static UI and vendored renderers.
 - `agents/`, `skills/`, `prompts/`: inspectable instruction examples.
 - `tests/python_reference/`: retired Python implementation used only as a parity oracle.
 - `harness.py`: unchanged minimal reference; do not change without explicit instruction.
 
-Phase 3 is complete. `web.sh` starts TypeScript; browser runtime is next.
-Node can run the backend directly without HTTP, Flask or the UI.
+Phase 3 is complete. Phase 4 provides `npm run start:browser` and
+`npm run package:browser`. `web.sh` retains the owner's Node/Ollama launcher.
+Node and browser backends can run without the UI; their shared core imports no
+runtime, DOM, transport or Worker APIs.
 
 Sessions are JSON-compatible with existing Python exports and saved files.
 Startup restores the latest session. Snapshots freeze the prompt, agent and skills;
 project instructions refresh on resume, compaction and project change. Reset keeps
 the transcript. Session saves are atomic and serialized within one backend process.
 Use distinct session directories across concurrently running processes.
+
+Browser saves are per origin/profile in IndexedDB. Virtual projects are text
+copies; direct local-folder mode stores native directory handles and writes
+approved effects to disk, with permission and external-change checks. Missing
+permissions fail explicitly; opening the folder again grants them. Browser
+`run_command` is unsupported and never offered to the model. Demo replies and
+token counts are scripted/estimated; optional Ollama needs the page origin allowed
+in `OLLAMA_ORIGINS`. Build assets remain under gitignored `dist/browser`; package
+output is `dist/myharness-browser.zip`. Do not add DOM/Worker dependencies to the core.
 
 File tools resolve paths within the workspace and reject escaping or dangling
 symlinks. Bash commands run with account permissions, a timeout and process-group

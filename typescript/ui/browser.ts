@@ -32,6 +32,7 @@ export async function mountBrowser(): Promise<void> {
   (document.getElementById('browser-ollama-url') as HTMLInputElement).value = bootstrap.ollama_url;
   if (mode.value === 'ollama') (document.getElementById('browser-model') as HTMLInputElement).value = bootstrap.model;
   document.getElementById('browser-mode-label')!.textContent = (mode.value === 'demo' ? 'Scripted teaching examples' : 'Real model via Ollama') + ' · ' + bootstrap.workspace_kind;
+  if (mode.value === 'demo') document.getElementById('context-meter')!.title = 'Scripted demo: token counts are estimates from character counts, not measurements from an LLM. Trimming and compaction still use the real harness; demo summaries are scripted.';
   document.getElementById('browser-connect')!.addEventListener('click', async () => {
     try { status.textContent = 'Connecting…'; await client.call('configureModel', { mode: mode.value, model: (document.getElementById('browser-model') as HTMLInputElement).value, url: (document.getElementById('browser-ollama-url') as HTMLInputElement).value }); location.reload(); } catch (error) { failure(error); }
   });
@@ -40,7 +41,7 @@ export async function mountBrowser(): Promise<void> {
   local.addEventListener('click', async () => { try { const handle = await window_.showDirectoryPicker!({ mode: 'readwrite' }); await client.call('attachLocalFolder', { handle }); location.reload(); } catch (error) { failure(error); } });
   document.getElementById('browser-folder-copy')!.addEventListener('change', async event => {
     try {
-      const selected = [...(event.target as HTMLInputElement).files!], files: Record<string, string> = {}; let skipped = 0;
+      const selected = [...(event.target as HTMLInputElement).files!], files = Object.create(null) as Record<string, string>; let skipped = 0;
       const folder = selected[0]!.webkitRelativePath.split('/')[0]!;
       for (const file of selected) { try { const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer()); if (text.includes('\0')) { skipped++; continue; } files[file.webkitRelativePath.slice(folder.length + 1)] = text; } catch { skipped++; } }
       if (skipped) status.textContent = `Skipped ${skipped} binary/non-UTF8 files.`;

@@ -22,7 +22,7 @@ export class LocalWorkspace extends BrowserWorkspace {
   constructor(project: Project, readonly handle: LocalDirectory) { super(project, async () => {}); }
   override async refresh(): Promise<void> {
     if (await this.handle.queryPermission({ mode: 'read' }) !== 'granted') throw new Error('Local folder access is required. Open the local folder again to grant browser permission.');
-    const files: Record<string, string> = {}, directories = [''];
+    const files = Object.create(null) as Record<string, string>, directories = [''];
     const visit = async (directory: LocalDirectory, prefix: string): Promise<void> => {
       for await (const [name, entry] of directory.entries()) {
         const relative = prefix + name;

@@ -13,6 +13,7 @@ for (const [folder, key] of [['agents', 'agents'], ['prompts', 'prompts']]) for 
 for (const folder of (await readdir('skills')).sort()) library.skills[folder] = await readFile(path.join('skills', folder, 'SKILL.md'), 'utf8');
 await writeFile(path.join(output, 'library.json'), JSON.stringify(library));
 let html = await readFile('web/templates/index.html', 'utf8');
+html = html.replace('<head>', '<head>\n<link rel="icon" href="data:,">');
 html = html.replaceAll('src="/static/', 'src="./static/');
 html = html.replace('<script>\nconst messagesEl', '<script type="module">\nimport { mountBrowser } from "./browser-ui.js";\ntry { await mountBrowser(); } catch (error) { document.body.prepend(Object.assign(document.createElement("p"), { textContent: "Browser backend unavailable: " + error.message })); throw error; }\nconst messagesEl');
 html = html.replace('</style>', '#browser-runtime { padding: 12px; border-bottom: 1px solid #444; font: 13px system-ui; } #browser-runtime button, #browser-runtime input, #browser-runtime select { margin: 4px; } #browser-runtime-status { color: #ffb86c; margin-left: 8px; } .browser-import input { max-width: 160px; } #browser-examples button { font-size: 12px; }\n</style>');

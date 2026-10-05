@@ -8,6 +8,7 @@ import { WorkspaceAdapter } from '../src/node/workspace.js';
 import { Catalog } from '../src/node/catalog.js';
 import { SessionStore, sessionSummary } from '../src/node/sessions.js';
 import { headless } from '../src/node/headless.js';
+import { executeCommand } from '../src/node/commands.js';
 import { lines, renderQwenPrompt, retainedBoundary, toolAsGoValue } from '../src/format.js';
 import type { ChatMessage, CoreEvent } from '../src/core.js';
 
@@ -162,6 +163,13 @@ test('abandoned pending approvals are denied when a turn finishes', async t => {
   const decision = await pending.next(); assert.ok(!decision.done); assert.equal(decision.value.approved, false);
   assert.match(String((await pending.next()).value), /refused/);
   assert.equal(harness.approve(String(proposal.value.id), true), false);
+});
+
+test('command cancellation during startup is idempotent and preserves the first stop reason', async t => {
+  const dir = await root(t), controller = new AbortController(), original = globalThis.setTimeout;
+  t.mock.method(globalThis, 'setTimeout', ((...args: Parameters<typeof setTimeout>) => { controller.abort(); return original(...args); }) as typeof setTimeout);
+  const result = await executeCommand('sleep 1', dir, controller.signal, 1000);
+  assert.equal(result.status, 'stopped by the user');
 });
 
 test('Qwen rendering handles missing args, empty assistants and sorted optional properties', () => {

@@ -41,8 +41,14 @@ export class OllamaAdapter {
       count: group.tokens.length, groups: [group] };
   }
 
+  private fetch(input: string, init: Parameters<FetchLike>[1]): Promise<FetchResponse> {
+    // Browser/Worker fetch rejects an adapter object as its receiver.
+    const fetch_ = this.fetch_;
+    return fetch_(input, init);
+  }
+
   async *streamChat(payload: ModelRequest, signal?: AbortSignal): AsyncGenerator<string> {
-    const response = await this.fetch_(`${this.baseUrl}/api/chat`, {
+    const response = await this.fetch(`${this.baseUrl}/api/chat`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
     });
@@ -69,7 +75,7 @@ export class OllamaAdapter {
   }
 
   async request(endpoint: string, payload: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const response = await this.fetch_(`${this.baseUrl}/api/${endpoint}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000) });
+    const response = await this.fetch(`${this.baseUrl}/api/${endpoint}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000) });
     if (!response.ok) throw new Error(`Ollama request failed with HTTP ${response.status}`);
     return await response.json() as Record<string, unknown>;
   }
@@ -84,4 +90,3 @@ export class OllamaAdapter {
     return context;
   }
 }
-

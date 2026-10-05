@@ -39,7 +39,7 @@ async function fixture(t: { after(fn: () => unknown): void }, options: Record<st
   await writeFile(path.join(root, 'prompts/product.md'), 'Product rules');
   await writeFile(path.join(root, 'skills/basic/SKILL.md'), '---\nname: basic\ndescription: test skill\n---\nFirst instruction\nSecond instruction');
   const model = new Model(), sessions = new SessionStore(path.join(root, 'sessions'));
-  const harness = new NodeHarness({ workspace: path.join(root, 'work'), model: 'qwen3:8b', contextLength: 4096, projectRoot: root, ollama: model, sessions, approvalTimeoutMs: 10, ...options });
+  const harness = new NodeHarness({ workspace: path.join(root, 'work'), model: 'qwen3:8b', contextLength: 4096, projectRoot: root, ollama: model, sessions, approvalTimeoutMs: 1000, ...options });
   await harness.initialize();
   return { root, harness, model, sessions };
 }

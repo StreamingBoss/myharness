@@ -351,7 +351,8 @@ export class Harness implements TurnHost {
     try {
       const provider = String(event.provider ?? 'ollama');
       let inspection = unavailable(payload.model, provider, 'This model adapter does not support token inspection.');
-      if (this.modelPort.provider && provider !== this.modelPort.provider) inspection = unavailable(payload.model, provider, 'This request belongs to another provider. Reconnect its provider to inspect it; no request was sent.');
+      const currentProvider = this.modelPort.provider ?? this.requestMetadata(payload).provider;
+      if (currentProvider && provider !== currentProvider) inspection = unavailable(payload.model, provider, 'This request belongs to another provider. Reconnect its provider to inspect it; no request was sent.');
       else if (this.modelPort.inspectTokens) {
         try { inspection = await this.modelPort.inspectTokens(structuredClone(payload), this.controller.signal); }
         catch { return unavailable(payload.model, provider, 'Token inspection failed. Check the configured tokenizer, provider credentials, model support and connection. Chat and saved requests are unchanged.'); }

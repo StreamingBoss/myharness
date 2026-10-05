@@ -140,18 +140,50 @@ behavior difference must be documented and reflected in the contract before cuto
 
 ## Phase 4: browser runtime and educational distribution
 
-**Status: planned; not implemented by Phase 3.** The UI runs in the browser;
-the current full backend runs in Node. Browser execution needs its own adapters.
+**Status: complete on October 5, 2026.** Both UI and full harness backend run in
+the browser, with the backend in a Worker. The shared `Harness`/`HarnessCore`
+remain independent of runtime and UI. Node remains available for shell commands,
+the HTTP API and terminal execution.
 
-Reuse the same TypeScript core with a Worker host, browser workspace adapter, and
-chosen model adapter. Decide live-model delivery and supported tools separately.
-Report unavailable OS capabilities explicitly and reuse the contract scenarios
-for supported capabilities. This milestone is not required to complete the
-Python-to-TypeScript replacement.
+- Default to a labelled scripted educational demo with no model installation;
+  offer optional Ollama through the shared fetch adapter. Inference stays external.
+- Persist sessions and virtual text projects in IndexedDB; support session and
+  project import/export as separate envelopes.
+- Support user-granted local folders on the browser's machine through native
+  directory handles. Read current local code and write approved changes back to
+  disk. Check permission and external-file changes before writing. Provide a
+  folder-copy fallback with explicit browser-storage semantics.
+- Reuse nine supported tools and the same approval, cancellation, instruction,
+  memory and context policy. Mark Bash unavailable and omit it from model requests.
+- Expose a public Worker client and direct browser backend interface without UI.
+- Build a standalone static site/SDK and distributable ZIP. The static server has
+  no harness API. Keep the existing Node launcher available.
+
+**Gate: passed.** 84 TypeScript checks pass with 100% backend lines, branches,
+functions and statements; 55 Python-reference checks retain 100% coverage. Eleven
+supported shared scenarios compare browser/Node events, requests, memory and file
+effects. Chromium verifies the packaged Worker, no-UI entrypoint, approvals,
+reload persistence, exports and a demo turn after static serving stops. An isolated
+Ollama-compatible server checks real browser fetch/CORS plus native-handle reads,
+approved writes and handle persistence. Native tests use OPFS handles; interactive
+OS picker permissions remain browser-specific. Playwright/Chromium is pinned to
+a validated version because the newer bundled browser crashes on restoring OPFS
+handles from IndexedDB even without our backend. The ZIP validates successfully.
+
+Remote-main PR #1 (`9217aa7`, model-aware tokenization inspection) is integrated.
+The browser Worker exposes the same inspection action; scripted-demo token counts
+remain labelled estimates and no token pieces are fabricated. The combined suite
+also covers the PR's Node Gemini/tokenizer adapters and provider evidence.
+Post-integration verification passes **101 TypeScript tests with 100% backend
+lines, branches, functions and statements**, plus the 55 Python reference tests
+and UI response check. There were no textual merge conflicts. Integration fixes
+preserve Worker fetch binding, reject imported requests from unsupported providers,
+label demo counts as estimates, and retain the first command-cancellation reason.
 
 ## Operational rules
 
 Run integrations on isolated ports/workspaces/settings and never interact with
 the owner's port-5000 session. Keep phases reviewable as separate changes. Do
 not commit unless requested. The user has authorized implementation through
-Phase 3. Phase 4 remains the next milestone.
+Phase 4 and integration of the merged remote-master PR, including conflict
+resolution and verification.

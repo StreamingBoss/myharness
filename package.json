@@ -6,10 +6,11 @@
     "build:ts": "tsc --project tsconfig.json",
     "build:browser": "npm run build:ts && node scripts/build-browser.mjs",
     "start:browser": "npm run build:browser && node scripts/serve-browser.mjs",
-    "test:ts": "npm run build:ts && node --test dist/typescript/tests/*.test.js",
+    "package:browser": "npm run build:browser && node scripts/package-browser.mjs",
+    "test:ts": "npm run build:browser && node --test dist/typescript/tests/*.test.js",
     "start:ts": "npm run build:ts && node dist/typescript/src/node/server.js",
     "headless:ts": "npm run build:ts && node dist/typescript/src/node/headless.js",
-    "coverage:ts": "npm run build:ts && c8 --all --src dist/typescript/src --include '**/src/**' --exclude '**/node_modules/**' --check-coverage --lines 100 --branches 100 --functions 100 --statements 100 node --test dist/typescript/tests/*.test.js"
+    "coverage:ts": "npm run build:browser && c8 --all --src dist/typescript/src --include '**/src/**' --exclude '**/node_modules/**' --check-coverage --lines 100 --branches 100 --functions 100 --statements 100 node --test dist/typescript/tests/*.test.js"
   },
   "devDependencies": {
     "@types/diff": "^7.0.2",
@@ -17,7 +18,7 @@
     "c8": "^12.0.0",
     "esbuild": "^0.28.2",
     "fake-indexeddb": "^6.2.5",
-    "playwright": "^1.63.0",
+    "playwright": "1.62.0",
     "typescript": "^5.8.3"
   },
   "dependencies": {

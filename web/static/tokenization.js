@@ -82,7 +82,9 @@
       this.summary.append(element('p', 'Coverage: ' + data.coverage));
       const limits = element('ul'); (data.limitations || []).forEach(text => limits.append(element('li', text))); this.summary.append(limits);
       if (data.count !== undefined) this.summary.append(element('p', (data.fidelity === 'count-only' ? 'Inspection count: ' : 'Displayed tokens: ') + data.count));
-      if (data.measuredCount !== undefined) this.summary.append(element('p', 'Input count reported during generation: ' + data.measuredCount + '. A matching count alone does not prove the same token sequence.'));
+      if (data.measuredCount !== undefined) this.summary.append(element('p', data.provider === 'demo'
+        ? 'Scripted demo input estimate: ' + data.measuredCount + '. There is no LLM tokenizer or inference measurement.'
+        : 'Input count reported during generation: ' + data.measuredCount + '. A matching count alone does not prove the same token sequence.'));
       for (const group of data.groups || []) {
         const section = element('section'); section.append(element('h3', group.label));
         const preview = element('details'); preview.append(element('summary', 'Combined token bytes as text'), element('pre', new TextDecoder().decode(new Uint8Array(group.tokens.flatMap(token => token.bytes))))); section.append(preview);

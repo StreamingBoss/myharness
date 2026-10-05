@@ -100,8 +100,10 @@ export class BrowserHarness extends Harness {
       const endpoint = url.href.replace(/\/$/, ''), adapter = new OllamaAdapter(fetch, endpoint);
       try { context = await adapter.contextLength(model); }
       catch (error) { throw new BackendError(`Could not connect to Ollama: ${(error as Error).message}. Check the URL, model and OLLAMA_ORIGINS for this page's origin.`); }
+      this.idle('changing models');
       await this.browser.storage.put('settings', 'ollama-url', endpoint); this.router.ollama = adapter;
     } else if (value.mode !== 'demo') throw new BackendError('Choose demo or ollama.');
+    this.idle('changing models');
     this.state.model = model; this.state.contextLength = context;
     await this.newSession();
   }
