@@ -54,6 +54,14 @@
   }
   #session-bar { display: flex; align-items: center; gap: 7px; padding: 6px 16px; background: #1a1a1a; border-bottom: 1px solid #444; font-size: 12px; }
   #session-bar select, #session-bar input, #session-bar button { padding: 5px 7px; border-radius: 5px; border: 1px solid #555; background: #303030; color: #ddd; }
+  .pane-header button, #orchestration button {
+    margin-left: 8px; padding: 5px 8px; border-radius: 5px;
+    border: 1px solid #555; background: #303030; color: #ddd; cursor: pointer;
+  }
+  #orchestration-attention { border-color: #e0b050; color: #e0b050; }
+  #orchestration-error { color: #ff6b6b; margin-left: 8px; white-space: normal; }
+  #orchestration h3 { margin: 0 0 8px; }
+  #orchestration .child-agent { padding: 8px 0; border-top: 1px solid #444; }
   #session-status { color: #8acb88; min-width: 52px; }
   #settings-bar :disabled { opacity: 0.5; cursor: default; }
   #project-error { color: #ff6b6b; }
@@ -300,7 +308,11 @@
     padding: 0 10px 10px 0;
   }
   .toggle.tool { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
-  .mcp-group { margin-left: 14px; font-size: 12px; color: #c792ea; white-space: nowrap; cursor: help; }
+  #tool-list { display: flex; align-items: flex-start; gap: 18px; flex: 1 1 100%; order: 1; min-width: 0; overflow-x: auto; padding: 6px 10px; }
+  .tool-family { display: flex; flex-direction: column; gap: 3px; flex: 0 0 auto; border: 0; padding: 0; margin: 0; }
+  .tool-family legend { font-size: 12px; font-weight: bold; color: #ddd; margin-bottom: 5px; padding: 0; }
+  .tool-family .toggle.tool { margin-left: 0; }
+  .tool-family .mcp-group { color: #c792ea; white-space: nowrap; cursor: help; }
   #mcp-reload, #mcp-find { margin-left: 8px; }
   #mcp-registry { width: min(900px, 92vw); max-height: 85vh; background: #1e1e1e; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: 14px; }
   #mcp-registry::backdrop { background: rgba(0, 0, 0, 0.6); }
@@ -391,26 +403,26 @@
 <body>
 
 <div id="session-bar" title="Sessions are saved locally after each event. They retain the transcript, model memory, selected tools, approval choice and frozen prompt, agent and skills. Export contains the session but never project files. Display preferences stay in this browser.">
-  <label for="session-select">Session:</label><select id="session-select"></select><button id="load-session">Load session</button>
-  <button id="new-session">New session</button><button id="rename-session">Rename</button>
-  <button id="export-session">Export</button>
-  <label for="import-session">Import</label><input id="import-session" type="file" accept="application/json,.json" hidden>
+  <label for="session-select">Session:</label><select id="session-select" title="Choose a saved conversation. Use Load session to restore its transcript, memory, tools and instruction snapshots."></select><button id="load-session" title="Restore the selected saved session. Wait for the current turn to finish before switching sessions.">Load session</button>
+  <button id="new-session" title="Create and activate an empty conversation. Other saved sessions remain available.">New Session</button><button id="rename-session" title="Change the name of the active saved session; its conversation and memory stay the same.">Rename</button>
+  <button id="export-session" title="Download the active session as JSON, including transcript, memory, instruction snapshots and the project workspace path.">Export session</button>
+  <button id="import-session-picker" type="button" title="Choose an exported session JSON file to restore its conversation, memory and project workspace path.">Import Session</button><input id="import-session" type="file" accept="application/json,.json" hidden title="Restore a session from an exported JSON file. Importing a session does not import its project files.">
   <span id="session-status">saved</span>
 </div>
 
 <div id="settings-bar">
-  <span class="setting" title="The product's base instructions, sent as the system message: the very first message of every request (look at the start of each SENT block). These are community-collected prompt examples attributed to Cursor, Codex, Claude and others; their authenticity and currentness are not verified. The ~tokens number is what the prompt costs on EVERY request, before you type anything. It is chosen once per conversation and locks after your first message, because changing it mid-conversation confuses the model and throws away Ollama's cache.">
+  <span class="setting" title="Choose the base system instructions sent with every model request. The selection freezes after the first message; reset memory or start a new conversation to change it.">
     <label for="prompt" class="help">System prompt:</label>
-    <select id="prompt"></select>
+    <select id="prompt" title="Choose the base system instructions sent with every model request. The selection freezes after the first message; reset memory or start a new conversation to change it."></select>
   </span>
-  <span class="setting" title="A persona: your own instructions, added after the system prompt in the same system message. Choosing an agent also ticks the tools it needs. Agents are Markdown files in agents/ (in myharness, or in the project folder for project-specific ones). Like the system prompt, it locks after your first message.">
+  <span class="setting" title="Choose additional persona instructions and its suggested tools. The selection freezes after the first message; reset memory or start a new conversation to change it.">
     <label for="agent" class="help">Agent:</label>
-    <select id="agent"></select>
+    <select id="agent" title="Choose additional persona instructions and its suggested tools. The selection freezes after the first message; reset memory or start a new conversation to change it."></select>
   </span>
   <span id="lock-note" hidden title="Chosen at the start of the conversation. Unlocks with Clear conversation or Reset memory.">locked</span>
-  <span class="setting" title="The folder the file tools work in. File tools cannot read or write outside it: the harness checks every path. Shell commands can access anything your user account can. Remembered when the harness restarts.">
+  <span class="setting" title="Workspace folder used by file tools and project instructions. File paths are confined to this folder; shell commands run with your account permissions. Use Set to apply.">
     <label for="project" class="help">Project folder:</label>
-    <input id="project" type="text" spellcheck="false">
+    <input id="project" type="text" spellcheck="false" title="Workspace folder used by file tools and project instructions. File paths are confined to this folder; shell commands run with your account permissions. Use Set to apply.">
   </span>
   <button id="browse" title="Pick the project folder by browsing the folders on this machine.">Browse…</button>
   <button id="set-project" title="Use the path typed in the field as the project folder.">Set</button>
@@ -421,8 +433,8 @@
   <div id="browser-path"></div>
   <div id="browser-list"></div>
   <div id="browser-buttons">
-    <button id="browser-cancel">Cancel</button>
-    <button id="browser-select">Select this folder</button>
+    <button id="browser-cancel" title="Close the folder chooser without changing the workspace.">Cancel</button>
+    <button id="browser-select" title="Use the selected folder as the workspace for file tools and project instructions.">Select this folder</button>
   </div>
 </div>
 
@@ -431,19 +443,19 @@
   <div class="pane-header" title="What a chat app shows you: your messages and the model's answers. Everything else the harness does is hidden here, and shown on the right and at the bottom.">Chat — <span id="model-name"></span><span id="context-meter" title="Input tokens measured by the last provider response; unavailable counts are unknown. The working context is a harness budget, separate from the provider limit. Amber at 75%: old tool outputs are trimmed. Red at 90%: older messages are summarized. Ollama can silently drop the START of an overflowing prompt, including the system message. Until the next response, this shows the last measured request.">context: — / —<progress id="context-bar" max="100" value="0"></progress></span></div>
   <div id="messages"></div>
   <div id="input-row">
-    <textarea id="input" rows="1" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line, /skill-name to use a skill)" autofocus></textarea>
-    <label class="toggle" title="The model remembers nothing between requests. Checked: the harness keeps the conversation (the messages list at the bottom) and re-sends ALL of it with every request, which is why the 'in' token count grows each turn. Unchecked: only your new message is sent and nothing is kept, so the model can't refer to earlier messages."><input id="use-memory" type="checkbox" checked> <span class="help">Harness memory</span></label>
-    <label class="toggle" title="Only changes what the chat shows: the model still thinks before answering (which takes time and output tokens), and the RECEIVED blocks on the right still contain its thinking. Applies to the thinking already in the chat too."><input id="hide-thinking" type="checkbox"> <span class="help">Hide thinking</span></label>
+    <textarea id="input" rows="1" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line, /skill-name to use a skill)" autofocus title="Message sent to the model with enabled tools and harness instructions. Enter sends; Ctrl+Enter inserts a new line. Use /skill-name to request a skill."></textarea>
+    <label class="toggle" title="The model remembers nothing between requests. Checked: the harness keeps the conversation (the messages list at the bottom) and re-sends ALL of it with every request, which is why the 'in' token count grows each turn. Unchecked: only your new message is sent and nothing is kept, so the model can't refer to earlier messages."><input id="use-memory" type="checkbox" checked title="Keep conversation memory and send it again on later requests. Turning this off sends only the new message and does not retain that turn in model memory."> <span class="help">Harness memory</span></label>
+    <label class="toggle" title="Only changes what the chat shows: the model still thinks before answering (which takes time and output tokens), and the RECEIVED blocks on the right still contain its thinking. Applies to the thinking already in the chat too."><input id="hide-thinking" type="checkbox" title="Hide thinking in the chat, including earlier thinking. This display preference does not change model generation or the Internals view."> <span class="help">Hide thinking</span></label>
     <button id="reset" title="Empty the harness memory: the model forgets the conversation, but the chat stays visible. Also unlocks the system prompt and agent.">Reset memory</button>
     <button id="compact" title="Ask the model to summarize older messages (under 300 words), retaining at least the last 4 messages and complete tool-call batches. Costs a model request; the request and summary appear in Internals. Memory changes only if the summary succeeds and saves space.">Compact</button>
     <button id="clear" title="Start over: empty the memory and all three panels, and unlock the system prompt and agent.">Clear conversation</button>
-    <button id="send">Send</button>
-    <button id="stop" hidden title="Stop the current turn. The harness stops reading from Ollama and closes the connection, which makes Ollama stop generating; tools that haven't run yet are skipped, and a change waiting for approval is refused. During compaction, the summary request finishes but its result is discarded. What the model already wrote stays in memory, and every tool call it made gets a 'stopped' result so the next request stays consistent.">Stop</button>
+    <button id="send" title="Send your message and run one backend turn, including any requested tool calls and approval waits.">Send</button>
+    <button id="stop" hidden title="Cancel the current turn and pending approvals. Abort model requests and commands; preserve partial output and settle unfinished tool calls.">Stop</button>
   </div>
   <div id="tools-row">
-    <label class="toggle" title="Tools let the model ask the harness to run a function (read a file, get the time...). The model never runs anything itself: it replies with a tool call, the harness runs it and sends the result back in a new request. Unchecked: no tools are described to the model, so it doesn't know they exist."><input id="use-tools" type="checkbox" checked> <span class="help">Tools:</span></label>
+    <label class="toggle" title="Tools let the model ask the harness to run a function (read a file, get the time...). The model never runs anything itself: it replies with a tool call, the harness runs it and sends the result back in a new request. Unchecked: no tools are described to the model, so it doesn't know they exist."><input id="use-tools" type="checkbox" checked title="Offer the checked tools to the model. The harness executes requested calls and sends results back. Turning this off omits tool descriptions from requests."> <span class="help">Tools:</span></label>
     <span id="tool-list"></span>
-    <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added); before run_command runs, it shows the command; before an MCP tool runs, it shows the server, the tool and its arguments; before a file is deleted or moved, or git creates a branch, switches branch or commits, it shows what will happen. The harness then waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written, and commands and MCP tools run, immediately. Careful: the project-folder limit only applies to the file tools; a shell command can do anything your user account can (cd .., rm...), so approval is the real protection."><input id="ask-approval" type="checkbox" checked> <span class="help">Ask before changes and commands</span></label>
+    <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added); before run_command runs, it shows the command; before an MCP tool runs, it shows the server, the tool and its arguments; before a file is deleted or moved, or git creates a branch, switches branch or commits, it shows what will happen. The harness then waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written, and commands and MCP tools run, immediately. Careful: the project-folder limit only applies to the file tools; a shell command can do anything your user account can (cd .., rm...), so approval is the real protection."><input id="ask-approval" type="checkbox" checked title="Require approval before file changes, shell commands, MCP calls and git changes. Without an approval response, the action is denied. Turning this off executes these effects immediately."> <span class="help">Ask before changes and commands</span></label>
   </div>
 </div>
 
@@ -465,7 +477,7 @@ Model: loading…
 <div id="harness-box">
   <div class="pane-header" id="explore-header">
     <label for="explore-view" class="help" title="Explore each piece that goes into a request: what the harness keeps and adds, what comes with the model, and the final text the model reads.">Explore:</label>
-    <select id="explore-view">
+    <select id="explore-view" title="Choose which part of the harness to inspect: memory, instructions, tools, MCP servers, skills, model template or saved-request tokens. Inspection does not advance a chat turn.">
       <option value="memory">harness memory</option>
       <option value="system">harness system prompt</option>
       <option value="agent">harness agent</option>
@@ -478,7 +490,7 @@ Model: loading…
       <option value="final">prompt reconstruction (Qwen)</option>
     </select>
     <button id="mcp-reload" hidden title="Ask the backend to re-read its MCP configuration file and reconnect every server. The tool list below the chat is rebuilt from what the servers report.">Reload MCP servers</button>
-    <button id="mcp-find" hidden title="Search an MCP registry: GitHub's (the one VS Code uses) or the official one. It lists servers, not tools: a server's tools are only known once the harness connects to it. Preview connects to a remote server once; the configuration snippet goes into your MCP configuration file.">Find MCP servers…</button>
+    <button id="mcp-find" hidden title="Search an MCP registry: GitHub's (the one VS Code uses) or the official one. It lists servers, not tools: a server's tools are only known once the harness connects to it. Preview connects to a remote server once; Show configuration lets you review and edit an entry, then Add to harness saves it and reloads servers.">Find MCP servers…</button>
     <span id="explore-note"></span>
   </div>
   <pre id="memory"></pre>
@@ -492,13 +504,13 @@ Model: loading…
       <option value="github">GitHub registry</option>
       <option value="official">Official registry</option>
     </select>
-    <input type="search" id="mcp-registry-search" placeholder="Search the MCP Registry, e.g. filesystem, github, weather" aria-label="Search the MCP Registry">
-    <button id="mcp-registry-go" type="submit" value="search">Search</button>
-    <button id="mcp-registry-close" type="button">Close</button>
+    <input type="search" id="mcp-registry-search" placeholder="Search the MCP Registry, e.g. filesystem, github, weather" aria-label="Search the MCP Registry" title="Search the selected registry for MCP servers by name or description. Search lists server entries; Preview tools connects to discover their tools.">
+    <button id="mcp-registry-go" type="submit" value="search" title="Search the selected MCP registry using the text entered above.">Search</button>
+    <button id="mcp-registry-close" type="button" title="Close the MCP registry dialog. Saved configuration entries remain in the harness.">Close</button>
   </form>
   <div class="registry-note">Servers from the selected MCP registry. Entries are published by their authors and not reviewed. <b>Preview tools</b> connects once to a remote server, lists what it offers and disconnects; nothing is called. Choose <b>Show configuration → Add to harness</b> to save and reload a server, or copy its configuration into your MCP configuration file and choose <b>Reload MCP servers</b> (browser edition: <b>Import MCP config</b>).</div>
   <div id="mcp-registry-results" role="status"></div>
-  <button id="mcp-registry-more" type="button" hidden>More results</button>
+  <button id="mcp-registry-more" type="button" hidden title="Fetch the next page of matching servers from the selected registry.">More results</button>
 </dialog>
 
 <script src="/static/tokenization.js"></script>
@@ -670,7 +682,7 @@ function printModelRequest(event, saved) {
 
 function replaySessionEvent(event) {
   // Replay is display-only: it never calls the model, tools, approvals, or project endpoints.
-  if (event.type === "chat_user") renderChatBubble("user", event.content || "");
+  if (event.type === "chat_user") renderChatBubble("user", (event.source === "harness" ? "[Harness continuation]\n" : "") + (event.content || ""));
   else if (event.type === "request") printModelRequest(event, true);
   else if (event.type === "response") {
     printBlock("RECEIVED from model (saved)", event.parts, "received");
@@ -1079,6 +1091,7 @@ function renderRegistryOption(option) {
     const authLabel = element("label", "Authorization header (optional) ");
     const auth = element("input"); auth.type = "password"; auth.autocomplete = "off";
     auth.placeholder = "Bearer …";
+    auth.title = authLabel.title = "Full Authorization header sent only for this tool preview, for example Bearer <token>. Cleared after sending; it is not saved as server configuration.";
     authLabel.append(auth);
     row.append(authLabel);
     row.append(element("div", "For servers requiring authentication, enter the full header value. Used for this preview only; cleared after sending. OAuth sign-in is unavailable.", "registry-note"));
@@ -1101,7 +1114,9 @@ function renderRegistryOption(option) {
   }
   const config = element("button", option.config ? "Show configuration" : "How to add");
   config.type = "button";
+  config.title = "Show the generated server configuration and setup notes. For supported entries, edit the JSON and credentials before adding the server to the harness.";
   const copy = element("button", "Copy"); copy.type = "button"; copy.hidden = true;
+  copy.title = "Copy the generated configuration snippet to the clipboard. Edits in the configuration field below are saved only with Add to harness.";
   const snippet = option.config ? JSON.stringify(option.config, null, 2) : "";
   config.addEventListener("click", () => {
     output.hidden = false;
@@ -1113,10 +1128,12 @@ function renderRegistryOption(option) {
     catch { copy.textContent = "Select the text to copy"; }
   });
   const editor = element("textarea"); editor.hidden = true; editor.value = snippet;
+  editor.title = "JSON entries to merge into the harness MCP configuration. Replace placeholders with values or Node environment references such as ${TOKEN}. Existing server names cannot be overwritten.";
   editor.setAttribute("aria-label", "MCP configuration to add"); editor.rows = 10;
   editor.style.width = "100%";
   const tokenLabel = element("label", "Authorization header to save (optional) "); tokenLabel.hidden = true;
   const token = element("input"); token.type = "password"; token.autocomplete = "off"; token.placeholder = "Bearer …";
+  token.title = tokenLabel.title = "Full Authorization header to apply to the entries being added, for example Bearer <token>. Node saves it in the MCP config file; browser headers remain in memory. The field clears after sending.";
   tokenLabel.append(token);
   const saveNote = element("div", "Edit placeholders above or enter the full Authorization header below if needed. Node saves credentials in the MCP config file; the browser keeps headers in memory only. Adding a package starts its command.", "registry-note"); saveNote.hidden = true;
   const add = element("button", "Add to harness"); add.type = "button"; add.hidden = true;
@@ -1310,8 +1327,10 @@ function renderChangeBox(title, diff, note) {
 function addApprovalButtons(box, id) {
   const actions = box.querySelector(".change-actions");
   const deny = document.createElement("button");
+  deny.title = "Reject this proposed action. The harness sends the denial to the model without executing the effect.";
   deny.textContent = "Deny";
   const approve = document.createElement("button");
+  approve.title = "Allow this proposed action once. Later effects still require their own approval.";
   approve.textContent = "Approve";
   approve.className = "approve";
   for (const [button, approved] of [[deny, false], [approve, true]]) {
@@ -1515,24 +1534,38 @@ async function clearConversation() {
 function renderTools(tools) {
   const list = document.getElementById("tool-list");
   list.replaceChildren();
-  let group = null;
+  const families = [
+    ["Files", ["pwd", "list_files", "read_file", "write_file", "edit_file", "delete_file", "move_file"]],
+    ["Search", ["find_files", "search", "web_search"]],
+    ["Git", ["git_status", "git_diff", "git_log", "git_branch", "git_checkout", "git_commit"]],
+    ["Workflow", ["run_command", "update_plan", "use_skill", "get_current_time"]],
+    ["Agents", ["spawn_agent", "list_agents", "get_agent_result", "restart_agent", "interrupt_agent", "send_message", "wait_agent"]],
+    ["Goals", ["get_orchestration", "configure_goal", "get_goal", "update_goal"]],
+  ];
+  const groups = new Map();
   for (const tool of tools) {
-    if (tool.source === "mcp" && tool.server !== group) {
-      group = tool.server;
-      const heading = document.createElement("span");
-      heading.className = "mcp-group";
-      heading.textContent = group ? "MCP " + group + ":" : "MCP resources:";
-      heading.title = group
-        ? "Tools reported by the MCP server '" + group + "'. The harness adds the server name to each tool name, sends the server's descriptions and schemas to the model, and forwards calls to the server. Calls ask for approval like commands: the harness cannot see what an external tool does. See Explore → MCP servers."
-        : "Harness tools for reading MCP resources (data offered by servers). Reads are not approved, like read_file; the content enters the conversation.";
-      list.append(heading);
+    const family = tool.source === "mcp" ? (tool.server ? "MCP " + tool.server + ":" : "MCP resources:")
+      : families.find(([, names]) => names.includes(tool.name))?.[0] || "Other";
+    if (!groups.has(family)) {
+      const column = document.createElement("fieldset");
+      column.className = "tool-family";
+      const heading = document.createElement("legend");
+      heading.textContent = family;
+      if (tool.source === "mcp") {
+        heading.className = "mcp-group";
+        heading.title = tool.server
+          ? "Tools reported by the MCP server '" + tool.server + "'. The harness forwards calls to the server and asks for approval. See Explore → MCP servers."
+          : "Harness tools for reading MCP resources. Reads are not approved; the content enters the conversation.";
+      }
+      column.append(heading); groups.set(family, column);
     }
     const label = document.createElement("label");
     label.className = "toggle tool";
-    label.title = "What the model is told: \"" + tool.description + "\"\n\nWhile checked, this description is sent with every request, which costs input tokens.";
+    label.title = "What the model is told: \"" + tool.description + "\"\n\nWhen Tools is enabled and this tool is checked, its description is sent with every request and costs input tokens.";
     if (tool.source === "mcp") label.title += "\nMCP tools are off in new sessions: tick them to offer them to the model.";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
+    checkbox.title = label.title;
     checkbox.className = "tool-checkbox";
     checkbox.value = tool.name;
     checkbox.checked = true;
@@ -1542,8 +1575,10 @@ function renderTools(tools) {
     name.className = "help";
     name.textContent = tool.name;
     label.append(name);
-    list.append(label);
+    groups.get(family).append(label);
   }
+  for (const [family] of families) if (groups.has(family)) list.append(groups.get(family));
+  for (const [family, column] of groups) if (!families.some(([name]) => name === family)) list.append(column);
   toolCheckboxes = [...list.querySelectorAll(".tool-checkbox")];
 }
 
@@ -1624,6 +1659,7 @@ async function loadSelectedSession() {
 }
 document.getElementById("load-session").addEventListener("click", loadSelectedSession);
 document.getElementById("new-session").addEventListener("click", async () => {
+  if (window.MYHARNESS_NEW_SESSION) { await window.MYHARNESS_NEW_SESSION(); return; }
   const response = await backendFetch(api("/sessions"), {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
   if (!response.ok) { sessionStatus.textContent = (await response.json()).error; return; }
   location.reload();
@@ -1636,6 +1672,7 @@ document.getElementById("rename-session").addEventListener("click", async () => 
   const listing = await (await backendFetch(api("/sessions"))).json(); fillSessionSelect(listing.sessions, session.id);
 });
 document.getElementById("export-session").addEventListener("click", async () => { if (window.MYHARNESS_EXPORT_SESSION) await window.MYHARNESS_EXPORT_SESSION(session.id); else location.href = api("/sessions/" + session.id + "/export"); });
+document.getElementById("import-session-picker").addEventListener("click", () => document.getElementById("import-session").click());
 document.getElementById("import-session").addEventListener("change", async (e) => {
   const file = e.target.files[0]; if (!file) return;
   try {

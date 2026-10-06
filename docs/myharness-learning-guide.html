@@ -632,7 +632,7 @@
                 For Ollama, provide the server URL and select an installed model. For a cloud provider, enter your own API key and select an available model.
               </li>
               <li>
-                Click <b>Start new session with this model</b>. Send a short greeting and check that a response arrives.
+                Click <b>New Session</b>. Send a short greeting and check that a response arrives.
               </li>
             </ol>
           </div>
@@ -857,7 +857,7 @@
             </h3>
             <ol class="steps">
               <li>
-                Open a small scratch project using <b>Open local folder…</b>, or use <b>Import folder copy</b> / <b>Import JSON project</b> for a virtual project.
+                Open a small scratch project using <b>Open local folder…</b>, or use <b>Import folder copy</b> for a virtual project.
               </li>
               <li>
                 Enable <code>pwd</code>, <code>list_files</code>, and <code>read_file</code>. Ask: <code>List the project files, then read README.md if it exists.</code>
@@ -1194,7 +1194,7 @@
                 Use the compaction control and inspect its separate model request and resulting summary. Compare the original details with the summary. Ineffective or interrupted summaries leave memory unchanged.
               </li>
               <li>
-                Use <b>Export session</b> to save the transcript, current model memory, and instruction snapshot. Use <b>Export project</b> for text files and project sessions; <b>Import JSON project</b> restores a project export.
+                Use <b>Export session</b> to save the transcript, current model memory, and instruction snapshot. The session JSON includes the project workspace path; project files stay in the workspace.
               </li>
             </ol>
           </div>
@@ -1233,14 +1233,6 @@
                 </td>
                 <td>
                   Save transcript, retained memory and instruction snapshot; no project files.
-                </td>
-              </tr>
-              <tr>
-                <td>
-                  Export project
-                </td>
-                <td>
-                  Save text files plus the project’s sessions.
                 </td>
               </tr>
             </table>

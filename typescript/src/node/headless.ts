@@ -27,7 +27,16 @@ export async function headless(args: string[], load = loadHarness, output = cons
       if (event.type === 'approval') harness.approve(String(event.id), values.approve === true);
       if (event.type === 'agent_event' && (event.event as { type: string }).type === 'approval') harness.approve(String((event.event as { id: string }).id), values.approve === true);
     }
-    status = values.goal ? (harness.inspectRun()!.status === 'completed' ? 0 : harness.inspectRun()!.status === 'cancelled' ? 130 : 1) : harness.stopped() ? 130 : 0;
+    const adopted = !values.goal && !values.compact ? harness.inspectRun() : undefined;
+    if (adopted) {
+      const boundary = harness.runEvents(adopted.id).reverse().find(event => event.type === 'goal_handoff');
+      for await (const event of harness.subscribeRun(adopted.id, Number(boundary?.sequence ?? -1))) {
+        output(JSON.stringify(event));
+        if (event.type === 'approval') harness.approve(String(event.id), values.approve === true);
+        if (event.type === 'agent_event' && (event.event as { type: string }).type === 'approval') harness.approve(String((event.event as { id: string }).id), values.approve === true);
+      }
+    }
+    status = values.goal || adopted ? (harness.inspectRun()!.status === 'completed' ? 0 : harness.inspectRun()!.status === 'cancelled' ? 130 : 1) : harness.stopped() ? 130 : 0;
   } catch (error) { output(`headless harness failed: ${(error as Error).message}`); status = 1; }
   finally { process.off('SIGINT', stop); await harness?.close(); }
   return status;

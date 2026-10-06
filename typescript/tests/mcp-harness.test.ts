@@ -67,7 +67,7 @@ test('Node: an MCP tool call is described, approved, executed over stdio and sho
   assert.equal((mcp.request as { method: string }).method, 'tools/call'); assert.ok(mcp.response);
   assert.equal(events.find(event => event.type === 'tool')!.result, 'echo: hello');
   const first = model.payloads[0]!;
-  assert.deepEqual(first.tools!.map(item => item.function.name), ['read_file', 'mcp__files__echo']);
+  assert.deepEqual(first.tools!.map(item => item.function.name), ['read_file', 'mcp__files__echo', 'get_orchestration', 'configure_goal', 'get_goal', 'update_goal']);
   assert.match(first.messages[0]!.content, /# MCP server instructions[\s\S]*## files\n\nUse echo to repeat text\./);
   assert.deepEqual(harness.activeSessionRecord().settings.tools, ['read_file', 'mcp__files__echo']);
   assert.equal(harness.state.memory.at(-2)!.content, 'echo: hello');
@@ -103,7 +103,7 @@ test('Node: approvals off, Stop during a call, timeouts, disabled tools and disc
   const offline = new NodeHarness({ workspace: hanging.root, model: 'scripted', contextLength: 20000, ollama: after, mcpConfigFile: path.join(hanging.root, 'missing.json') });
   await offline.initialize();
   const disconnected = await run(offline, turn('gone', ['mcp__files__echo', 'list_mcp_resources']));
-  assert.equal(after.payloads[0]!.tools, undefined);
+  assert.deepEqual(after.payloads[0]!.tools!.map(tool => tool.function.name), ['get_orchestration', 'configure_goal', 'get_goal', 'update_goal']);
   assert.equal(disconnected.find(event => event.type === 'tool')!.result, "error: unknown tool 'mcp__files__echo'");
   assert.deepEqual(offline.activeSessionRecord().settings.tools, ['mcp__files__echo', 'list_mcp_resources']);
 });

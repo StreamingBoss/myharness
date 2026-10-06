@@ -79,6 +79,8 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   assert.ok(!(await page.locator('.registry-option pre').first().innerText()).includes('ui-secret'));
   await page.getByRole('button', { name: 'Show configuration' }).click();
   assert.deepEqual(JSON.parse((await page.locator('.registry-option pre').first().innerText()).trim()), { mcpServers: { weather: { url: 'http://remote.test/mcp' } } });
+  const missingHelp = await page.locator('.registry-option input, .registry-option textarea, .registry-option button').evaluateAll(controls => controls.filter(control => !(control.getAttribute('title') || '').trim()).map(control => control.textContent || control.getAttribute('aria-label')));
+  assert.deepEqual(missingHelp, []);
   const editor = page.getByLabel('MCP configuration to add');
   assert.equal(await editor.isVisible(), true);
   const originalSnippet = await editor.inputValue();

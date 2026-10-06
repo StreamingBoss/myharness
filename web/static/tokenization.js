@@ -18,8 +18,8 @@
       root.append(element('p', 'Inspect a saved request to see the best evidence its provider exposes. Inspection is a separate request and may use provider quota. Ollama inspection asks its renderer; an older server ignoring the debug flag may generate at most one token. No agent tools are run.'));
       const controls = element('div', undefined, 'token-controls');
       const label = element('label', 'Saved model request ');
-      this.select = element('select'); this.select.id = 'token-request'; this.select.setAttribute('aria-label', 'Saved model request'); label.append(this.select);
-      this.inspect = element('button', 'Inspect selected request'); this.inspect.id = 'token-inspect';
+      this.select = element('select'); this.select.id = 'token-request'; this.select.title = label.title = 'Choose a model request saved in the active session. Selecting it shows cached evidence; use Inspect selected request to fetch new evidence.'; this.select.setAttribute('aria-label', 'Saved model request'); label.append(this.select);
+      this.inspect = element('button', 'Inspect selected request'); this.inspect.id = 'token-inspect'; this.inspect.title = 'Ask the backend for tokenizer evidence for this saved request. This separate inspection may use provider quota; it runs no agent tools. Unsupported evidence is reported explicitly.';
       controls.append(label, this.inspect); root.append(controls);
       this.summary = element('div'); this.summary.id = 'token-summary'; this.summary.setAttribute('aria-live', 'polite');
       this.details = element('pre', 'Click a token to see its position, ID and bytes.'); this.details.id = 'token-details';

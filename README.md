@@ -1,14 +1,46 @@
 # myharness
 
-**See what happens between your message and an LLM's answer.**
+Describe your task in chat. The master can use `get_orchestration` to inspect host
+permissions and ceilings, then `configure_goal` to choose an objective, completion
+criteria, deadline, round limit and shared request budget. It can choose child tasks,
+permitted tools, connected model routes and timeouts through its delegation tools.
+The current chat turn becomes the first goal round; backend continuation never
+replays the initial task. Request usage starts with the first model request and
+settings changes cannot reset it or extend a running deadline.
 
-myharness is a local educational harness with a browser interface. It makes
-memory, instructions, tools, skills, approvals and context management visible:
-inspect the requests sent to the model, the responses it returns, and every tool
-call in between. The goal is to understand what a harness adds to a model.
+**Under the hood** opens a read-only inspector, hidden by default. It shows the
+chosen goal settings, each child's task/model/status, elapsed time, deadline,
+partial output, results and attempt history. A running-child count stays visible.
+Users can stop one child or the entire run; the master manages restarts and follow-ups.
+Approvals have a visible indicator even with the inspector closed. Closing the
+inspector does not stop work. Completion is the model's claim: inspect its evidence.
 
-The TypeScript backend runs independently of the UI, either inside a browser
-Worker or in Node. Both reuse the same harness and approval policy.
+Subagents are **disabled by default**. Hosts configure delegation through
+`MYHARNESS_ALLOW_SUBAGENTS=true` or `false`, or the callable settings interface.
+Child tool grants and model routes remain host permissions, outside session authority;
+the master cannot expand them. Read-only child tools are the default. Granted effects
+inherit the master's approval policy; unanswered approvals deny effects. Children
+inherit the master model, including cloud providers. Alternative routes require
+host authorization and available credentials; keys remain ephemeral. Children have
+isolated conversation memory and cannot delegate further children.
+
+Default ceilings: 5 minutes per child attempt, 30 minutes per master goal, three
+concurrent children, ten goal rounds and 200 shared model requests. Deadlines include
+tools, approvals and child waits. The ordinary per-turn tool-loop limit remains twenty.
+Set `MYHARNESS_ORCHESTRATION_LIMITS` to a JSON object with any of `masterTimeoutMs`,
+`childTimeoutMs`, `maxRounds`, `maxRequests`, `maxConcurrentChildren` to override host
+ceilings. Callable Node and browser backends accept the same `orchestrationLimits`
+option. These are host settings, not editable fields in the inspector.
+
+Restoring a session preserves history without restarting pending work. A new user
+turn can authorize further work; the master cannot resume cancelled work by itself.
+Imports do not grant child permissions.
+
+Headless usage: `npm run headless:ts -- "Inspect the project and verify its README"`.
+The CLI waits for master-configured continuation and denies approvals unless
+`--approve` is supplied. Existing explicit `--goal` and callable goal/child interfaces
+remain supported. Observers never advance execution; Node and browser reuse the
+shared backend.
 
 ## What you can explore
 
@@ -41,7 +73,7 @@ npm run start:browser
 
 Open **http://localhost:5001**. This server serves static files only: the full
 harness backend runs in a Worker on your browser's machine. Choose a real model
-provider and click **Start new session with this model**. Local Ollama is selected
+provider and click **New Session**. Local Ollama is selected
 by default. Cloud providers show an API-key field; Ollama shows its server URL. The model
 picker lists installed Ollama models or loads account models after you enter a
 cloud API key. Changing the provider, URL or API key refreshes the choices.
@@ -66,11 +98,11 @@ context (HTTPS or localhost) and a user gesture. Chrome and Edge support the
 [File System Access API](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access).
 Permissions can expire: open the folder again when prompted.
 
-**Import folder copy** and **Import JSON project** create virtual text projects
+**Import folder copy** creates a virtual text project
 in browser storage. Changes to these copies do not modify the original folder;
-use **Export project** to save their files and sessions. Folder copies skip binary/non-UTF8
-files. Direct access reads UTF8 text up to 10 MiB per file and skips dependency
-directories; exporting a local project requires its included files to be text.
+use **Export session** to save a conversation with its project workspace path.
+Folder copies skip binary/non-UTF8 files. Direct access reads UTF8 text up to
+10 MiB per file and skips dependency directories.
 A browser page cannot start programs, so the browser edition does not offer
 `run_command`, and it does not offer `web_search` (DuckDuckGo refuses requests from web
 pages). Tools a runtime cannot run are left out of the tool list rather than shown
@@ -116,11 +148,10 @@ Accept any browser local-network permission prompt for your Ollama server.
 Sessions, virtual projects and granted directory handles are saved in IndexedDB,
 scoped to this site's origin and browser profile. Changing the host or port uses
 different storage. Clearing site data removes these saves. **Export session**
-saves the full conversation transcript, current model memory and frozen instructions.
-**Export project** saves text files and all sessions belonging to the current
-project, including the active session. **Import JSON project** restores these
-conversations and selects the exported active session. Memory reset and compaction
-do not erase the saved transcript. Older files-only project exports still import.
+saves the full conversation transcript, current model memory, frozen instructions
+and project workspace path (`workspace`). Use **Import Session** in the Session section
+to restore an exported session. Memory reset and compaction do not erase the saved
+transcript.
 
 ## Run the Node backend locally
 

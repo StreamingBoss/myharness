@@ -41,6 +41,21 @@ test('Worker transport exposes the complete backend session/project/model lifecy
   assert.ok((await collect(client.stream('compact', { session_id: first, use_memory: true }))).some(event => event.type === 'context'));
   await collect(client.stream('compact')); await client.call('reset'); await client.call('stop'); await client.call('configureModel', { mode: 'demo' });
   await client.call('configureModel', { mode: 'demo', url: 'http://localhost', model: 'unused' });
+  // Explicit session creation works even when the selected settings are unchanged.
+  const savedCount = (await backend.listSessions()).length;
+  const savedId = backend.activeSessionRecord().id;
+  await client.call('configureModelAndNewSession', { mode: 'demo' });
+  assert.equal((await backend.listSessions()).length, savedCount + 1);
+  assert.notEqual(backend.activeSessionRecord().id, savedId);
+  assert.equal((await backend.getSession(savedId)).id, savedId);
+  // Changing the settings still creates exactly one session with those settings.
+  await client.call('configureModelAndNewSession', { mode: 'demo', contextLength: 5000 });
+  assert.equal((await backend.listSessions()).length, savedCount + 2);
+  assert.equal(backend.activeSessionRecord().context_length, 5000);
+  const validId = backend.activeSessionRecord().id;
+  await assert.rejects(client.call('configureModelAndNewSession', { mode: 'demo', contextLength: -1 }));
+  assert.equal(backend.activeSessionRecord().id, validId);
+  assert.equal((await backend.listSessions()).length, savedCount + 2);
   await assert.rejects(client.call('listModels', { provider: 'demo' }), /real model/);
   const listing = t.mock.method(backend, 'listModels', async (value: { provider?: string }) => { assert.equal(value.provider, 'ollama'); return [{ id: 'installed', label: 'Installed' }]; });
   assert.deepEqual(await client.call('listModels', { provider: 'ollama' }), [{ id: 'installed', label: 'Installed' }]); listing.mock.restore();

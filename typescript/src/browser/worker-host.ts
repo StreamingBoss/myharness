@@ -59,7 +59,8 @@ export class WorkerHost {
         case 'exportProject': value = await backend.exportProject(); break;
         case 'attachLocalFolder': value = await backend.attachLocalFolder(payload.handle as LocalDirectory); break;
         case 'listModels': value = await backend.listModels(modelConfiguration(payload)); break;
-        case 'configureModel': await backend.configureModel(modelConfiguration(payload)); value = { ok: true }; break;
+        case 'configureModel':
+        case 'configureModelAndNewSession': await backend.configureModel(modelConfiguration(payload), action === 'configureModelAndNewSession'); value = { ok: true }; break;
         case 'forgetApiKey': backend.forgetApiKey(); value = { ok: true }; break;
         case 'mcp': value = backend.mcpStatus(); break;
         case 'addMcp': value = await backend.addMcp(payload); break;

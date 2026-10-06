@@ -1,5 +1,32 @@
 # UI and backend separation
 
+Goal orchestration belongs to `Harness`; `Execution` owns each independent attempt's
+monotonic deadline, cancellation, event sequence and settlement. `startGoal` and
+`spawnAgent` launch backend tasks immediately. Consuming or disconnecting observers
+does not advance or stop those tasks. The UI sends explicit actions and polls state.
+Headless consumers can replay/subscribe to events directly; HTTP and Worker clients
+can fetch state and sequenced run events through `transport.ts`.
+
+Children reuse runtime/model capabilities with separate session memory. Cloud child
+routes resolve through the provider registry; restarting resolves current credentials.
+Global settings are application-owned and excluded from session/project authority.
+Deadline cancellation denies approvals and aborts model/command adapters. Effectful
+child work is serialized across the family; file writes recheck the approved proposal
+against current contents. Queued effects can cancel before acquiring the effect slot.
+
+Goal records and child catalogs extend the version-1 session envelope optionally.
+Active work is recovered as stopped, never automatically rerun. Restart preserves
+child history but uses current host grants; imported sessions discard child authority.
+Synthetic continuation and settlement messages are visibly tagged as harness-originated.
+
+Master configuration uses shared backend tools: `get_orchestration` exposes host
+limits/permissions and `configure_goal` adopts or adjusts a current user task.
+The first turn is counted and handed to the backend driver after its iterator
+finishes; usage starts at the first request, without replay. Children cannot configure
+master goals or increase authority. Host ceilings are separate from exported session
+settings. The read-only Under the hood inspector renders state and forwards Stop
+and approval responses; it never advances execution.
+
 ## Contract
 
 This project teaches what a harness adds to a model. The UI makes those behaviors

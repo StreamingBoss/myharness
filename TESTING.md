@@ -1,5 +1,15 @@
 # Verification
 
+`orchestration.test.ts` tests independent headless execution, child isolation,
+elapsed-time timeout, retained partial output, restart history, global disabling,
+inherited approvals, shared request limits, explicit resume, HTTP/Worker routing,
+cloud child routes and current credentials. Injectable clocks keep deadline tests
+deterministic. `master-config.test.ts` checks host ceilings, adoption without replay,
+request accounting, deadline changes, cancellation, headless approvals and both runtimes.
+`orchestration-ui.test.ts` checks hidden read-only inspection, stable child cards,
+partial results, Stop, restoration and approvals/errors while closed. Cloud
+child checks use native response fixtures; live authenticated inference remains unverified.
+
 The maintained backend is TypeScript. Checks use scripted models, temporary
 workspaces/settings/sessions and ephemeral localhost ports. They do not send
 requests to Ollama or the owner's port-5000 service.

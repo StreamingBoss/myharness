@@ -6,6 +6,17 @@ adds to an LLM: make behavior visible and explain it. Public setup is in
 
 ## Maintained implementation
 
+- `typescript/src/execution.ts` and `Harness` orchestration: backend-driven goal rounds,
+  independent child attempts, elapsed-time deadlines, shared request budgets and effects.
+  Global `allowSubagents` defaults off; `MYHARNESS_ALLOW_SUBAGENTS` locks the Node host
+  override. Child grants/routes persist outside session authority. Restarts keep child
+  memory and resolve current credentials; timeouts retain partial output/history.
+- `web/static/orchestration.js`: hidden read-only goals/subagent inspector, live counts,
+  results, Stop and approvals. The master selects settings with `get_orchestration`
+  and `configure_goal`; host ceilings live in `orchestration-limits.ts`. Ordinary
+  user turns can be adopted without replay, with request usage retained from the
+  first request. UI visibility never controls execution or grants permissions.
+
 - `typescript/src/core.ts`: strict, transport-free agent loop and runtime contract.
 - `typescript/src/harness.ts`: shared session backend with tools, approvals,
   cancellation, catalogs, snapshots, state inspection and context management.
@@ -38,6 +49,10 @@ Startup restores the latest session. Snapshots freeze the prompt, agent and skil
 project instructions refresh on resume, compaction and project change. Reset keeps
 the transcript. Session saves are atomic and serialized within one backend process.
 Use distinct session directories across concurrently running processes.
+
+Browser **New Session** applies the selected model configuration and always creates
+exactly one empty session, including when settings are unchanged. Its Worker action
+is `configureModelAndNewSession`; backend `configureModel(config, true)` owns this flow.
 
 Browser saves are per origin/profile in IndexedDB. Virtual projects are text
 copies; direct local-folder mode stores native directory handles and writes

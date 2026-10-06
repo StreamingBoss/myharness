@@ -27,17 +27,17 @@ export function positiveLimit(value: unknown, name: string): number {
 export class Execution {
   readonly snapshot: ExecutionSnapshot;
   readonly events: CoreEvent[] = [];
-  readonly deadline: number;
+  deadline: number;
   done: Promise<void> = Promise.resolve();
   private readonly waiters = new Set<() => void>();
   private timer: unknown;
   private finished = false;
   private cause: StopCause | undefined;
   constructor(agentId: string, timeoutMs: number, private readonly cancelWork: () => void,
-    private readonly publish: (event: CoreEvent) => void, private readonly clock: ExecutionClock = executionClock) {
+    private readonly publish: (event: CoreEvent) => void, private readonly clock: ExecutionClock = executionClock, start?: { monotonic: number; wall: number }) {
     positiveLimit(timeoutMs, 'timeoutMs');
-    this.deadline = clock.now() + timeoutMs;
-    const started = Date.now();
+    this.deadline = (start?.monotonic ?? clock.now()) + timeoutMs;
+    const started = start?.wall ?? Date.now();
     this.snapshot = { id: crypto.randomUUID(), agent_id: agentId, status: 'running', timeout_ms: timeoutMs,
       started_at: new Date(started).toISOString(), deadline_at: new Date(started + timeoutMs).toISOString(), result: '', model_requests: 0 };
   }
@@ -52,7 +52,7 @@ export class Execution {
   }
   /** Close admission synchronously; completion waits for every owned operation to drain. */
   stop(cause: StopCause): void {
-    if (this.finished || this.cause) return;
+    if (this.finished || this.cause || this.snapshot.ended_at) return;
     this.cause = cause; this.snapshot.status = 'stopping'; this.cancelWork();
     this.emit({ type: 'run_status', status: 'stopping', cause });
   }
@@ -60,8 +60,18 @@ export class Execution {
     if (this.remainingMs <= 0) this.stop('timed-out');
     if (this.stopped) throw new Error('Execution stopped.');
   }
-  start(work: () => Promise<void>, settle: () => Promise<void>): void {
-    this.timer = this.clock.set(() => this.stop('timed-out'), this.snapshot.timeout_ms);
+  constrainTimeout(timeoutMs: number): void {
+    positiveLimit(timeoutMs, 'timeoutMs');
+    if (timeoutMs > this.snapshot.timeout_ms) throw new Error('A running deadline cannot be extended.');
+    this.deadline -= this.snapshot.timeout_ms - timeoutMs;
+    this.snapshot.timeout_ms = timeoutMs;
+    this.snapshot.deadline_at = new Date(Date.parse(this.snapshot.started_at) + timeoutMs).toISOString();
+    this.clock.clear(this.timer);
+    this.timer = this.clock.set(() => this.stop('timed-out'), this.remainingMs);
+    this.check();
+  }
+  start(work: () => Promise<void>, settle: () => Promise<void>, checkpoint?: () => Promise<void>): void {
+    this.timer = this.clock.set(() => this.stop('timed-out'), this.remainingMs);
     this.done = (async () => {
       try { await work(); }
       catch (error) {
@@ -73,8 +83,12 @@ export class Execution {
         this.snapshot.ended_at = new Date().toISOString();
         try { await settle(); }
         catch (error) { this.snapshot.status = 'error'; this.snapshot.reason = `Checkpoint failed: ${String(error instanceof Error ? error.message : error)}`; }
+        this.emit({ type: 'run_ended', run: structuredClone(this.snapshot) });
+        try { await checkpoint?.(); }
+        catch (error) { this.snapshot.status = 'error'; this.snapshot.reason = `Final checkpoint failed: ${String(error instanceof Error ? error.message : error)}`; this.emit({ type: 'run_checkpoint_error', run: structuredClone(this.snapshot) }); }
         this.finished = true;
-        this.emit({ type: 'run_ended', run: this.inspect() });
+        for (const wake of this.waiters) wake();
+        this.waiters.clear();
       }
     })();
   }

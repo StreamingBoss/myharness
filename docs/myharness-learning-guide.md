@@ -78,7 +78,7 @@ Inference means running the model to generate an answer. The browser edition run
 
 1. Choose **Local Ollama** or an available cloud provider in the toolbar.
 2. For Ollama, provide the server URL and select an installed model. For a cloud provider, enter your own API key and select an available model.
-3. Click **Start new session with this model**. Send a short greeting and check that a response arrives.
+3. Click **New Session**. Send a short greeting and check that a response arrives.
 
 ### Choose an execution environment
 
@@ -223,7 +223,7 @@ A tool definition describes an operation and its arguments. The model can reques
 
 ### Try it in MyHarness
 
-1. Open a small scratch project using **Open local folder…**, or use **Import folder copy** / **Import JSON project** for a virtual project.
+1. Open a small scratch project using **Open local folder…**, or use **Import folder copy** for a virtual project.
 2. Enable `pwd`, `list_files`, and `read_file`. Ask: `List the project files, then read README.md if it exists.`
 3. In Internals, follow the tool name and arguments, execution result, and subsequent SENT block containing that result. If no call occurs, record that too.
 
@@ -387,7 +387,7 @@ Compaction asks the selected model to summarize retained memory. Reset clears re
 
 1. Create a short conversation with a goal, a constraint, and a decision. Inspect retained memory in Explore.
 2. Use the compaction control and inspect its separate model request and resulting summary. Compare the original details with the summary. Ineffective or interrupted summaries leave memory unchanged.
-3. Use **Export session** to save the transcript, current model memory, and instruction snapshot. Use **Export project** for text files and project sessions; **Import JSON project** restores a project export.
+3. Use **Export session** to save the transcript, current model memory, and instruction snapshot. The session JSON includes the project workspace path; project files stay in the workspace.
 
 ### What are you preserving?
 
@@ -396,7 +396,6 @@ Compaction asks the selected model to summarize retained memory. Reset clears re
 | Compact | Replace retained memory with a useful summary when successful. |
 | Reset memory | Clear what the harness retains for later calls. |
 | Export session | Save transcript, retained memory and instruction snapshot; no project files. |
-| Export project | Save text files plus the project’s sessions. |
 
 **What you learn**
 

@@ -3,6 +3,9 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { BrowserHarness } from '../src/browser/harness.js';
+import { fixture } from './browser-fixture.js';
+import { ORCHESTRATION_TOOLS } from '../src/tools.js';
 import { NodeHarness, type ModelPort, type TurnAction } from '../src/node/harness.js';
 import { planItems, planText } from '../src/plan.js';
 import { STOPPED_RESULT, type CoreEvent, type ModelRequest, type ToolResult } from '../src/core.js';
@@ -34,6 +37,29 @@ async function project(t: { after(fn: () => unknown): void }, options: Record<st
   return { dir, model, harness };
 }
 const exists = (file: string) => access(file).then(() => true, () => false);
+
+test('the maintained coder agent recognizes delegation tools in both runtimes and respects host permissions', async t => {
+  const coder = await readFile(path.resolve('agents/coder.md'), 'utf8');
+  const node = await project(t, { allowSubagents: true });
+  const browserModel = new Model(), browser = await fixture(t, browserModel);
+  const browserBackend = await BrowserHarness.open({ ...browser.options, allowSubagents: true,
+    library: { ...browser.options.library, agents: { coder } } });
+  t.after(() => browserBackend.close());
+  const agentNames = ORCHESTRATION_TOOLS.map(tool => tool.function.name);
+  for (const [backend, model] of [[node.harness, node.model], [browserBackend, browserModel]] as const) {
+    const tools = backend.agentList().find(agent => agent.name === 'coder')!.tools as string[];
+    for (const name of agentNames) assert.ok(tools.includes(name), name);
+    for await (const _event of backend.submit(turn(tools, { agent: 'coder' }))) {}
+    const offered = model.requests.at(-1)!.tools!.map(tool => tool.function.name);
+    for (const name of agentNames) assert.ok(offered.includes(name), name);
+    assert.ok(backend.activeSessionRecord().snapshots.agent!.value!.tools.includes('spawn_agent'));
+    await backend.updateHarnessSettings({ allowSubagents: false });
+    const restricted = backend.agentList().find(agent => agent.name === 'coder')!.tools as string[];
+    assert.ok(agentNames.every(name => !restricted.includes(name)));
+    for await (const _event of backend.submit(turn(tools, { agent: 'coder' }))) {}
+    assert.ok(model.requests.at(-1)!.tools!.every(tool => !agentNames.includes(tool.function.name)));
+  }
+});
 const action = (events: CoreEvent[]) => events.find(event => event.type === 'action') as CoreEvent;
 
 test('update_plan checks the list and returns it as a checklist, with no approval and no effect', async t => {

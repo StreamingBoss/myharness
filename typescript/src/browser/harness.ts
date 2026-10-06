@@ -1,3 +1,4 @@
+import type { OrchestrationLimits } from '../orchestration-limits.js';
 import { CloudAdapter } from '../cloud.js';
 import type { ModelOption } from '../model.js';
 import { ProviderRouter, modelConfiguration, providerName, type ModelConfiguration } from '../providers.js';
@@ -21,18 +22,20 @@ export interface BrowserOptions {
   modelPort?: ModelPort; model?: string; contextLength?: number; approvalTimeoutMs?: number;
   mcpTimeouts?: { connectTimeoutMs?: number; probeTimeoutMs?: number };
   allowSubagents?: boolean;
+  orchestrationLimits?: Partial<OrchestrationLimits>;
   childTools?: string[];
   childRoutes?: { provider: import('../model.js').Provider; model: string }[];
 }
 /** MCP configuration with header values; header values live only in Worker memory. */
 interface McpConfigHolder { value?: unknown }
+type ResolvedBrowserOptions = BrowserOptions & Required<Pick<BrowserOptions, 'allowSubagents' | 'childTools' | 'childRoutes'>>;
 
 /** Complete browser backend. It runs directly or in a Worker, without a page. */
 export class BrowserHarness extends Harness {
-  private constructor(private readonly browser: BrowserOptions, private readonly projects: Map<string, StoredProject>, workspace: string, private readonly router: ProviderRouter, private readonly mcpConfig: McpConfigHolder = {}) {
-    super({ workspace, model: browser.model ?? 'qwen3:8b', contextLength: browser.contextLength ?? 8192,
+  private constructor(private readonly browser: ResolvedBrowserOptions, private readonly projects: Map<string, StoredProject>, workspace: string, private readonly router: ProviderRouter, private readonly mcpConfig: McpConfigHolder = {}) {
+    super({ ...(browser.orchestrationLimits ? { orchestrationLimits: browser.orchestrationLimits } : {}), workspace, model: browser.model ?? 'qwen3:8b', contextLength: browser.contextLength ?? 8192,
       ...(browser.modelPort ? { ollama: browser.modelPort } : { modelAdapter: router }), sessions: new BrowserSessions(browser.storage),
-      ...(browser.approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs: browser.approvalTimeoutMs }), ...(browser.mcpTimeouts ? { mcpTimeouts: browser.mcpTimeouts } : {}), ...(browser.allowSubagents ? { allowSubagents: true } : {}), ...(browser.childTools ? { childTools: browser.childTools } : {}), ...(browser.childRoutes ? { childRoutes: browser.childRoutes } : {}), saveHarnessSettings: async settings => { await browser.storage.put('settings', 'harness-settings', settings); }, runtime: {
+      ...(browser.approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs: browser.approvalTimeoutMs }), ...(browser.mcpTimeouts ? { mcpTimeouts: browser.mcpTimeouts } : {}), allowSubagents: browser.allowSubagents, childTools: browser.childTools, childRoutes: browser.childRoutes, saveHarnessSettings: async settings => { await browser.storage.put('settings', 'harness-settings', settings); }, runtime: {
         name: 'browser', supportedTools: TOOL_NAMES.filter(name => name !== 'run_command' && name !== 'web_search'),
         unavailable: { run_command: 'a browser page cannot start processes', web_search: 'DuckDuckGo does not accept requests from web pages',
           ...Object.fromEntries(GIT_TOOLS.map(name => [name, 'git tools need a repository: open a local folder that contains a .git directory (virtual projects have none)'])) },

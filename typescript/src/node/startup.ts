@@ -30,6 +30,7 @@ export async function loadHarness(env: NodeJS.ProcessEnv = process.env): Promise
   const configuredAllow = env.MYHARNESS_ALLOW_SUBAGENTS === undefined ? savedAllow : env.MYHARNESS_ALLOW_SUBAGENTS === 'true';
   if (env.MYHARNESS_ALLOW_SUBAGENTS !== undefined && !['true', 'false'].includes(env.MYHARNESS_ALLOW_SUBAGENTS)) throw new Error('MYHARNESS_ALLOW_SUBAGENTS must be true or false');
   const harness = new NodeHarness({ workspace, model, contextLength, modelAdapter: router, allowSubagents: configuredAllow,
+    ...(env.MYHARNESS_ORCHESTRATION_LIMITS === undefined ? {} : { orchestrationLimits: JSON.parse(env.MYHARNESS_ORCHESTRATION_LIMITS) }),
     settingsLocked: env.MYHARNESS_ALLOW_SUBAGENTS !== undefined, childTools: savedSettings.childTools ?? [], childRoutes: savedSettings.childRoutes ?? [],
     ...(provider !== 'ollama' ? { provider } : {}), ...(maxOutput === undefined ? {} : { maxOutputTokens: maxOutput }),
     projectRoot: root, settingsFile, mcpConfigFile: path.resolve(env.MYHARNESS_MCP ?? path.join(root, 'mcp.json')), sessions: new SessionStore(env.MYHARNESS_SESSIONS ?? path.join(root, 'sessions')) });

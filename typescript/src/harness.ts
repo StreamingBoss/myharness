@@ -13,6 +13,7 @@ import { GOAL_TOOLS, GIT_TOOLS, ORCHESTRATION_TOOLS, TOOLS, TOOL_NAMES } from '.
 import { branchName, cap, commitPreview, fileDiff, formatBranches, formatLog, formatStatus, type GitPort } from './git.js';
 import { planText } from './plan.js';
 import { unavailable, savedModelRequest, type InspectionPort, type TokenInspection } from './tokenization.js';
+import { orchestrationLimits, boundedLimit, type OrchestrationLimits } from './orchestration-limits.js';
 import { McpManager, type McpToolCall } from './mcp/manager.js';
 
 export interface TurnAction {
@@ -38,6 +39,7 @@ export interface HarnessOptions {
   childTools?: string[];
   childRoutes?: { provider: Provider; model: string }[];
   maxConcurrentChildren?: number;
+  orchestrationLimits?: Partial<OrchestrationLimits>;
 }
 export class BackendError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -48,10 +50,9 @@ interface ToolAction { name: string; title: string; detail: string; what: string
 type ManagedChild = { summary: ChildSummary; harness?: Harness; queue: string[]; execution?: Execution; restarting?: boolean };
 interface Family {
   allowed: boolean; childTools: string[]; childRoutes: { provider: Provider; model: string }[];
-  settingsQueue: Promise<void>; settingsRevision?: number; effects: Promise<void>; budget?: RequestBudget; master?: Execution;
+  settingsQueue: Promise<void>; settingsRevision?: number; effects: Promise<void>; budget?: RequestBudget; master?: Execution; owner?: Harness;
 }
 const CHILD_READ_TOOLS = ['pwd', 'list_files', 'read_file', 'find_files', 'search', 'get_current_time', 'web_search', 'use_skill'];
-const DEFAULT_CHILD_TIMEOUT_MS = 5 * 60_000;
 
 export interface SpawnAgentInput { task: string; timeoutMs?: number; tools?: string[]; agent?: string; prompt?: string; provider?: Provider; model?: string; }
 export interface GoalInput { objective: string; criteria?: string | undefined; maxRounds?: number | undefined; timeoutMs?: number; maxRequests?: number; turn?: TurnAction; }
@@ -84,10 +85,13 @@ export class Harness implements TurnHost {
   private closing = false;
   private source: 'user' | 'harness' = 'user';
   private closed = false;
+  private readonly limits: OrchestrationLimits;
+  private task: { action: TurnAction; started: number; wall: number; done: Promise<TurnOutcome>; finish: (outcome: TurnOutcome) => void } | undefined;
   private readonly runs = new Map<string, Execution>();
 
   constructor(options: HarnessOptions, parentId?: string, family?: Family) {
     this.options = options;
+    this.limits = orchestrationLimits({ ...(options.masterTimeoutMs === undefined ? {} : { masterTimeoutMs: options.masterTimeoutMs }), ...(options.maxConcurrentChildren === undefined ? {} : { maxConcurrentChildren: options.maxConcurrentChildren }), ...options.orchestrationLimits });
     this.parentId = parentId;
     this.family = family ?? { allowed: options.allowSubagents === true, childTools: options.childTools ?? [], childRoutes: options.childRoutes ?? [], settingsQueue: Promise.resolve(), effects: Promise.resolve() };
     this.workspace = options.runtime.workspace(options.workspace);
@@ -104,9 +108,51 @@ export class Harness implements TurnHost {
   }
 
   private get allowSubagents(): boolean { return this.family.allowed; }
+  private inheritedApproval(): boolean { return this.running ? this.currentAskApproval : this.session.settings.ask_approval; }
+  private delegationTools(): ToolDefinition[] {
+    if (this.parentId || this.closing) return [];
+    if (this.allowSubagents) return ORCHESTRATION_TOOLS;
+    return this.children.size ? ORCHESTRATION_TOOLS.filter(tool => ['list_agents', 'get_agent_result', 'wait_agent', 'interrupt_agent'].includes(tool.function.name)) : [];
+  }
   /** Global settings are trusted application state, never session or project authority. */
   harnessSettings() { return { allowSubagents: this.allowSubagents, locked: this.options.settingsLocked === true,
     childTools: [...this.family.childTools], childRoutes: structuredClone(this.family.childRoutes) }; }
+  getOrchestration() {
+    return { limits: { ...this.limits }, permissions: this.harnessSettings(),
+      childTools: CHILD_READ_TOOLS.concat(this.family.childTools).filter(name => this.availableTools().includes(name)),
+      inheritedModel: { provider: this.state.provider ?? 'ollama', model: this.state.model }, goal: this.getGoal() ?? null };
+  }
+  async configureGoal(input: GoalInput): Promise<GoalRecord> {
+    if (this.parentId || !this.running || this.state.stopped || this.closing) throw new BackendError('Only the running master can configure a goal.', 403);
+    const action = this.task?.action ?? this.defaultTurn(input.objective);
+    if (!action.useMemory) throw new BackendError('Autonomous goals require harness memory.');
+    if (typeof input.objective !== 'string' || !input.objective.trim()) throw new BackendError('A goal objective is required.');
+    const current = this.goalArmed ? this.getGoal()! : undefined;
+    const settings = {
+      timeout_ms: boundedLimit(input.timeoutMs ?? current?.timeout_ms ?? this.limits.masterTimeoutMs, this.limits.masterTimeoutMs, 'timeoutMs'),
+      max_rounds: boundedLimit(input.maxRounds ?? current?.max_rounds ?? this.limits.maxRounds, this.limits.maxRounds, 'maxRounds'),
+      max_requests: boundedLimit(input.maxRequests ?? current?.max_requests ?? this.limits.maxRequests, this.limits.maxRequests, 'maxRequests'),
+    };
+    if (current) {
+      if (current.phase !== 'active') throw new BackendError('The goal has ended.');
+      if (settings.max_rounds < current.rounds || settings.max_requests < this.family.budget!.used) throw new BackendError('Limits cannot be below work already consumed.');
+      if (settings.timeout_ms > current.timeout_ms!) throw new BackendError('A running goal deadline cannot be extended.');
+      this.execution!.constrainTimeout(settings.timeout_ms);
+      Object.assign(this.session.orchestration!.goal!, settings, { objective: input.objective.trim(), criteria: input.criteria ?? current.criteria, revision: current.revision + 1, deadline_at: this.execution!.snapshot.deadline_at });
+      this.family.budget!.max = settings.max_requests;
+    } else {
+      const task = this.task!;
+      const elapsed = (this.options.clock ?? executionClock).now() - task.started;
+      if (elapsed >= settings.timeout_ms) throw new BackendError('The requested deadline has already elapsed.');
+      if (settings.max_requests < this.family.budget!.used) throw new BackendError('Limits cannot be below work already consumed.');
+      this.session.orchestration = { ...this.session.orchestration, goal: { id: crypto.randomUUID(), revision: 1, objective: input.objective.trim(), criteria: input.criteria?.trim() || 'Verify the requested result with available tools.', phase: 'active', rounds: 1, model_requests: this.family.budget!.used, ...settings } };
+      const run = new Execution(this.session.id, settings.timeout_ms, () => this.cancelWork(), event => this.session.events.push(event), this.options.clock, { monotonic: task.started, wall: task.wall });
+      this.launchGoal(action, { run, done: task.done });
+    }
+    this.recordEvent({ type: 'goal', action: 'configured', goal: this.getGoal() });
+    await this.saveSession();
+    return this.getGoal()!;
+  }
   getHarnessSettings() { return this.harnessSettings(); }
   async updateHarnessSettings(value: { allowSubagents?: unknown; childTools?: unknown; childRoutes?: unknown }) {
     if (this.options.settingsLocked || this.parentId) throw new BackendError('Subagent settings are locked by the host.', 403);
@@ -136,7 +182,7 @@ export class Harness implements TurnHost {
     if (this.getGoal() && this.getGoal()!.phase !== 'complete') throw new BackendError('Finish the current goal or resume it before creating another.', 409);
     if (typeof input.objective !== 'string' || !input.objective.trim()) throw new BackendError('A goal objective is required.');
     const goal: GoalRecord = { id: crypto.randomUUID(), revision: 1, objective: input.objective.trim(), criteria: input.criteria?.trim() || 'Verify the requested result with available tools.', phase: 'active', rounds: 0,
-      max_rounds: positiveLimit(input.maxRounds ?? 10, 'maxRounds'), timeout_ms: positiveLimit(input.timeoutMs ?? this.options.masterTimeoutMs ?? 30 * 60_000, 'timeoutMs'), model_requests: 0, max_requests: positiveLimit(input.maxRequests ?? 200, 'maxRequests') };
+      max_rounds: boundedLimit(input.maxRounds ?? this.limits.maxRounds, this.limits.maxRounds, 'maxRounds'), timeout_ms: boundedLimit(input.timeoutMs ?? this.limits.masterTimeoutMs, this.limits.masterTimeoutMs, 'timeoutMs'), model_requests: 0, max_requests: boundedLimit(input.maxRequests ?? this.limits.maxRequests, this.limits.maxRequests, 'maxRequests') };
     const action = input.turn ?? this.defaultTurn(goal.objective);
     if (!action.useMemory) throw new BackendError('Autonomous goals require harness memory.');
     this.session.orchestration = { ...(this.session.orchestration ?? {}), goal };
@@ -167,7 +213,7 @@ export class Harness implements TurnHost {
   async resumeGoal(revision: number, timeoutMs?: number): Promise<GoalRecord> {
     this.idle('resuming a goal');
     if (timeoutMs !== undefined) {
-      positiveLimit(timeoutMs, 'timeoutMs'); const goal = this.getGoal();
+      boundedLimit(timeoutMs, this.limits.masterTimeoutMs, 'timeoutMs'); const goal = this.getGoal();
       if (!goal || goal.revision !== revision) throw new BackendError('The goal has changed; read it again before updating.', 409);
       this.session.orchestration!.goal!.timeout_ms = timeoutMs;
     }
@@ -178,7 +224,7 @@ export class Harness implements TurnHost {
     if (!id) return this.execution?.inspect();
     const live = this.runs.get(id); if (live) return live.inspect();
     const saved = [...this.session.events].reverse().find(event => event.type === 'run_ended' && (event.run as ExecutionSnapshot).id === id)?.run as ExecutionSnapshot | undefined;
-    const child = this.listAgents().flatMap(agent => [agent.run, ...(agent.attempts ?? [])]).find(run => run?.id === id);
+    const child = this.listAgents().flatMap(agent => [agent.run, ...agent.attempts!]).find(run => run?.id === id);
     const result = saved ?? child; if (!result) throw new BackendError('Run not found.', 404); return structuredClone(result);
   }
   async *subscribeRun(id: string, after = -1, signal?: AbortSignal): AsyncGenerator<CoreEvent> {
@@ -190,26 +236,30 @@ export class Harness implements TurnHost {
     if (!Number.isInteger(after) || after < -1) throw new BackendError('after must be an integer at least -1.');
     this.inspectRun(id);
     const live = this.runs.get(id); if (live) return structuredClone(live.events.slice(after + 1));
-    return structuredClone(this.session.events.map(frame => frame.type === 'agent_event' ? frame.event as CoreEvent : frame).filter(frame => frame.run_id === id && Number(frame.sequence) > after));
+    return structuredClone(this.session.events.map(frame => frame.type === 'agent_event' ? frame.event as CoreEvent : frame as CoreEvent).filter(frame => frame.run_id === id && Number(frame.sequence) > after));
   }
   async cancelRun(): Promise<void> { this.stop(); await this.execution?.done; await this.drainChildren('cancelled'); }
-  private launchGoal(action: TurnAction): void {
+  private launchGoal(action: TurnAction, adopted?: { run: Execution; done: Promise<TurnOutcome> }): void {
     this.goalArmed = true; this.closed = false;
     const goal = this.getGoal()!;
     this.family.budget = { used: goal.model_requests ?? 0, max: goal.max_requests ?? 200 };
-    const run = new Execution(this.session.id, goal.timeout_ms ?? 30 * 60_000, () => this.cancelWork(), event => this.session.events.push(event), this.options.clock);
+    this.family.owner = this;
+    const run = adopted?.run ?? new Execution(this.session.id, goal.timeout_ms ?? 30 * 60_000, () => this.cancelWork(), event => this.session.events.push(event), this.options.clock);
     this.execution = run; this.family.master = run; this.runs.set(run.snapshot.id, run);
     this.session.orchestration!.goal!.deadline_at = run.snapshot.deadline_at;
     run.emit({ type: 'goal', action: 'started', goal: this.getGoal() });
     run.start(async () => {
       let message = action.message;
+      let initial = adopted?.done;
       while (this.goalArmed && this.getGoal()!.phase === 'active') {
         run.check(); await this.saveSession(); run.check();
         this.managedTurn = true;
         let outcome: TurnOutcome;
-        try { outcome = await this.consumeTurn({ ...action, message }, run); } finally { this.managedTurn = false; }
+        try { outcome = initial ? await initial : await this.consumeTurn({ ...action, message }, run); initial = undefined; } finally { this.managedTurn = false; }
         if (outcome !== 'completed') throw new Error(`Master turn ended: ${outcome}.`);
-        await this.waitChildren(); run.check();
+        if (this.getGoal()!.phase === 'active') await this.waitChildren();
+        else await this.drainChildren('cancelled');
+        run.check();
         if (this.getGoal()!.phase !== 'active') break;
         if (this.humanQueue.length) { message = this.humanQueue.shift()!; this.source = 'user'; continue; }
         const current = this.getGoal()!;
@@ -231,8 +281,7 @@ export class Harness implements TurnHost {
       if (current.phase === 'active') { current.phase = run.snapshot.status === 'cancelled' ? 'paused' : 'blocked'; current.revision++; current.blocker = run.snapshot.reason ?? `Execution ended: ${run.snapshot.status}.`; }
       current.model_requests = this.family.budget!.used; this.session.orchestration!.goal = current;
       await this.saveSession();
-    });
-    run.done = run.done.then(() => this.saveSession());
+    }, () => this.saveSession());
   }
   private async consumeTurn(action: TurnAction, run: Execution): Promise<TurnOutcome> {
     const iterator = this.submit(action); let next = await iterator.next();
@@ -373,7 +422,7 @@ export class Harness implements TurnHost {
   checkSession(id?: string): void {
     if (id && id !== this.session.id) throw new BackendError('This browser tab is no longer on the active session.', 409);
   }
-  async configureModel(raw: ModelConfiguration): Promise<void> {
+  async configureModel(raw: ModelConfiguration, startNewSession = false): Promise<void> {
     this.idle('changing models');
     const value = modelConfiguration(raw as Record<string, unknown>);
     const provider = providerName((value.provider ?? value.mode)!);
@@ -402,7 +451,7 @@ export class Harness implements TurnHost {
       router.selected = provider; this.state.provider = provider; this.state.model = model; this.state.contextLength = context;
       if (maxOutput !== undefined) this.state.maxOutputTokens = maxOutput; else delete this.state.maxOutputTokens;
     } finally { this.running = false; this.controller.abort(); }
-    if (selectionChanged) await this.newSession(); else { this.session.provider = provider; await this.saveSession(); }
+    if (selectionChanged || startNewSession) await this.newSession(); else { this.session.provider = provider; await this.saveSession(); }
   }
   protected async saveModelEndpoint(_url: string): Promise<void> {}
   forgetApiKey(): void {
@@ -432,13 +481,13 @@ export class Harness implements TurnHost {
     return { path: folder, agents: this.agentList() };
   }
   agentList(): Record<string, unknown>[] {
-    const available = this.availableTools();
+    const available = [...this.availableTools(), ...this.delegationTools().map(tool => tool.function.name)];
     return Object.entries(this.catalog.agents()).map(([name, agent]) => ({ name, source: agent.source, tools: agent.tools.filter(tool => available.includes(tool)) }));
   }
   async bootstrap(): Promise<Record<string, unknown>> {
     const available = this.availableTools();
     return { provider: this.modelProvider() ?? (this.state.model === 'scripted-demo' ? 'demo' : 'ollama'), ready: this.adapter.ready(this.state.provider ?? 'ollama'), max_output_tokens: this.state.maxOutputTokens, working_context_limit: this.state.contextLength, model: this.state.model, context_length: this.state.contextLength, last_prompt_tokens: this.state.lastPromptTokens,
-      memory: this.memoryText(), runtime: this.options.runtime.name, capabilities: this.options.runtime.capabilities, harness_settings: this.harnessSettings(), children: this.listAgents(), unavailable_tools: this.unavailableTools(), tools: [...TOOLS.filter(tool => available.includes(tool.function.name)).map(tool => ({ name: tool.function.name, description: tool.function.description })), ...(this.allowSubagents && !this.parentId ? ORCHESTRATION_TOOLS.map(tool => ({ name: tool.function.name, description: tool.function.description, supported: true })) : []), ...this.mcp.toolList()], mcp: this.mcp.status(),
+      memory: this.memoryText(), runtime: this.options.runtime.name, capabilities: this.options.runtime.capabilities, harness_settings: this.harnessSettings(), orchestration: this.getOrchestration(), children: this.listAgents(), unavailable_tools: this.unavailableTools(), tools: [...TOOLS.filter(tool => available.includes(tool.function.name)).map(tool => ({ name: tool.function.name, description: tool.function.description })), ...(this.allowSubagents && !this.parentId ? ORCHESTRATION_TOOLS.map(tool => ({ name: tool.function.name, description: tool.function.description, supported: true })) : []), ...this.mcp.toolList()], mcp: this.mcp.status(),
       agents: this.agentList(), prompts: Object.entries(this.catalog.prompts()).map(([name, text]) => ({ name, tokens: Math.floor(characters(text) / 4), fits: Math.floor(characters(text) / 4) < this.state.contextLength })),
       project: this.state.workspace, locked: this.state.memory.length ? this.session.setup : null, session: this.activeSessionRecord(), sessions: (await this.listSessions()).map(sessionSummary) };
   }
@@ -451,6 +500,15 @@ export class Harness implements TurnHost {
     if (!this.adapter.ready(this.state.provider ?? (this.state.model === 'scripted-demo' ? 'demo' : 'ollama'))) throw new BackendError('Enter the API key for this session provider before continuing.');
     this.running = true; this.state.stopped = false; this.controller = new AbortController();
     this.currentAskApproval = action.askApproval;
+    const ordinary = !this.parentId && !this.managedTurn;
+    if (ordinary) {
+      this.execution = undefined;
+      let finish!: (outcome: TurnOutcome) => void;
+      const done = new Promise<TurnOutcome>(resolve => { finish = resolve; });
+      this.task = { action: structuredClone(action), started: (this.options.clock ?? executionClock).now(), wall: Date.now(), done, finish };
+      this.family.budget = { used: 0, max: this.limits.maxRequests }; this.family.owner = this;
+    }
+    let failureOutcome: TurnOutcome = 'error';
     try {
       await this.workspace.refresh();
       let message = action.message, manualSkill = '', prompt: CoreEvent | undefined;
@@ -479,8 +537,8 @@ export class Harness implements TurnHost {
       if (action.useMemory) conversation.push(userMessage);
       const mcpTools = this.mcp.definitions();
       if (this.settlementQueue.length) conversation.push(...this.settlementQueue.splice(0));
-      const includeGoals = !this.parentId && this.goalArmed && !this.closing;
-      const requestedTools = [...action.tools, ...(includeGoals ? GOAL_TOOLS.map(tool => tool.function.name) : []), ...(this.allowSubagents && !this.parentId && !this.closing ? ORCHESTRATION_TOOLS.map(tool => tool.function.name) : [])];
+      const includeGoals = !this.parentId && !this.closing;
+      const requestedTools = [...action.tools, ...(includeGoals ? GOAL_TOOLS.map(tool => tool.function.name) : []), ...this.delegationTools().map(tool => tool.function.name)];
       const available = this.availableTools();
       const enabledTools = requestedTools.filter(name => available.includes(name) || mcpTools.some(tool => tool.function.name === name) || ORCHESTRATION_TOOLS.some(tool => tool.function.name === name) || GOAL_TOOLS.some(tool => tool.function.name === name));
       // A disconnected MCP server keeps its tools selected for when it returns.
@@ -490,24 +548,27 @@ export class Harness implements TurnHost {
       if (prompt) { this.recordEvent(prompt); yield prompt; }
       await this.saveSession();
       const selectedTools = this.closing ? [] : [...TOOLS, ...mcpTools, ...(includeGoals ? GOAL_TOOLS : []),
-        ...(this.allowSubagents && !this.parentId ? ORCHESTRATION_TOOLS : [])].filter(tool => enabledTools.includes(tool.function.name));
+        ...this.delegationTools()].filter(tool => enabledTools.includes(tool.function.name));
       const turn: Turn = { userMessage, conversation, setup, enabledTools: this.closing ? [] : enabledTools, selectedTools, useMemory: action.useMemory, manualSkill };
       const iterator = new HarnessCore(this).runTurn(turn);
       let next = await iterator.next();
       try {
         while (!next.done) { await this.saveSession(); yield next.value; next = await iterator.next(); }
+        failureOutcome = next.value;
         return next.value;
       } finally { await iterator.return('cancelled'); }
     } catch (error) {
       const event = { type: 'stopped', reason: this.stopped() ? 'stopped by the user' : `Turn failed: ${String(error instanceof Error ? error.message : error)}`, memory: this.memoryText() };
-      this.recordEvent(event); yield event; return this.stopped() ? 'cancelled' : 'error';
+      this.recordEvent(event); yield event; failureOutcome = this.stopped() ? 'cancelled' : 'error';
     } finally {
       this.controller.abort();
       this.settleAll('cancelled');
       this.recoverInterrupted();
       this.running = false;
-      await this.saveSession();
+      try { await this.saveSession(); }
+      finally { if (ordinary) { const task = this.task!; this.task = undefined; if (this.goalArmed) this.recordEvent({ type: 'goal_handoff', outcome: failureOutcome }); task.finish(failureOutcome); } }
     }
+    return failureOutcome;
   }
 
   stopped(): boolean { return this.state.stopped; }
@@ -542,11 +603,11 @@ export class Harness implements TurnHost {
   }
   async beforeModelRequest(): Promise<void> {
     this.execution?.check();
-    const budget = this.family.master && !this.family.master.isSettled ? this.family.budget : undefined;
+    const budget = (this.family.owner?.task || (this.family.master && !this.family.master.isSettled)) ? this.family.budget : undefined;
     if (budget) {
-      if (budget.used >= budget.max) { this.family.master!.stop('limit'); throw new Error('The shared model-request allowance is exhausted.'); }
+      if (budget.used >= budget.max) { if (this.family.master && !this.family.master.isSettled) this.family.master.stop('limit'); else this.family.owner!.cancelWork(); throw new Error('The shared model-request allowance is exhausted.'); }
       budget.used++;
-      if (this.session.orchestration?.goal) this.session.orchestration.goal.model_requests = budget.used;
+      if (this.family.owner!.goalArmed) { this.family.owner!.session.orchestration!.goal!.model_requests = budget.used; await this.family.owner!.saveSession(); }
     }
     if (this.execution) this.execution.snapshot.model_requests++;
     if (this.managedTurn) await this.saveSession();
@@ -589,7 +650,7 @@ export class Harness implements TurnHost {
   async spawnAgent(input: SpawnAgentInput): Promise<ChildSummary> {
     this.childAdmission();
     if (typeof input.task !== 'string' || !input.task.trim()) throw new BackendError('A child task is required.');
-    const timeoutMs = positiveLimit(input.timeoutMs ?? DEFAULT_CHILD_TIMEOUT_MS, 'timeoutMs');
+    const timeoutMs = boundedLimit(input.timeoutMs ?? this.limits.childTimeoutMs, this.limits.childTimeoutMs, 'timeoutMs');
     const provider = input.provider ?? this.state.provider ?? (this.state.model === 'scripted-demo' ? 'demo' : 'ollama');
     const model = input.model ?? this.state.model;
     if ((input.provider !== undefined || input.model !== undefined) && !this.family.childRoutes.some(route => route.provider === provider && route.model === model)) throw new BackendError('The child provider/model route is not authorized in global settings.', 403);
@@ -600,7 +661,7 @@ export class Harness implements TurnHost {
     const id = child.activeSessionRecord().id;
     child.session.parent_session_id = this.session.id;
     child.session.child_task = { task: input.task, timeout_ms: timeoutMs, tools: [...tools], agent: input.agent ?? this.session.setup.agent, prompt: input.prompt ?? this.session.setup.prompt };
-    child.session.settings.ask_approval = this.running ? this.currentAskApproval : this.session.settings.ask_approval;
+    child.session.settings.ask_approval = this.inheritedApproval();
     const summary: ChildSummary = { id, task: input.task, status: 'running', attempt: 0, timeout_ms: timeoutMs, started_at: new Date().toISOString(), provider, model, tools: [...tools], attempts: [] };
     const managed: ManagedChild = { summary, harness: child, queue: [input.task] };
     this.children.set(id, managed);
@@ -623,7 +684,7 @@ export class Harness implements TurnHost {
     if (this.parentId) throw new BackendError('Child agents cannot delegate further agents.', 403);
     if (this.family.master && !this.family.master.snapshot.ended_at) this.family.master.check();
     if (this.getGoal()?.phase === 'paused' || this.getGoal()?.phase === 'blocked') throw new BackendError('Resume the master goal before restarting child work.', 409);
-    if (this.listAgents().filter(child => child.id !== excludeId && ['running', 'stopping'].includes(child.status)).length >= (this.options.maxConcurrentChildren ?? 3)) throw new BackendError('The concurrent subagent limit was reached.', 409);
+    if ([...this.children.values()].filter(child => child.summary.id !== excludeId && (child.restarting || ['running', 'stopping'].includes(this.childSummary(child).status))).length >= this.limits.maxConcurrentChildren) throw new BackendError('The concurrent subagent limit was reached.', 409);
   }
   listAgents(): ChildSummary[] { return [...this.children.values()].map(child => this.childSummary(child)); }
   private childSummary(child: ManagedChild): ChildSummary {
@@ -649,22 +710,24 @@ export class Harness implements TurnHost {
     const child = this.child(id);
     if (child.restarting) throw new BackendError('This child is already restarting.', 409);
     if (child.execution && !child.execution.isSettled) throw new BackendError('Wait for the child agent to settle before restarting it.', 409);
-    const timeout = positiveLimit(timeoutMs ?? child.summary.timeout_ms, 'timeoutMs');
+    const timeout = boundedLimit(timeoutMs ?? child.summary.timeout_ms, this.limits.childTimeoutMs, 'timeoutMs');
     child.restarting = true;
     try {
-    this.childAdapter(child.summary.provider ?? this.state.provider ?? (this.state.model === 'scripted-demo' ? 'demo' : 'ollama'));
-    if (!child.harness) {
-      const record = await this.getSession(id);
+      const record = child.harness ? child.harness.activeSessionRecord() : await this.getSession(id);
       if (record.parent_session_id !== this.session.id || !record.child_task) throw new BackendError('Child session does not belong to this master.', 403);
-      const adapter = this.childAdapter(record.provider ?? 'ollama');
+      const provider = record.provider ?? (record.model === 'scripted-demo' ? 'demo' : 'ollama');
+      const masterProvider = this.state.provider ?? (this.state.model === 'scripted-demo' ? 'demo' : 'ollama');
+      if ((provider !== masterProvider || record.model !== this.state.model) && !this.family.childRoutes.some(route => route.provider === provider && route.model === record.model)) throw new BackendError('The child provider/model route is no longer authorized.', 403);
+      const adapter = this.childAdapter(provider);
       child.harness = new Harness(this.childOptions(adapter, { workspace: record.workspace, model: record.model, contextLength: record.context_length }), this.session.id, this.family);
       child.harness.session = record; child.harness.syncFromSession(); child.harness.recoverInterrupted();
-    }
-    this.childAdmission(id);
-    const allowedTools = child.harness.session.child_task!.tools.filter(name => CHILD_READ_TOOLS.includes(name) || this.family.childTools.includes(name));
-    child.harness.session.child_task!.tools = allowedTools;
-    child.summary.timeout_ms = timeout; child.summary.task = message?.trim() || child.summary.task;
-    child.queue = [child.summary.task]; this.startChild(child); return this.getAgentResult(id);
+      child.harness.session.settings.ask_approval = this.inheritedApproval();
+      this.childAdmission(id);
+      const allowedTools = child.harness.session.child_task!.tools.filter(name => CHILD_READ_TOOLS.includes(name) || this.family.childTools.includes(name));
+      child.harness.session.child_task!.tools = allowedTools; child.summary.tools = [...allowedTools];
+      child.summary.timeout_ms = timeout; child.summary.task = message?.trim() || child.summary.task;
+      child.harness.session.child_task!.task = child.summary.task; child.harness.session.child_task!.timeout_ms = timeout;
+      child.queue = [child.summary.task]; this.startChild(child); return this.getAgentResult(id);
     } finally { child.restarting = false; }
   }
   async sendMessage(id: string, message: string): Promise<{ accepted: boolean }> {
@@ -709,8 +772,7 @@ export class Harness implements TurnHost {
       this.settlementQueue.push({ role: 'user', content: `[harness child settlement] ${JSON.stringify({ task: child.summary.task, ...result })}` });
       this.recordEvent({ type: 'agent_settled', child: this.childSummary(child), source: 'harness' });
       await this.persistChildren();
-    });
-    run.done = run.done.then(() => this.persistChildren());
+    }, () => this.persistChildren());
   }
   private async drainChildren(cause: StopCause): Promise<void> {
     for (const child of this.children.values()) child.execution?.stop(cause);
@@ -738,6 +800,17 @@ export class Harness implements TurnHost {
     if (GOAL_TOOLS.some(tool => tool.function.name === name)) {
       if (!enabled.includes(name) || this.parentId) return { kind: 'text', text: 'error: goal tools are unavailable for this agent' };
       try {
+        if (name === 'get_orchestration') return { kind: 'text', text: JSON.stringify(this.getOrchestration()) };
+        if (name === 'configure_goal') {
+          const goal = await this.configureGoal({
+            objective: this.stringArgument(args, 'objective'),
+            ...(args.criteria === undefined ? {} : { criteria: this.stringArgument(args, 'criteria') }),
+            ...(args.timeout_ms === undefined ? {} : { timeoutMs: this.numberArgument(args, 'timeout_ms', 1) }),
+            ...(args.max_rounds === undefined ? {} : { maxRounds: this.numberArgument(args, 'max_rounds', 1) }),
+            ...(args.max_requests === undefined ? {} : { maxRequests: this.numberArgument(args, 'max_requests', 1) }),
+          });
+          return { kind: 'text', text: JSON.stringify({ goal }) };
+        }
         if (name === 'get_goal') return { kind: 'text', text: JSON.stringify({ goal: this.getGoal() ?? null }) };
         return { kind: 'text', text: JSON.stringify({ goal: await this.updateGoal(this.numberArgument(args, 'revision', 1), this.stringArgument(args, 'action'), typeof args.evidence === 'string' ? args.evidence : undefined, true) }) };
       } catch (error) { return { kind: 'text', text: `error: ${(error as Error).message}` }; }
@@ -841,12 +914,18 @@ export class Harness implements TurnHost {
     if (!this.execution) return yield* action;
     const previous = this.family.effects;
     let release!: () => void;
-    this.family.effects = new Promise<void>(resolve => { release = resolve; });
-    await previous;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    this.family.effects = previous.then(() => gate);
+    const signal = this.controller.signal;
+    let wake!: () => void;
+    const cancelled = new Promise<void>(resolve => { wake = resolve; });
+    signal.addEventListener('abort', wake, { once: true });
+    if (signal.aborted) wake();
+    await Promise.race([previous, cancelled]);
     try {
       if (this.stopped()) return STOPPED_RESULT;
       return yield* action;
-    } finally { release(); await action.return(STOPPED_RESULT); }
+    } finally { signal.removeEventListener('abort', wake); release(); await action.return(STOPPED_RESULT); }
   }
   private async *applyChangeNow(name: string, change: unknown): AsyncGenerator<CoreEvent, string, void> {
     const value = change as Change;

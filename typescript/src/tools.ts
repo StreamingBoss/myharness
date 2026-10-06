@@ -430,8 +430,12 @@ export const ORCHESTRATION_TOOLS: ToolDefinition[] = [
   { type: 'function', function: { name: 'wait_agent', description: 'Wait for a child to settle without making model requests; returns its partial or final result.', parameters: { type: 'object', properties: { agent_id: { type: 'string' } }, required: ['agent_id'] } } },
 ];
 export const GOAL_TOOLS: ToolDefinition[] = [
+  { type: 'function', function: { name: 'get_orchestration', description: 'Inspect host limits, permitted child tools and authorized model routes. These permissions cannot be expanded by the agent.', parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'configure_goal', description: 'Adopt the current user task as a bounded autonomous goal, or adjust its settings without resetting usage or extending its deadline. Choose limits within get_orchestration. Requires memory. Only the master can configure goals; stopped work requires a new user turn.', parameters: { type: 'object', properties: { objective: { type: 'string' }, criteria: { type: 'string' }, timeout_ms: { type: 'integer' }, max_rounds: { type: 'integer' }, max_requests: { type: 'integer' } }, required: ['objective'] } } },
   { type: 'function', function: { name: 'get_goal', description: 'Read the durable autonomous-work goal for this session.', parameters: { type: 'object', properties: {} } } },
   { type: 'function', function: { name: 'update_goal', description: 'Update, pause, complete, or block the current goal using its current revision.', parameters: { type: 'object', properties: { action: { type: 'string', description: 'pause, resume, complete, or blocked.' }, revision: { type: 'integer', description: 'Current goal revision.' }, evidence: { type: 'string', description: 'Evidence for completion or blocker.' } }, required: ['action', 'revision'] } } },
 ];
 /** Tools that need a git repository in the project folder. */
 export const GIT_TOOLS = TOOL_NAMES.filter(name => name.startsWith('git_'));
+/** Recognized tool names in agent files; runtime permissions still decide availability. */
+export const AGENT_TOOL_NAMES = [...TOOL_NAMES, ...ORCHESTRATION_TOOLS.map(tool => tool.function.name)];
