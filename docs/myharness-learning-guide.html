@@ -1,2 +1,1482 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="A hands-on, step-by-step learning guide to MyHarness: inspect AI requests, memory, tools, approvals, skills, MCP, tokens and context."><title>MyHarness — Learn what happens behind an AI answer</title><style>*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f4f5f1;color:#182c2a;font:16px/1.65 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:#245d55}button,input{font:inherit}button,a{touch-action:manipulation}button{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #cb632f;outline-offset:4px}.skip{position:absolute;top:-80px;left:12px;background:white;padding:12px;z-index:9}.skip:focus{top:12px}.layout{display:grid;grid-template-columns:265px minmax(0,1fr);max-width:1550px;margin:auto}aside{padding:30px 24px;height:100vh;position:sticky;top:0;overflow:auto;border-right:1px solid #d7dfd8;background:#edf0e9}.brand{font-weight:800;letter-spacing:-1px;font-size:26px}.brand span{color:#dc6a36}small,.muted{color:#536760}nav{display:grid;gap:5px;margin:25px 0}nav a{padding:8px 10px;border-radius:9px;text-decoration:none;font-size:14px;line-height:1.4}nav a.active{background:#183c35;color:white}nav a span{display:inline-block;width:23px;color:#77877e}nav a.active span{color:#f6b58e}progress{width:100%;height:7px;accent-color:#2c7666}main{min-width:0;padding:50px 6vw 60px}.eyebrow{text-transform:uppercase;font-weight:750;letter-spacing:2px;font-size:12px;color:#4b7161}h1{font-size:clamp(38px,5vw,67px);line-height:1.05;letter-spacing:-3px;max-width:780px;margin:20px 0}h1 em{font-style:normal;color:#34816e}h2{font-size:32px;line-height:1.2;letter-spacing:-1px;margin:9px 0 16px}h3{font-size:18px;line-height:1.3}.lead{font-size:20px;max-width:710px;color:#536760}.pills{display:flex;flex-wrap:wrap;gap:9px;margin:22px 0}.pills span{border:1px solid #c9d5c9;border-radius:99px;padding:5px 13px;font-size:12px}.hero{padding-bottom:45px}.hero-svg{background:#e4eade;border-radius:22px;margin-top:25px;padding:12px}svg{display:block;width:100%;height:auto}svg text{font-family:system-ui,sans-serif}.top-actions{display:flex;gap:12px;flex-wrap:wrap}.btn{display:inline-block;background:#214d42;color:white;border:0;border-radius:9px;padding:10px 18px;text-decoration:none;font-weight:600}.btn.secondary{background:white;color:#214d42;border:1px solid #bed0bf}.lesson{scroll-margin-top:20px;padding:35px 0 45px;border-top:1px solid #cad5ca}.num{font:700 12px/1.4 system-ui;letter-spacing:2px;color:#b84e20}.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;margin-top:23px}.card{padding:24px;background:white;border:1px solid #dbe2d8;border-radius:16px;min-width:0}.card h3{margin-top:0}.steps{padding-left:23px;margin-bottom:0}.steps li{padding-left:7px;margin-bottom:14px}.take{background:#e5eee3;border-left:3px solid #477a63;padding:17px 20px;margin-top:20px;border-radius:0 10px 10px 0}.reflect{color:#52655e;font-style:italic;margin:18px 0}code{background:#edf1ea;color:#244f41;padding:2px 5px;border-radius:5px;overflow-wrap:anywhere;font-size:.9em}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 ui-monospace,monospace;background:#163b33;color:#dcefe4;padding:18px;border-radius:10px;margin:14px 0}.check{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:14px}.check input{accent-color:#2c7666;width:18px;height:18px}.lab{margin-top:22px;background:#f9faf6;border:1px solid #cad7c9;border-radius:16px;padding:22px}.lab .label{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:#687e70}.lab button{margin:6px 6px 6px 0;border:1px solid #b9cdbb;border-radius:8px;background:#fff;color:#245344;padding:8px 14px}.lab button[aria-pressed=true]{background:#214d42;color:white}.status{min-height:28px}.meter{height:28px;display:flex;background:#dbe2d7;overflow:hidden;border-radius:7px;margin:20px 0}.meter span{min-width:0;transition:width .3s}.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px}.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}details{background:#fff;border:1px solid #d4ded0;border-radius:10px;margin:10px 0;padding:14px 18px}summary{cursor:pointer;font-weight:650}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px;border-bottom:1px solid #d8e1d4;vertical-align:top}footer{border-top:1px solid #cad5ca;padding-top:25px;font-size:13px;color:#536760}.note{font-size:13px;color:#627165}.nojs{background:#fff0d4;padding:12px} @media(max-width:950px){.layout{grid-template-columns:205px minmax(0,1fr)}aside{padding:24px 15px}main{padding:35px 5vw}.grid{grid-template-columns:1fr}}@media(max-width:650px){.layout{display:block}aside{height:auto;position:static;padding:18px;border-right:0;border-bottom:1px solid #d7dfd8}aside nav{grid-template-columns:1fr 1fr;margin:15px 0;gap:3px}aside nav a{font-size:12px;padding:6px}aside .note{display:none}main{padding:30px 20px}h1{letter-spacing:-2px}h2{font-size:27px}.card{padding:20px}.hero-svg{padding:0}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.meter span{transition:none}}@media print{aside,.top-actions,.check,.lab button{display:none}.layout{display:block}main{padding:0}.lesson{break-inside:avoid}body{background:white;font-size:11pt}.hero{padding-bottom:10px}h1{font-size:35pt}.card,.lab{break-inside:avoid}a{color:inherit}pre{background:#eee;color:black}.grid{grid-template-columns:1fr 1fr}}</style></head><body><a class="skip" href="#main">Skip to guide</a><div class="layout"><aside><div class="brand">my<span>harness</span></div><small>The learning field guide</small><nav aria-label="Learning steps"><a href="#step-1" data-step="1"><span>01</span>Meet your harness</a><a href="#step-2" data-step="2"><span>02</span>Choose where the model runs</a><a href="#step-3" data-step="3"><span>03</span>Send your first request</a><a href="#step-4" data-step="4"><span>04</span>Experiment with memory</a><a href="#step-5" data-step="5"><span>05</span>Shape the instructions</a><a href="#step-6" data-step="6"><span>06</span>Give the model a tool</a><a href="#step-7" data-step="7"><span>07</span>Approve or deny a change</a><a href="#step-8" data-step="8"><span>08</span>Load a skill</a><a href="#step-9" data-step="9"><span>09</span>Discover external tools with MCP</a><a href="#step-10" data-step="10"><span>10</span>Explore tokens and context</a><a href="#step-11" data-step="11"><span>11</span>Compact, reset, and save</a><a href="#step-12" data-step="12"><span>12</span>Run your own investigation</a></nav><label for="progress" id="progressText">0 of 12 steps explored</label><progress id="progress" max="12" value="0"></progress><button class="btn secondary" id="resetProgress" style="margin-top:12px;font-size:12px">Reset progress</button><p class="note">Read, experiment, inspect.<br>Progress is saved in this browser when storage is available.</p></aside><main id="main"><header class="hero"><div class="eyebrow">An open laboratory for curious people</div><h1>See what happens<br>behind an <em>AI answer.</em></h1><p class="lead">Learn to use MyHarness by taking it apart, one small experiment at a time. Discover what the model sees, how tools act, and why context matters.</p><div class="pills"><span>12 guided experiments</span><span>Beginner friendly</span><span>SVG explanations</span><span>No background knowledge needed</span></div><div class="top-actions"><a class="btn" href="#step-1">Begin the journey →</a><button class="btn secondary" id="print">Print / save as PDF</button></div><div class="hero-svg"><svg viewBox="0 0 800 290" role="img" aria-label="Your message enters the harness. The harness sends a request to the model, executes approved tools, then returns an answer." xmlns="http://www.w3.org/2000/svg"><title>Your message enters the harness. The harness sends a request to the model, executes approved tools, then returns an answer.</title><defs><marker id="arr7482923659732527071" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="#598271"/></marker></defs><rect x="26" y="75" width="148" height="140" rx="18" fill="#fff"/><text x="100" y="123" text-anchor="middle" fill="#254c40" font-size="18" font-weight="700">You</text><text x="100" y="154" text-anchor="middle" fill="#536760" font-size="13">ask · inspect</text><text x="100" y="177" text-anchor="middle" fill="#536760" font-size="13">approve · learn</text><path d="M174 143H234" stroke="#598271" stroke-width="2"/><path d="M223 136l11 7-11 7" fill="none" stroke="#598271" stroke-width="2"/><rect x="238" y="40" width="270" height="220" rx="20" fill="#214d42"/><text x="373" y="83" text-anchor="middle" fill="#fff" font-size="24" font-weight="700">MyHarness</text><rect x="260" y="106" width="225" height="35" rx="7" fill="#396858"/><text x="373" y="129" text-anchor="middle" fill="#e7f0e7" font-size="13">Instructions + memory + tools</text><rect x="260" y="151" width="225" height="35" rx="7" fill="#396858"/><text x="373" y="174" text-anchor="middle" fill="#e7f0e7" font-size="13">Approvals + execution</text><text x="373" y="224" text-anchor="middle" fill="#afceba" font-size="13">Every step becomes visible</text><path d="M508 105H591M591 119H508" stroke="#598271" stroke-width="2"/><text x="550" y="90" text-anchor="middle" fill="#536760" font-size="11">request / response</text><rect x="595" y="52" width="176" height="104" rx="18" fill="#fff"/><text x="683" y="92" text-anchor="middle" fill="#254c40" font-size="19" font-weight="700">Model</text><text x="683" y="119" text-anchor="middle" fill="#536760" font-size="13">generates text + calls</text><path d="M508 218H591" stroke="#598271" stroke-width="2"/><rect x="595" y="184" width="176" height="76" rx="15" fill="#f7d9bb"/><text x="683" y="215" text-anchor="middle" fill="#75441f" font-size="18" font-weight="700">Tools</text><text x="683" y="239" text-anchor="middle" fill="#75441f" font-size="12">read · edit · connect</text></svg></div><p class="note">This standalone guide works offline. To perform the exercises, open MyHarness separately. Embedded demonstrations are illustrative and never contact a model, access a folder, or execute a tool.</p><noscript><p class="nojs">All lessons remain readable without JavaScript. Interactive illustrations and progress tracking require JavaScript.</p></noscript></header><section class="lesson" id="step-1" aria-labelledby="heading-1"><div class="num">STEP 01 / 12 · UNDERSTAND WHO DOES WHAT</div><h2 id="heading-1">Meet your harness</h2><p>A model generates a response from an input. MyHarness assembles that input, offers tools, checks approvals, runs allowed actions, and sends the results back. The browser lets you inspect each of these steps.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>Open MyHarness and locate <b>Chat</b>, <b>Internals</b>, and <b>Explore</b>.</li><li>Use Chat to follow the conversation. Use Internals to inspect API exchanges and tool effects. Use Explore to inspect the ingredients of a request.</li><li>Keep these three views in mind throughout this guide: conversation, evidence, and construction.</li></ol></div><div class="card"><h3>Three views, three questions</h3><p><b>Chat:</b> What did the assistant say and do?</p><p><b>Internals:</b> What crossed the API boundary?</p><p><b>Explore:</b> What made up the request?</p><p class="note">Use evidence from all three before deciding how a behavior works.</p></div></div><div class="take"><b>What you learn</b><br>An answer is the visible outcome of a process. MyHarness makes that process inspectable.</div><p class="reflect">Pause and explain: Which part creates text, and which part actually opens a file?</p><label class="check"><input type="checkbox" data-complete="1"> I explored this step</label></section><section class="lesson" id="step-2" aria-labelledby="heading-2"><div class="num">STEP 02 / 12 · SEPARATE THE HARNESS FROM INFERENCE</div><h2 id="heading-2">Choose where the model runs</h2><p>Inference means running the model to generate an answer. The browser edition runs the harness in a browser Worker; Ollama or a cloud provider runs inference separately.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>Choose <b>Local Ollama</b> or an available cloud provider in the toolbar.</li><li>For Ollama, provide the server URL and select an installed model. For a cloud provider, enter your own API key and select an available model.</li><li>Click <b>Start new session with this model</b>. Send a short greeting and check that a response arrives.</li></ol></div><div class="card"><h3>Choose an execution environment</h3><table><tr><th>Edition</th><th>What runs where?</th></tr><tr><td>Browser</td><td>Harness and UI on your machine; inference on Ollama or the selected provider. No Bash.</td></tr><tr><td>Node</td><td>Same core harness in Node; browser UI or terminal runner. Bash available in supported Linux/WSL environments.</td></tr></table><p class="note">Direct folder access needs a supporting browser such as Chrome or Edge, using HTTPS or localhost.</p></div></div><div class="take"><b>What you learn</b><br>Local Ollama uses your model server. A cloud provider receives the request payload and bills API usage to its account. A paid chat subscription does not configure an API account.</div><p class="reflect">Pause and explain: Can you identify where your selected model runs?</p><label class="check"><input type="checkbox" data-complete="2"> I explored this step</label></section><section class="lesson" id="step-3" aria-labelledby="heading-3"><div class="num">STEP 03 / 12 · LOOK BEYOND THE CHAT BUBBLE</div><h2 id="heading-3">Send your first request</h2><p>Each model call has an outgoing request and an incoming response. Internals lets you compare what you typed with what was actually sent.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>Send: <code>Explain what an AI harness does in three sentences.</code></li><li>Open Internals and find the corresponding <b>SENT</b> and <b>RECEIVED</b> blocks.</li><li>Find your message inside SENT. Then look for the instructions and any enabled tool definitions included alongside it.</li></ol></div><div class="card"><h3>Read a payload like a checklist</h3><p>① Instructions set the task framing.</p><p>② Retained messages provide continuity.</p><p>③ Tool definitions advertise available operations.</p><p>④ Your latest message asks for work.</p><p class="note">This is a conceptual map. Inspect the native SENT body for your provider’s actual format.</p></div></div><div class="take"><b>What you learn</b><br>The model receives a structured payload, not just the last sentence you typed. Provider formats can differ.</div><p class="reflect">Pause and explain: What extra information accompanied your question?</p><label class="check"><input type="checkbox" data-complete="3"> I explored this step</label></section><section class="lesson" id="step-4" aria-labelledby="heading-4"><div class="num">STEP 04 / 12 · DISCOVER WHY A CONVERSATION FEELS CONTINUOUS</div><h2 id="heading-4">Experiment with memory</h2><p>Harness memory is retained conversation content that is sent again in later requests. It is different from the model learning new facts in its weights.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>With <b>Harness memory</b> on, say: <code>My favourite number is 42.</code></li><li>Ask: <code>What is my favourite number?</code> Compare the two SENT blocks and locate the earlier exchange.</li><li>Turn memory off and ask again. In this UI, turning memory off resets retained memory. Inspect the shorter payload; the visible transcript can still contain the old exchange.</li></ol></div><div class="card"><h3>Offline experiment: what gets sent?</h3><p>We already said “My favourite number is 42.” Toggle retained memory to inspect an illustrative next request.</p><div class="lab"><span class="label">Guide simulation · no model call</span><br><button id="memoryToggle" aria-pressed="true">Memory on</button><pre id="memoryPayload"></pre><p id="memoryExplanation" class="status" aria-live="polite"></p></div></div></div><div class="take"><b>What you learn</b><br>An old chat bubble remaining on screen does not prove it was sent to the model. Inspect SENT to see what the model could use.</div><p class="reflect">Pause and explain: If the answer is still 42 without that fact in SENT, is it proof of memory—or could it be a guess?</p><label class="check"><input type="checkbox" data-complete="4"> I explored this step</label></section><section class="lesson" id="step-5" aria-labelledby="heading-5"><div class="num">STEP 05 / 12 · UNDERSTAND HOW BEHAVIOR IS GUIDED</div><h2 id="heading-5">Shape the instructions</h2><p>A base prompt, agent persona, and project AGENTS.md can be composed into the system message. They guide behavior without changing the model itself.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>In Explore, inspect the instruction components used to build the request.</li><li>Try a concise persona or base instruction such as <code>Explain terms for a beginner. Use one concrete example.</code> in a new session.</li><li>Ask the same question in separate sessions with different instruction snapshots. Compare SENT first, then compare the answers.</li></ol></div><div class="card"><h3>Try a controlled comparison</h3><p><b>Question:</b> “Explain a token.”</p><p><b>Session A:</b> “Explain for a beginner.”</p><p><b>Session B:</b> “Explain for a software engineer.”</p><p>Use the same model and tools. Compare the instruction payloads before comparing the answers.</p><p class="note">Separate sessions avoid carrying the first answer into the second experiment.</p></div></div><div class="take"><b>What you learn</b><br>Instruction text is input. It can influence an answer, but it is not a guarantee. Community prompt-library examples have unverified attribution and do not recreate another product’s tools.</div><p class="reflect">Pause and explain: Did the instruction change—and did the answer actually follow it?</p><label class="check"><input type="checkbox" data-complete="5"> I explored this step</label></section><section class="lesson" id="step-6" aria-labelledby="heading-6"><div class="num">STEP 06 / 12 · FOLLOW A COMPLETE ACTION LOOP</div><h2 id="heading-6">Give the model a tool</h2><p>A tool definition describes an operation and its arguments. The model can request that operation; the harness executes it and returns a result. The model can then use that result in its answer.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>Open a small scratch project using <b>Open local folder…</b>, or use <b>Import folder copy</b> / <b>Import JSON project</b> for a virtual project.</li><li>Enable <code>pwd</code>, <code>list_files</code>, and <code>read_file</code>. Ask: <code>List the project files, then read README.md if it exists.</code></li><li>In Internals, follow the tool name and arguments, execution result, and subsequent SENT block containing that result. If no call occurs, record that too.</li></ol></div><div class="card"><h3>Follow the evidence</h3><svg viewBox="0 0 800 290" role="img" aria-label="Tool loop: model requests a read, harness executes it, result goes back to model, model answers." xmlns="http://www.w3.org/2000/svg"><title>Tool loop: model requests a read, harness executes it, result goes back to model, model answers.</title><defs><marker id="arr7742045595386376163" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="#598271"/></marker></defs><path d="M190 77H575Q650 77 650 140V195H190Q115 195 115 130V77" fill="none" stroke="#82a891" stroke-width="3"/><rect x="35" y="45" width="200" height="65" rx="12" fill="#214d42"/><text x="135" y="72" text-anchor="middle" fill="white" font-size="14">1 · Model requests</text><text x="135" y="94" text-anchor="middle" fill="#c2dec9" font-size="12">read_file("README.md")</text><rect x="565" y="45" width="200" height="65" rx="12" fill="#e7eee2"/><text x="665" y="72" text-anchor="middle" fill="#214d42" font-size="14">2 · Harness executes</text><text x="665" y="94" text-anchor="middle" fill="#536760" font-size="12">reads the selected project</text><rect x="565" y="160" width="200" height="65" rx="12" fill="#f7d9bb"/><text x="665" y="188" text-anchor="middle" fill="#75441f" font-size="14">3 · Tool returns text</text><text x="665" y="209" text-anchor="middle" fill="#75441f" font-size="12">or an error / denial</text><rect x="35" y="160" width="200" height="65" rx="12" fill="#e7eee2"/><text x="135" y="188" text-anchor="middle" fill="#214d42" font-size="14">4 · Model receives result</text><text x="135" y="209" text-anchor="middle" fill="#536760" font-size="12">answers or requests more</text><text x="400" y="66" text-anchor="middle" fill="#536760" font-size="12">→ requested action →</text><text x="400" y="187" text-anchor="middle" fill="#536760" font-size="12">← next model request ←</text><text x="400" y="268" text-anchor="middle" fill="#536760" font-size="13">One user message can produce several model calls.</text></svg></div></div><div class="take"><b>What you learn</b><br>Saying “I read the file” is not evidence of execution. Look for the call and its result. A model may fail to request an enabled tool.</div><p class="reflect">Pause and explain: Can you trace a fact in the final answer back to a tool result?</p><label class="check"><input type="checkbox" data-complete="6"> I explored this step</label></section><section class="lesson" id="step-7" aria-labelledby="heading-7"><div class="num">STEP 07 / 12 · LEARN HOW YOU CONTROL ACTIONS</div><h2 id="heading-7">Approve or deny a change</h2><p>Approvals let you inspect a proposed write, edit, or shell command before execution. Denial is also information: the harness sends it back as a tool result.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>Use a scratch project and keep approvals on. Enable <code>write_file</code>.</li><li>Ask: <code>Create lesson-note.txt containing: I am learning how tools work.</code> Inspect the proposed change, then deny it.</li><li>Check the denial in Internals and verify that the file was not created. Repeat and approve only if you want the file.</li></ol></div><div class="card"><h3>Offline experiment: a proposed write</h3><div class="lab"><span class="label">Guide simulation · no files are changed</span><pre>+ lesson-note.txt
-+ I am learning how tools work.</pre><button id="approveDemo">Approve</button><button id="denyDemo">Deny</button><p id="approvalResult" class="status" aria-live="polite">Choose a response to see what returns to the model.</p></div><p class="note">In the real app, inspect the entire diff or command and its target before making this choice.</p></div></div><div class="take"><b>What you learn</b><br>Direct folder access writes to your actual disk. Imported copies change a virtual project. In the browser, run_command is unavailable; the Node edition can run Bash with your account’s permissions and has no shell sandbox.</div><p class="reflect">Pause and explain: What exactly would the proposed action change?</p><label class="check"><input type="checkbox" data-complete="7"> I explored this step</label></section><section class="lesson" id="step-8" aria-labelledby="heading-8"><div class="num">STEP 08 / 12 · SEE INSTRUCTIONS APPEAR ON DEMAND</div><h2 id="heading-8">Load a skill</h2><p>A skill offers a short description first, then loads fuller instructions when used. It teaches a workflow; it does not independently execute the work or create a new tool.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>Enable <code>use_skill</code> and inspect the offered skill descriptions.</li><li>Type <code>/write-readme</code> followed by a request. Recognized skill names are highlighted blue and slash autocomplete can help you choose.</li><li>Inspect the loaded instructions and later request. Compare their size and detail with the original short description.</li></ol></div><div class="card"><h3>Guidance becomes available</h3><svg viewBox="0 0 800 290" role="img" aria-label="A skill description is offered first, full instructions are loaded when needed, then tools carry out the workflow." xmlns="http://www.w3.org/2000/svg"><title>A skill description is offered first, full instructions are loaded when needed, then tools carry out the workflow.</title><defs><marker id="arr5237392447304986476" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="#598271"/></marker></defs><rect x="25" y="50" width="220" height="175" rx="15" fill="#e7eee2"/><text x="135" y="88" text-anchor="middle" fill="#214d42" font-size="18" font-weight="700">Description</text><path d="M55 117H210M55 137H180" stroke="#8aaa93" stroke-width="9" stroke-linecap="round"/><text x="135" y="184" text-anchor="middle" fill="#536760" font-size="13">Small discovery hint</text><path d="M250 138H281l-10-7m10 7-10 7" stroke="#598271" fill="none" stroke-width="2"/><rect x="290" y="25" width="220" height="225" rx="15" fill="#214d42"/><text x="400" y="65" text-anchor="middle" fill="white" font-size="18" font-weight="700">Full instructions</text><path d="M325 95H473M325 117H452M325 139H473M325 161H452" stroke="#73a78e" stroke-width="8" stroke-linecap="round"/><text x="400" y="215" text-anchor="middle" fill="#dcebdd" font-size="13">Loaded on demand</text><path d="M518 138H549l-10-7m10 7-10 7" stroke="#598271" fill="none" stroke-width="2"/><rect x="560" y="50" width="215" height="175" rx="15" fill="#f7d9bb"/><text x="667" y="88" text-anchor="middle" fill="#75441f" font-size="18" font-weight="700">Tool actions</text><text x="667" y="128" text-anchor="middle" fill="#75441f" font-size="14">Read → propose → write</text><text x="667" y="184" text-anchor="middle" fill="#75441f" font-size="13">Approvals still apply</text></svg></div></div><div class="take"><b>What you learn</b><br>A skill supplies guidance. File tools still do the reading and writing, and applicable approvals still govern those actions.</div><p class="reflect">Pause and explain: Which part was instruction text, and which part performed an action?</p><label class="check"><input type="checkbox" data-complete="8"> I explored this step</label></section><section class="lesson" id="step-9" aria-labelledby="heading-9"><div class="num">STEP 09 / 12 · UNDERSTAND CONNECTIONS TO OTHER SERVICES</div><h2 id="heading-9">Discover external tools with MCP</h2><p>MCP, the Model Context Protocol, lets external servers provide tools, instructions, resources, and prompts. A server must be connected before its actual tools are known.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>Open <b>Explore → MCP servers → Find MCP servers…</b>. Search the official registry and inspect an entry.</li><li>For a remote server, use <b>Preview tools</b> to inspect its advertised tools, prompts, and resources without invoking tools. Use <b>Show configuration</b> to see its connection requirements.</li><li>After configuring a trusted server, select the tools you want to offer. Inspect a call’s approval and JSON-RPC request/response in Internals or the server view.</li></ol></div><div class="card"><h3>Four things a server can offer</h3><p><b>Tools:</b> callable operations.</p><p><b>Instructions:</b> guidance added while its tools are selected.</p><p><b>Resources:</b> content listed/read through resource tools.</p><p><b>Prompts:</b> workflows invoked with <code>/mcp__server__prompt</code>.</p><p class="note">Registry preview is discovery. It does not execute advertised tools or run local packages.</p></div></div><div class="take"><b>What you learn</b><br>New-session MCP tools start unticked. With approvals on, every external tool call requests approval. Browser MCP connections require compatible HTTP/CORS; local stdio servers require Node. OAuth sign-in is not currently supported.</div><p class="reflect">Pause and explain: What can this server do, and what arguments would your call send?</p><label class="check"><input type="checkbox" data-complete="9"> I explored this step</label></section><section class="lesson" id="step-10" aria-labelledby="heading-10"><div class="num">STEP 10 / 12 · UNDERSTAND THE MODEL’S WORKING SPACE</div><h2 id="heading-10">Explore tokens and context</h2><p>Tokens are model-specific pieces used to encode input and output. Context includes instructions, retained messages, tool definitions and results. A longer transcript can increase context pressure.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>Inspect the context meter and compare a short exchange with a longer one containing tool output.</li><li>Open <b>Explore → tokenization of a saved request</b>. Select a model call and click <b>Inspect selected request</b>.</li><li>Read the evidence label. When pieces are available, click one to see its position, ID, and bytes. Count-only or unavailable results do not expose token boundaries.</li></ol></div><div class="card"><h3>Offline experiment: a working budget</h3><div class="lab"><span class="label">Invented teaching values · not a token estimate</span><div class="meter" aria-hidden="true"><span style="width:12%;background:#214d42"></span><span id="memoryBar" style="width:20%;background:#639776"></span><span id="toolBar" style="width:10%;background:#dea06e"></span><span style="width:20%;background:#b7c9d0"></span></div><div class="legend"><span><i style="background:#214d42"></i>Instructions 12%</span><span><i style="background:#639776"></i>Memory</span><span><i style="background:#dea06e"></i>Tool results</span><span><i style="background:#b7c9d0"></i>Output reserve 20%</span></div><button id="growContext">Add a large tool result</button><button id="compactContext">Summarize memory</button><button id="resetContext">Reset illustration</button><p id="contextStatus" class="status" aria-live="polite"></p></div><p class="note">Real token sizes depend on the model and payload. Summarizing memory cannot remove tool definitions or guarantee all important facts survive.</p></div></div><div class="take"><b>What you learn</b><br>A token count is not a full inference trace. Configured tokenizers and provider text tokenization have coverage limits; cloud internal templates are unavailable. Fresh inspection may use provider quota or load a local model.</div><p class="reflect">Pause and explain: Is this number measured, estimated, count-only, or based on only part of the text?</p><label class="check"><input type="checkbox" data-complete="10"> I explored this step</label></section><section class="lesson" id="step-11" aria-labelledby="heading-11"><div class="num">STEP 11 / 12 · DISTINGUISH A TRANSCRIPT FROM WORKING MEMORY</div><h2 id="heading-11">Compact, reset, and save</h2><p>Compaction asks the selected model to summarize retained memory. Reset clears retained memory. Neither operation erases the saved transcript. A summary is lossy and may omit useful details.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>Create a short conversation with a goal, a constraint, and a decision. Inspect retained memory in Explore.</li><li>Use the compaction control and inspect its separate model request and resulting summary. Compare the original details with the summary. Ineffective or interrupted summaries leave memory unchanged.</li><li>Use <b>Export session</b> to save the transcript, current model memory, and instruction snapshot. Use <b>Export project</b> for text files and project sessions; <b>Import JSON project</b> restores a project export.</li></ol></div><div class="card"><h3>What are you preserving?</h3><table><tr><th>Action</th><th>Effect</th></tr><tr><td>Compact</td><td>Replace retained memory with a useful summary when successful.</td></tr><tr><td>Reset memory</td><td>Clear what the harness retains for later calls.</td></tr><tr><td>Export session</td><td>Save transcript, retained memory and instruction snapshot; no project files.</td></tr><tr><td>Export project</td><td>Save text files plus the project’s sessions.</td></tr></table></div></div><div class="take"><b>What you learn</b><br>Browser saves belong to the site origin and browser profile. Clearing site data removes them; changing the host or port uses different storage. Inspect exports before sharing because they can contain file contents and local paths.</div><p class="reflect">Pause and explain: Could a new response still recover a detail omitted from retained memory?</p><label class="check"><input type="checkbox" data-complete="11"> I explored this step</label></section><section class="lesson" id="step-12" aria-labelledby="heading-12"><div class="num">STEP 12 / 12 · CHANGE ONE THING AND FOLLOW THE EVIDENCE</div><h2 id="heading-12">Run your own investigation</h2><p>You now have a repeatable method: predict a behavior, change one setting, inspect the actual request and actions, and compare the result. This makes MyHarness a laboratory for understanding AI systems.</p><div class="grid"><div class="card"><h3>Try it in MyHarness</h3><ol class="steps"><li>Choose a question: Does memory change the input? Does a skill load more instructions? Does denying a tool change the next answer?</li><li>Use a small project and separate sessions to compare two conditions while keeping the provider, model, and task the same. Record prompts, enabled tools, and relevant instruction snapshots.</li><li>Inspect evidence before drawing a conclusion. Repeat if needed: generation can vary. Explain both the observation and its limits.</li></ol></div><div class="card"><h3>Your experiment notebook</h3><p><b>Question:</b> What behavior am I investigating?</p><p><b>Prediction:</b> What do I expect to change?</p><p><b>Setup:</b> Model, instructions, tools, memory state.</p><p><b>Evidence:</b> Payload, call, result, approval.</p><p><b>Conclusion:</b> What happened? What is still uncertain?</p><p class="note">Start with one variable. Small experiments are easier to understand and explain.</p></div></div><div class="take"><b>What you learn</b><br>Displayed model thinking is text exposed by the provider, not guaranteed access to its internal reasoning. The guide’s demonstrations are illustrative; live tool results and SENT blocks are your evidence.</div><p class="reflect">Pause and explain: Can another learner reproduce your experiment from your notes?</p><label class="check"><input type="checkbox" data-complete="12"> I explored this step</label></section><section class="lesson" id="reference"><div class="eyebrow">Keep this nearby</div><h2>A small glossary</h2><details><summary>Model, harness, and inference</summary><p><b>Model:</b> the system generating output from input. <b>Harness:</b> the software arranging instructions, memory, tools, and actions around it. <b>Inference:</b> running the model to produce an output.</p></details><details><summary>Memory, transcript, and context</summary><p><b>Transcript:</b> the visible record of the conversation. <b>Retained memory:</b> the conversation content kept for future calls. <b>Context:</b> the input available on a particular call, including instructions and tools. These are related, but they are not identical.</p></details><details><summary>Tool, skill, and MCP server</summary><p><b>Tool:</b> a callable operation. <b>Skill:</b> instructions for a workflow. <b>MCP server:</b> an external provider of tools and other context through a shared protocol.</p></details><details><summary>Tokens, compaction, and evidence</summary><p><b>Token:</b> a model-specific encoding piece. <b>Compaction:</b> summarizing memory to reduce its size. <b>Evidence:</b> the actual payloads, calls, results, and explicitly labelled measurements you can inspect.</p></details><h3>Next discoveries</h3><p>After these experiments, explore Ollama templates and the illustrative Qwen prompt reconstruction in Explore, compare provider-native payloads, or use the headless runner to observe the same harness without the interface. Read the architecture documentation before extending the backend.</p><p class="note">This guide describes documented learning features. Multiple independent subagents, media input, hosted provider tools, and advanced reasoning controls are not presented as available exercises.</p></section><footer><b>MyHarness · educational field guide</b><p>Based on the project documentation retrieved on 6 October 2026. Labels and availability can change as the project evolves.</p><p><a href="https://github.com/StreamingBoss/myharness/blob/main/README.md">Project README</a> · <a href="https://github.com/StreamingBoss/myharness/blob/main/TOKENIZATION.md">Tokenization and evidence limits</a> · <a href="https://github.com/StreamingBoss/myharness/blob/main/ARCHITECTURE.md">Architecture</a></p><p>The guide does not connect to services. Real exercises use your selected provider and enabled project tools. Keep the Node HTTP service on localhost; use a scratch project for learning.</p></footer></main></div><script>const checks=[...document.querySelectorAll('[data-complete]')];const key='myharness-guide-v1-progress';let saved=[];try{saved=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(saved))saved=[]}catch{}checks.forEach(c=>{c.checked=saved.includes(c.dataset.complete);c.addEventListener('change',update)});function update(){const done=checks.filter(c=>c.checked).map(c=>c.dataset.complete);document.getElementById('progress').value=done.length;document.getElementById('progressText').textContent=done.length+' of 12 steps explored';try{localStorage.setItem(key,JSON.stringify(done))}catch{}}update();document.getElementById('resetProgress').onclick=()=>{checks.forEach(c=>c.checked=false);update()};document.getElementById('print').onclick=()=>window.print();if('IntersectionObserver' in window){const obs=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting){document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#'+e.target.id))}})},{rootMargin:'-8% 0px -65% 0px',threshold:0});document.querySelectorAll('.lesson').forEach(s=>obs.observe(s))}const mem=document.getElementById('memoryToggle');function memory(){const on=mem.getAttribute('aria-pressed')==='true';mem.textContent=on?'Memory on':'Memory off';document.getElementById('memoryPayload').textContent=JSON.stringify({messages:on?[{role:'user',content:'My favourite number is 42.'},{role:'assistant',content:'Got it.'},{role:'user',content:'What is my favourite number?'}]:[{role:'user',content:'What is my favourite number?'}]},null,2);document.getElementById('memoryExplanation').textContent=on?'The earlier fact is present in the input.':'The fact is absent. The model has no evidence of it in this illustrated request.'}mem.onclick=()=>{mem.setAttribute('aria-pressed',mem.getAttribute('aria-pressed')==='true'?'false':'true');memory()};memory();document.getElementById('approveDemo').onclick=()=>document.getElementById('approvalResult').textContent='Illustrated result: write succeeded. The model receives confirmation that lesson-note.txt was created.';document.getElementById('denyDemo').onclick=()=>document.getElementById('approvalResult').textContent='Illustrated result: user denied the write. No file is created; the model receives the denial.';let m=20,t=10;function context(){document.getElementById('memoryBar').style.width=m+'%';document.getElementById('toolBar').style.width=t+'%';let used=12+m+t+20;document.getElementById('contextStatus').textContent='Illustrative budget: instructions 12%, memory '+m+'%, tool results '+t+'%, output reserve 20%. Total '+used+'%; '+(100-used)+'% remaining.'}document.getElementById('growContext').onclick=()=>{t=Math.min(68-m,t+12);context()};document.getElementById('compactContext').onclick=()=>{m=8;context()};document.getElementById('resetContext').onclick=()=>{m=20;t=10;context()};context();</script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="description" content="A hands-on, step-by-step learning guide to MyHarness: inspect AI requests, memory, tools, approvals, skills, MCP, tokens and context.">
+    <title>
+      MyHarness — Learn what happens behind an AI answer
+    </title>
+    <style>
+      *{
+        box-sizing:border-box
+      }
+      html{
+        scroll-behavior:smooth
+      }
+      body{
+        margin:0;
+        background:#f4f5f1;
+        color:#182c2a;
+        font:16px/1.65 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
+      }
+      a{
+        color:#245d55
+      }
+      button,input{
+        font:inherit
+      }
+      button,a{
+        touch-action:manipulation
+      }
+      button{
+        cursor:pointer
+      }
+      button:focus-visible,a:focus-visible,input:focus-visible{
+        outline:3px solid #cb632f;
+        outline-offset:4px
+      }
+      .skip{
+        position:absolute;
+        top:-80px;
+        left:12px;
+        background:white;
+        padding:12px;
+        z-index:9
+      }
+      .skip:focus{
+        top:12px
+      }
+      .layout{
+        display:grid;
+        grid-template-columns:265px minmax(0,1fr);
+        max-width:1550px;
+        margin:auto
+      }
+      aside{
+        padding:30px 24px;
+        height:100vh;
+        position:sticky;
+        top:0;
+        overflow:auto;
+        border-right:1px solid #d7dfd8;
+        background:#edf0e9
+      }
+      .brand{
+        font-weight:800;
+        letter-spacing:-1px;
+        font-size:26px
+      }
+      .brand span{
+        color:#dc6a36
+      }
+      small,.muted{
+        color:#536760
+      }
+      nav{
+        display:grid;
+        gap:5px;
+        margin:25px 0
+      }
+      nav a{
+        padding:8px 10px;
+        border-radius:9px;
+        text-decoration:none;
+        font-size:14px;
+        line-height:1.4
+      }
+      nav a.active{
+        background:#183c35;
+        color:white
+      }
+      nav a span{
+        display:inline-block;
+        width:23px;
+        color:#77877e
+      }
+      nav a.active span{
+        color:#f6b58e
+      }
+      progress{
+        width:100%;
+        height:7px;
+        accent-color:#2c7666
+      }
+      main{
+        min-width:0;
+        padding:50px 6vw 60px
+      }
+      .eyebrow{
+        text-transform:uppercase;
+        font-weight:750;
+        letter-spacing:2px;
+        font-size:12px;
+        color:#4b7161
+      }
+      h1{
+        font-size:clamp(38px,5vw,67px);
+        line-height:1.05;
+        letter-spacing:-3px;
+        max-width:780px;
+        margin:20px 0
+      }
+      h1 em{
+        font-style:normal;
+        color:#34816e
+      }
+      h2{
+        font-size:32px;
+        line-height:1.2;
+        letter-spacing:-1px;
+        margin:9px 0 16px
+      }
+      h3{
+        font-size:18px;
+        line-height:1.3
+      }
+      .lead{
+        font-size:20px;
+        max-width:710px;
+        color:#536760
+      }
+      .pills{
+        display:flex;
+        flex-wrap:wrap;
+        gap:9px;
+        margin:22px 0
+      }
+      .pills span{
+        border:1px solid #c9d5c9;
+        border-radius:99px;
+        padding:5px 13px;
+        font-size:12px
+      }
+      .hero{
+        padding-bottom:45px
+      }
+      .hero-svg{
+        background:#e4eade;
+        border-radius:22px;
+        margin-top:25px;
+        padding:12px
+      }
+      svg{
+        display:block;
+        width:100%;
+        height:auto
+      }
+      svg text{
+        font-family:system-ui,sans-serif
+      }
+      .top-actions{
+        display:flex;
+        gap:12px;
+        flex-wrap:wrap
+      }
+      .btn{
+        display:inline-block;
+        background:#214d42;
+        color:white;
+        border:0;
+        border-radius:9px;
+        padding:10px 18px;
+        text-decoration:none;
+        font-weight:600
+      }
+      .btn.secondary{
+        background:white;
+        color:#214d42;
+        border:1px solid #bed0bf
+      }
+      .lesson{
+        scroll-margin-top:20px;
+        padding:35px 0 45px;
+        border-top:1px solid #cad5ca
+      }
+      .num{
+        font:700 12px/1.4 system-ui;
+        letter-spacing:2px;
+        color:#b84e20
+      }
+      .grid{
+        display:grid;
+        grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+        gap:20px;
+        margin-top:23px
+      }
+      .card{
+        padding:24px;
+        background:white;
+        border:1px solid #dbe2d8;
+        border-radius:16px;
+        min-width:0
+      }
+      .card h3{
+        margin-top:0
+      }
+      .steps{
+        padding-left:23px;
+        margin-bottom:0
+      }
+      .steps li{
+        padding-left:7px;
+        margin-bottom:14px
+      }
+      .take{
+        background:#e5eee3;
+        border-left:3px solid #477a63;
+        padding:17px 20px;
+        margin-top:20px;
+        border-radius:0 10px 10px 0
+      }
+      .reflect{
+        color:#52655e;
+        font-style:italic;
+        margin:18px 0
+      }
+      code{
+        background:#edf1ea;
+        color:#244f41;
+        padding:2px 5px;
+        border-radius:5px;
+        overflow-wrap:anywhere;
+        font-size:.9em
+      }
+      pre{
+        white-space:pre-wrap;
+        overflow-wrap:anywhere;
+        font:13px/1.7 ui-monospace,monospace;
+        background:#163b33;
+        color:#dcefe4;
+        padding:18px;
+        border-radius:10px;
+        margin:14px 0
+      }
+      .check{
+        display:inline-flex;
+        align-items:center;
+        gap:9px;
+        cursor:pointer;
+        font-size:14px
+      }
+      .check input{
+        accent-color:#2c7666;
+        width:18px;
+        height:18px
+      }
+      .lab{
+        margin-top:22px;
+        background:#f9faf6;
+        border:1px solid #cad7c9;
+        border-radius:16px;
+        padding:22px
+      }
+      .lab .label{
+        font-size:11px;
+        letter-spacing:1.4px;
+        text-transform:uppercase;
+        color:#687e70
+      }
+      .lab button{
+        margin:6px 6px 6px 0;
+        border:1px solid #b9cdbb;
+        border-radius:8px;
+        background:#fff;
+        color:#245344;
+        padding:8px 14px
+      }
+      .lab button[aria-pressed=true]{
+        background:#214d42;
+        color:white
+      }
+      .status{
+        min-height:28px
+      }
+      .meter{
+        height:28px;
+        display:flex;
+        background:#dbe2d7;
+        overflow:hidden;
+        border-radius:7px;
+        margin:20px 0
+      }
+      .meter span{
+        min-width:0;
+        transition:width .3s
+      }
+      .legend{
+        display:flex;
+        flex-wrap:wrap;
+        gap:12px;
+        font-size:12px
+      }
+      .legend i{
+        display:inline-block;
+        width:10px;
+        height:10px;
+        border-radius:3px;
+        margin-right:5px
+      }
+      details{
+        background:#fff;
+        border:1px solid #d4ded0;
+        border-radius:10px;
+        margin:10px 0;
+        padding:14px 18px
+      }
+      summary{
+        cursor:pointer;
+        font-weight:650
+      }
+      table{
+        width:100%;
+        border-collapse:collapse;
+        font-size:14px
+      }
+      th,td{
+        text-align:left;
+        padding:10px;
+        border-bottom:1px solid #d8e1d4;
+        vertical-align:top
+      }
+      footer{
+        border-top:1px solid #cad5ca;
+        padding-top:25px;
+        font-size:13px;
+        color:#536760
+      }
+      .note{
+        font-size:13px;
+        color:#627165
+      }
+      .nojs{
+        background:#fff0d4;
+        padding:12px
+      }
+      @media(max-width:950px){
+        .layout{
+          grid-template-columns:205px minmax(0,1fr)
+        }
+        aside{
+          padding:24px 15px
+        }
+        main{
+          padding:35px 5vw
+        }
+        .grid{
+          grid-template-columns:1fr
+        }
+      }
+      @media(max-width:650px){
+        .layout{
+          display:block
+        }
+        aside{
+          height:auto;
+          position:static;
+          padding:18px;
+          border-right:0;
+          border-bottom:1px solid #d7dfd8
+        }
+        aside nav{
+          grid-template-columns:1fr 1fr;
+          margin:15px 0;
+          gap:3px
+        }
+        aside nav a{
+          font-size:12px;
+          padding:6px
+        }
+        aside .note{
+          display:none
+        }
+        main{
+          padding:30px 20px
+        }
+        h1{
+          letter-spacing:-2px
+        }
+        h2{
+          font-size:27px
+        }
+        .card{
+          padding:20px
+        }
+        .hero-svg{
+          padding:0
+        }
+      }
+      @media(prefers-reduced-motion:reduce){
+        html{
+          scroll-behavior:auto
+        }
+        .meter span{
+          transition:none
+        }
+      }
+      @media print{
+        aside,.top-actions,.check,.lab button{
+          display:none
+        }
+        .layout{
+          display:block
+        }
+        main{
+          padding:0
+        }
+        .lesson{
+          break-inside:avoid
+        }
+        body{
+          background:white;
+          font-size:11pt
+        }
+        .hero{
+          padding-bottom:10px
+        }
+        h1{
+          font-size:35pt
+        }
+        .card,.lab{
+          break-inside:avoid
+        }
+        a{
+          color:inherit
+        }
+        pre{
+          background:#eee;
+          color:black
+        }
+        .grid{
+          grid-template-columns:1fr 1fr
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to guide</a>
+    <div class="layout">
+      <aside>
+        <div class="brand">
+          my<span>harness</span>
+        </div>
+        <small>The learning field guide</small>
+        <nav aria-label="Learning steps">
+          <a href="#step-1" data-step="1"><span>01</span>Meet your harness</a><a href="#step-2" data-step="2"><span>02</span>Choose where the model runs</a><a href="#step-3" data-step="3"><span>03</span>Send your first request</a><a href="#step-4" data-step="4"><span>04</span>Experiment with memory</a><a href="#step-5" data-step="5"><span>05</span>Shape the instructions</a><a href="#step-6" data-step="6"><span>06</span>Give the model a tool</a><a href="#step-7" data-step="7"><span>07</span>Approve or deny a change</a><a href="#step-8" data-step="8"><span>08</span>Load a skill</a><a href="#step-9" data-step="9"><span>09</span>Discover external tools with MCP</a><a href="#step-10" data-step="10"><span>10</span>Explore tokens and context</a><a href="#step-11" data-step="11"><span>11</span>Compact, reset, and save</a><a href="#step-12" data-step="12"><span>12</span>Run your own investigation</a>
+        </nav>
+        <label for="progress" id="progressText">0 of 12 steps explored</label>
+        <progress id="progress" max="12" value="0">
+      </progress>
+      <button class="btn secondary" id="resetProgress" style="margin-top:12px;font-size:12px">Reset progress</button>
+      <p class="note">
+        Read, experiment, inspect.<br>Progress is saved in this browser when storage is available.
+      </p>
+    </aside>
+    <main id="main">
+      <header class="hero">
+        <div class="eyebrow">
+          An open laboratory for curious people
+        </div>
+        <h1>
+          See what happens<br>behind an <em>AI answer.</em>
+        </h1>
+        <p class="lead">
+          Learn to use MyHarness by taking it apart, one small experiment at a time. Discover what the model sees, how tools act, and why context matters.
+        </p>
+        <div class="pills">
+          <span>12 guided experiments</span><span>Beginner friendly</span><span>SVG explanations</span><span>No background knowledge needed</span>
+        </div>
+        <div class="top-actions">
+          <a class="btn" href="#step-1">Begin the journey →</a><button class="btn secondary" id="print">Print / save as PDF</button>
+        </div>
+        <div class="hero-svg">
+          <svg viewBox="0 0 800 290" role="img" aria-label="Your message enters the harness. The harness sends a request to the model, executes approved tools, then returns an answer." xmlns="http://www.w3.org/2000/svg">
+            <title>
+              Your message enters the harness. The harness sends a request to the model, executes approved tools, then returns an answer.
+            </title>
+            <defs>
+              <marker id="arr7482923659732527071" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                <path d="M0 0L8 4L0 8" fill="#598271"/>
+              </marker>
+            </defs>
+            <rect x="26" y="75" width="148" height="140" rx="18" fill="#fff"/>
+            <text x="100" y="123" text-anchor="middle" fill="#254c40" font-size="18" font-weight="700">
+              You
+            </text>
+            <text x="100" y="154" text-anchor="middle" fill="#536760" font-size="13">
+              ask · inspect
+            </text>
+            <text x="100" y="177" text-anchor="middle" fill="#536760" font-size="13">
+              approve · learn
+            </text>
+            <path d="M174 143H234" stroke="#598271" stroke-width="2"/>
+            <path d="M223 136l11 7-11 7" fill="none" stroke="#598271" stroke-width="2"/>
+            <rect x="238" y="40" width="270" height="220" rx="20" fill="#214d42"/>
+            <text x="373" y="83" text-anchor="middle" fill="#fff" font-size="24" font-weight="700">
+              MyHarness
+            </text>
+            <rect x="260" y="106" width="225" height="35" rx="7" fill="#396858"/>
+            <text x="373" y="129" text-anchor="middle" fill="#e7f0e7" font-size="13">
+              Instructions + memory + tools
+            </text>
+            <rect x="260" y="151" width="225" height="35" rx="7" fill="#396858"/>
+            <text x="373" y="174" text-anchor="middle" fill="#e7f0e7" font-size="13">
+              Approvals + execution
+            </text>
+            <text x="373" y="224" text-anchor="middle" fill="#afceba" font-size="13">
+              Every step becomes visible
+            </text>
+            <path d="M508 105H591M591 119H508" stroke="#598271" stroke-width="2"/>
+            <text x="550" y="90" text-anchor="middle" fill="#536760" font-size="11">
+              request / response
+            </text>
+            <rect x="595" y="52" width="176" height="104" rx="18" fill="#fff"/>
+            <text x="683" y="92" text-anchor="middle" fill="#254c40" font-size="19" font-weight="700">
+              Model
+            </text>
+            <text x="683" y="119" text-anchor="middle" fill="#536760" font-size="13">
+              generates text + calls
+            </text>
+            <path d="M508 218H591" stroke="#598271" stroke-width="2"/>
+            <rect x="595" y="184" width="176" height="76" rx="15" fill="#f7d9bb"/>
+            <text x="683" y="215" text-anchor="middle" fill="#75441f" font-size="18" font-weight="700">
+              Tools
+            </text>
+            <text x="683" y="239" text-anchor="middle" fill="#75441f" font-size="12">
+              read · edit · connect
+            </text>
+          </svg>
+        </div>
+        <p class="note">
+          This standalone guide works offline. To perform the exercises, open MyHarness separately. Embedded demonstrations are illustrative and never contact a model, access a folder, or execute a tool.
+        </p>
+        <noscript>
+          <p class="nojs">
+            All lessons remain readable without JavaScript. Interactive illustrations and progress tracking require JavaScript.
+          </p>
+        </noscript>
+      </header>
+      <section class="lesson" id="step-1" aria-labelledby="heading-1">
+        <div class="num">
+          STEP 01 / 12 · UNDERSTAND WHO DOES WHAT
+        </div>
+        <h2 id="heading-1">
+          Meet your harness
+        </h2>
+        <p>
+          A model generates a response from an input. MyHarness assembles that input, offers tools, checks approvals, runs allowed actions, and sends the results back. The browser lets you inspect each of these steps.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                Open MyHarness and locate <b>Chat</b>, <b>Internals</b>, and <b>Explore</b>.
+              </li>
+              <li>
+                Use Chat to follow the conversation. Use Internals to inspect API exchanges and tool effects. Use Explore to inspect the ingredients of a request.
+              </li>
+              <li>
+                Keep these three views in mind throughout this guide: conversation, evidence, and construction.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Three views, three questions
+            </h3>
+            <p>
+              <b>Chat:</b> What did the assistant say and do?
+            </p>
+            <p>
+              <b>Internals:</b> What crossed the API boundary?
+            </p>
+            <p>
+              <b>Explore:</b> What made up the request?
+            </p>
+            <p class="note">
+              Use evidence from all three before deciding how a behavior works.
+            </p>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>An answer is the visible outcome of a process. MyHarness makes that process inspectable.
+        </div>
+        <p class="reflect">
+          Pause and explain: Which part creates text, and which part actually opens a file?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="1"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-2" aria-labelledby="heading-2">
+        <div class="num">
+          STEP 02 / 12 · SEPARATE THE HARNESS FROM INFERENCE
+        </div>
+        <h2 id="heading-2">
+          Choose where the model runs
+        </h2>
+        <p>
+          Inference means running the model to generate an answer. The browser edition runs the harness in a browser Worker; Ollama or a cloud provider runs inference separately.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                Choose <b>Local Ollama</b> or an available cloud provider in the toolbar.
+              </li>
+              <li>
+                For Ollama, provide the server URL and select an installed model. For a cloud provider, enter your own API key and select an available model.
+              </li>
+              <li>
+                Click <b>Start new session with this model</b>. Send a short greeting and check that a response arrives.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Choose an execution environment
+            </h3>
+            <table>
+              <tr>
+                <th>
+                  Edition
+                </th>
+                <th>
+                  What runs where?
+                </th>
+              </tr>
+              <tr>
+                <td>
+                  Browser
+                </td>
+                <td>
+                  Harness and UI on your machine; inference on Ollama or the selected provider. No Bash.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  Node
+                </td>
+                <td>
+                  Same core harness in Node; browser UI or terminal runner. Bash available in supported Linux/WSL environments.
+                </td>
+              </tr>
+            </table>
+            <p class="note">
+              Direct folder access needs a supporting browser such as Chrome or Edge, using HTTPS or localhost.
+            </p>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>Local Ollama uses your model server. A cloud provider receives the request payload and bills API usage to its account. A paid chat subscription does not configure an API account.
+        </div>
+        <p class="reflect">
+          Pause and explain: Can you identify where your selected model runs?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="2"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-3" aria-labelledby="heading-3">
+        <div class="num">
+          STEP 03 / 12 · LOOK BEYOND THE CHAT BUBBLE
+        </div>
+        <h2 id="heading-3">
+          Send your first request
+        </h2>
+        <p>
+          Each model call has an outgoing request and an incoming response. Internals lets you compare what you typed with what was actually sent.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                Send: <code>Explain what an AI harness does in three sentences.</code>
+              </li>
+              <li>
+                Open Internals and find the corresponding <b>SENT</b> and <b>RECEIVED</b> blocks.
+              </li>
+              <li>
+                Find your message inside SENT. Then look for the instructions and any enabled tool definitions included alongside it.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Read a payload like a checklist
+            </h3>
+            <p>
+              ① Instructions set the task framing.
+            </p>
+            <p>
+              ② Retained messages provide continuity.
+            </p>
+            <p>
+              ③ Tool definitions advertise available operations.
+            </p>
+            <p>
+              ④ Your latest message asks for work.
+            </p>
+            <p class="note">
+              This is a conceptual map. Inspect the native SENT body for your provider’s actual format.
+            </p>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>The model receives a structured payload, not just the last sentence you typed. Provider formats can differ.
+        </div>
+        <p class="reflect">
+          Pause and explain: What extra information accompanied your question?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="3"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-4" aria-labelledby="heading-4">
+        <div class="num">
+          STEP 04 / 12 · DISCOVER WHY A CONVERSATION FEELS CONTINUOUS
+        </div>
+        <h2 id="heading-4">
+          Experiment with memory
+        </h2>
+        <p>
+          Harness memory is retained conversation content that is sent again in later requests. It is different from the model learning new facts in its weights.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                With <b>Harness memory</b> on, say: <code>My favourite number is 42.</code>
+              </li>
+              <li>
+                Ask: <code>What is my favourite number?</code> Compare the two SENT blocks and locate the earlier exchange.
+              </li>
+              <li>
+                Turn memory off and ask again. In this UI, turning memory off resets retained memory. Inspect the shorter payload; the visible transcript can still contain the old exchange.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Offline experiment: what gets sent?
+            </h3>
+            <p>
+              We already said “My favourite number is 42.” Toggle retained memory to inspect an illustrative next request.
+            </p>
+            <div class="lab">
+              <span class="label">Guide simulation · no model call</span><br><button id="memoryToggle" aria-pressed="true">Memory on</button><pre id="memoryPayload"></pre>
+              <p id="memoryExplanation" class="status" aria-live="polite">
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>An old chat bubble remaining on screen does not prove it was sent to the model. Inspect SENT to see what the model could use.
+        </div>
+        <p class="reflect">
+          Pause and explain: If the answer is still 42 without that fact in SENT, is it proof of memory—or could it be a guess?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="4"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-5" aria-labelledby="heading-5">
+        <div class="num">
+          STEP 05 / 12 · UNDERSTAND HOW BEHAVIOR IS GUIDED
+        </div>
+        <h2 id="heading-5">
+          Shape the instructions
+        </h2>
+        <p>
+          A base prompt, agent persona, and project AGENTS.md can be composed into the system message. They guide behavior without changing the model itself.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                In Explore, inspect the instruction components used to build the request.
+              </li>
+              <li>
+                Try a concise persona or base instruction such as <code>Explain terms for a beginner. Use one concrete example.</code> in a new session.
+              </li>
+              <li>
+                Ask the same question in separate sessions with different instruction snapshots. Compare SENT first, then compare the answers.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Try a controlled comparison
+            </h3>
+            <p>
+              <b>Question:</b> “Explain a token.”
+            </p>
+            <p>
+              <b>Session A:</b> “Explain for a beginner.”
+            </p>
+            <p>
+              <b>Session B:</b> “Explain for a software engineer.”
+            </p>
+            <p>
+              Use the same model and tools. Compare the instruction payloads before comparing the answers.
+            </p>
+            <p class="note">
+              Separate sessions avoid carrying the first answer into the second experiment.
+            </p>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>Instruction text is input. It can influence an answer, but it is not a guarantee. Community prompt-library examples have unverified attribution and do not recreate another product’s tools.
+        </div>
+        <p class="reflect">
+          Pause and explain: Did the instruction change—and did the answer actually follow it?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="5"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-6" aria-labelledby="heading-6">
+        <div class="num">
+          STEP 06 / 12 · FOLLOW A COMPLETE ACTION LOOP
+        </div>
+        <h2 id="heading-6">
+          Give the model a tool
+        </h2>
+        <p>
+          A tool definition describes an operation and its arguments. The model can request that operation; the harness executes it and returns a result. The model can then use that result in its answer.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                Open a small scratch project using <b>Open local folder…</b>, or use <b>Import folder copy</b> / <b>Import JSON project</b> for a virtual project.
+              </li>
+              <li>
+                Enable <code>pwd</code>, <code>list_files</code>, and <code>read_file</code>. Ask: <code>List the project files, then read README.md if it exists.</code>
+              </li>
+              <li>
+                In Internals, follow the tool name and arguments, execution result, and subsequent SENT block containing that result. If no call occurs, record that too.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Follow the evidence
+            </h3>
+            <svg viewBox="0 0 800 290" role="img" aria-label="Tool loop: model requests a read, harness executes it, result goes back to model, model answers." xmlns="http://www.w3.org/2000/svg">
+              <title>
+                Tool loop: model requests a read, harness executes it, result goes back to model, model answers.
+              </title>
+              <defs>
+                <marker id="arr7742045595386376163" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0 0L8 4L0 8" fill="#598271"/>
+                </marker>
+              </defs>
+              <path d="M190 77H575Q650 77 650 140V195H190Q115 195 115 130V77" fill="none" stroke="#82a891" stroke-width="3"/>
+              <rect x="35" y="45" width="200" height="65" rx="12" fill="#214d42"/>
+              <text x="135" y="72" text-anchor="middle" fill="white" font-size="14">
+                1 · Model requests
+              </text>
+              <text x="135" y="94" text-anchor="middle" fill="#c2dec9" font-size="12">
+                read_file("README.md")
+              </text>
+              <rect x="565" y="45" width="200" height="65" rx="12" fill="#e7eee2"/>
+              <text x="665" y="72" text-anchor="middle" fill="#214d42" font-size="14">
+                2 · Harness executes
+              </text>
+              <text x="665" y="94" text-anchor="middle" fill="#536760" font-size="12">
+                reads the selected project
+              </text>
+              <rect x="565" y="160" width="200" height="65" rx="12" fill="#f7d9bb"/>
+              <text x="665" y="188" text-anchor="middle" fill="#75441f" font-size="14">
+                3 · Tool returns text
+              </text>
+              <text x="665" y="209" text-anchor="middle" fill="#75441f" font-size="12">
+                or an error / denial
+              </text>
+              <rect x="35" y="160" width="200" height="65" rx="12" fill="#e7eee2"/>
+              <text x="135" y="188" text-anchor="middle" fill="#214d42" font-size="14">
+                4 · Model receives result
+              </text>
+              <text x="135" y="209" text-anchor="middle" fill="#536760" font-size="12">
+                answers or requests more
+              </text>
+              <text x="400" y="66" text-anchor="middle" fill="#536760" font-size="12">
+                → requested action →
+              </text>
+              <text x="400" y="187" text-anchor="middle" fill="#536760" font-size="12">
+                ← next model request ←
+              </text>
+              <text x="400" y="268" text-anchor="middle" fill="#536760" font-size="13">
+                One user message can produce several model calls.
+              </text>
+            </svg>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>Saying “I read the file” is not evidence of execution. Look for the call and its result. A model may fail to request an enabled tool.
+        </div>
+        <p class="reflect">
+          Pause and explain: Can you trace a fact in the final answer back to a tool result?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="6"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-7" aria-labelledby="heading-7">
+        <div class="num">
+          STEP 07 / 12 · LEARN HOW YOU CONTROL ACTIONS
+        </div>
+        <h2 id="heading-7">
+          Approve or deny a change
+        </h2>
+        <p>
+          Approvals let you inspect a proposed write, edit, or shell command before execution. Denial is also information: the harness sends it back as a tool result.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                Use a scratch project and keep approvals on. Enable <code>write_file</code>.
+              </li>
+              <li>
+                Ask: <code>Create lesson-note.txt containing: I am learning how tools work.</code> Inspect the proposed change, then deny it.
+              </li>
+              <li>
+                Check the denial in Internals and verify that the file was not created. Repeat and approve only if you want the file.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Offline experiment: a proposed write
+            </h3>
+            <div class="lab">
+              <span class="label">Guide simulation · no files are changed</span><pre>+ lesson-note.txt
++ I am learning how tools work.</pre><button id="approveDemo">Approve</button><button id="denyDemo">Deny</button>
+              <p id="approvalResult" class="status" aria-live="polite">
+                Choose a response to see what returns to the model.
+              </p>
+            </div>
+            <p class="note">
+              In the real app, inspect the entire diff or command and its target before making this choice.
+            </p>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>Direct folder access writes to your actual disk. Imported copies change a virtual project. In the browser, run_command is unavailable; the Node edition can run Bash with your account’s permissions and has no shell sandbox.
+        </div>
+        <p class="reflect">
+          Pause and explain: What exactly would the proposed action change?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="7"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-8" aria-labelledby="heading-8">
+        <div class="num">
+          STEP 08 / 12 · SEE INSTRUCTIONS APPEAR ON DEMAND
+        </div>
+        <h2 id="heading-8">
+          Load a skill
+        </h2>
+        <p>
+          A skill offers a short description first, then loads fuller instructions when used. It teaches a workflow; it does not independently execute the work or create a new tool.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                Enable <code>use_skill</code> and inspect the offered skill descriptions.
+              </li>
+              <li>
+                Type <code>/write-readme</code> followed by a request. Recognized skill names are highlighted blue and slash autocomplete can help you choose.
+              </li>
+              <li>
+                Inspect the loaded instructions and later request. Compare their size and detail with the original short description.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Guidance becomes available
+            </h3>
+            <svg viewBox="0 0 800 290" role="img" aria-label="A skill description is offered first, full instructions are loaded when needed, then tools carry out the workflow." xmlns="http://www.w3.org/2000/svg">
+              <title>
+                A skill description is offered first, full instructions are loaded when needed, then tools carry out the workflow.
+              </title>
+              <defs>
+                <marker id="arr5237392447304986476" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0 0L8 4L0 8" fill="#598271"/>
+                </marker>
+              </defs>
+              <rect x="25" y="50" width="220" height="175" rx="15" fill="#e7eee2"/>
+              <text x="135" y="88" text-anchor="middle" fill="#214d42" font-size="18" font-weight="700">
+                Description
+              </text>
+              <path d="M55 117H210M55 137H180" stroke="#8aaa93" stroke-width="9" stroke-linecap="round"/>
+              <text x="135" y="184" text-anchor="middle" fill="#536760" font-size="13">
+                Small discovery hint
+              </text>
+              <path d="M250 138H281l-10-7m10 7-10 7" stroke="#598271" fill="none" stroke-width="2"/>
+              <rect x="290" y="25" width="220" height="225" rx="15" fill="#214d42"/>
+              <text x="400" y="65" text-anchor="middle" fill="white" font-size="18" font-weight="700">
+                Full instructions
+              </text>
+              <path d="M325 95H473M325 117H452M325 139H473M325 161H452" stroke="#73a78e" stroke-width="8" stroke-linecap="round"/>
+              <text x="400" y="215" text-anchor="middle" fill="#dcebdd" font-size="13">
+                Loaded on demand
+              </text>
+              <path d="M518 138H549l-10-7m10 7-10 7" stroke="#598271" fill="none" stroke-width="2"/>
+              <rect x="560" y="50" width="215" height="175" rx="15" fill="#f7d9bb"/>
+              <text x="667" y="88" text-anchor="middle" fill="#75441f" font-size="18" font-weight="700">
+                Tool actions
+              </text>
+              <text x="667" y="128" text-anchor="middle" fill="#75441f" font-size="14">
+                Read → propose → write
+              </text>
+              <text x="667" y="184" text-anchor="middle" fill="#75441f" font-size="13">
+                Approvals still apply
+              </text>
+            </svg>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>A skill supplies guidance. File tools still do the reading and writing, and applicable approvals still govern those actions.
+        </div>
+        <p class="reflect">
+          Pause and explain: Which part was instruction text, and which part performed an action?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="8"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-9" aria-labelledby="heading-9">
+        <div class="num">
+          STEP 09 / 12 · UNDERSTAND CONNECTIONS TO OTHER SERVICES
+        </div>
+        <h2 id="heading-9">
+          Discover external tools with MCP
+        </h2>
+        <p>
+          MCP, the Model Context Protocol, lets external servers provide tools, instructions, resources, and prompts. A server must be connected before its actual tools are known.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                Open <b>Explore → MCP servers → Find MCP servers…</b>. Search the official registry and inspect an entry.
+              </li>
+              <li>
+                For a remote server, use <b>Preview tools</b> to inspect its advertised tools, prompts, and resources without invoking tools. Use <b>Show configuration</b> to see its connection requirements.
+              </li>
+              <li>
+                After configuring a trusted server, select the tools you want to offer. Inspect a call’s approval and JSON-RPC request/response in Internals or the server view.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Four things a server can offer
+            </h3>
+            <p>
+              <b>Tools:</b> callable operations.
+            </p>
+            <p>
+              <b>Instructions:</b> guidance added while its tools are selected.
+            </p>
+            <p>
+              <b>Resources:</b> content listed/read through resource tools.
+            </p>
+            <p>
+              <b>Prompts:</b> workflows invoked with <code>/mcp__server__prompt</code>.
+            </p>
+            <p class="note">
+              Registry preview is discovery. It does not execute advertised tools or run local packages.
+            </p>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>New-session MCP tools start unticked. With approvals on, every external tool call requests approval. Browser MCP connections require compatible HTTP/CORS; local stdio servers require Node. OAuth sign-in is not currently supported.
+        </div>
+        <p class="reflect">
+          Pause and explain: What can this server do, and what arguments would your call send?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="9"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-10" aria-labelledby="heading-10">
+        <div class="num">
+          STEP 10 / 12 · UNDERSTAND THE MODEL’S WORKING SPACE
+        </div>
+        <h2 id="heading-10">
+          Explore tokens and context
+        </h2>
+        <p>
+          Tokens are model-specific pieces used to encode input and output. Context includes instructions, retained messages, tool definitions and results. A longer transcript can increase context pressure.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                Inspect the context meter and compare a short exchange with a longer one containing tool output.
+              </li>
+              <li>
+                Open <b>Explore → tokenization of a saved request</b>. Select a model call and click <b>Inspect selected request</b>.
+              </li>
+              <li>
+                Read the evidence label. When pieces are available, click one to see its position, ID, and bytes. Count-only or unavailable results do not expose token boundaries.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Offline experiment: a working budget
+            </h3>
+            <div class="lab">
+              <span class="label">Invented teaching values · not a token estimate</span>
+              <div class="meter" aria-hidden="true">
+                <span style="width:12%;background:#214d42"></span><span id="memoryBar" style="width:20%;background:#639776"></span><span id="toolBar" style="width:10%;background:#dea06e"></span><span style="width:20%;background:#b7c9d0"></span>
+              </div>
+              <div class="legend">
+                <span><i style="background:#214d42"></i>Instructions 12%</span><span><i style="background:#639776"></i>Memory</span><span><i style="background:#dea06e"></i>Tool results</span><span><i style="background:#b7c9d0"></i>Output reserve 20%</span>
+              </div>
+              <button id="growContext">Add a large tool result</button><button id="compactContext">Summarize memory</button><button id="resetContext">Reset illustration</button>
+              <p id="contextStatus" class="status" aria-live="polite">
+              </p>
+            </div>
+            <p class="note">
+              Real token sizes depend on the model and payload. Summarizing memory cannot remove tool definitions or guarantee all important facts survive.
+            </p>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>A token count is not a full inference trace. Configured tokenizers and provider text tokenization have coverage limits; cloud internal templates are unavailable. Fresh inspection may use provider quota or load a local model.
+        </div>
+        <p class="reflect">
+          Pause and explain: Is this number measured, estimated, count-only, or based on only part of the text?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="10"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-11" aria-labelledby="heading-11">
+        <div class="num">
+          STEP 11 / 12 · DISTINGUISH A TRANSCRIPT FROM WORKING MEMORY
+        </div>
+        <h2 id="heading-11">
+          Compact, reset, and save
+        </h2>
+        <p>
+          Compaction asks the selected model to summarize retained memory. Reset clears retained memory. Neither operation erases the saved transcript. A summary is lossy and may omit useful details.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                Create a short conversation with a goal, a constraint, and a decision. Inspect retained memory in Explore.
+              </li>
+              <li>
+                Use the compaction control and inspect its separate model request and resulting summary. Compare the original details with the summary. Ineffective or interrupted summaries leave memory unchanged.
+              </li>
+              <li>
+                Use <b>Export session</b> to save the transcript, current model memory, and instruction snapshot. Use <b>Export project</b> for text files and project sessions; <b>Import JSON project</b> restores a project export.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              What are you preserving?
+            </h3>
+            <table>
+              <tr>
+                <th>
+                  Action
+                </th>
+                <th>
+                  Effect
+                </th>
+              </tr>
+              <tr>
+                <td>
+                  Compact
+                </td>
+                <td>
+                  Replace retained memory with a useful summary when successful.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  Reset memory
+                </td>
+                <td>
+                  Clear what the harness retains for later calls.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  Export session
+                </td>
+                <td>
+                  Save transcript, retained memory and instruction snapshot; no project files.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  Export project
+                </td>
+                <td>
+                  Save text files plus the project’s sessions.
+                </td>
+              </tr>
+            </table>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>Browser saves belong to the site origin and browser profile. Clearing site data removes them; changing the host or port uses different storage. Inspect exports before sharing because they can contain file contents and local paths.
+        </div>
+        <p class="reflect">
+          Pause and explain: Could a new response still recover a detail omitted from retained memory?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="11"> I explored this step</label>
+      </section>
+      <section class="lesson" id="step-12" aria-labelledby="heading-12">
+        <div class="num">
+          STEP 12 / 12 · CHANGE ONE THING AND FOLLOW THE EVIDENCE
+        </div>
+        <h2 id="heading-12">
+          Run your own investigation
+        </h2>
+        <p>
+          You now have a repeatable method: predict a behavior, change one setting, inspect the actual request and actions, and compare the result. This makes MyHarness a laboratory for understanding AI systems.
+        </p>
+        <div class="grid">
+          <div class="card">
+            <h3>
+              Try it in MyHarness
+            </h3>
+            <ol class="steps">
+              <li>
+                Choose a question: Does memory change the input? Does a skill load more instructions? Does denying a tool change the next answer?
+              </li>
+              <li>
+                Use a small project and separate sessions to compare two conditions while keeping the provider, model, and task the same. Record prompts, enabled tools, and relevant instruction snapshots.
+              </li>
+              <li>
+                Inspect evidence before drawing a conclusion. Repeat if needed: generation can vary. Explain both the observation and its limits.
+              </li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>
+              Your experiment notebook
+            </h3>
+            <p>
+              <b>Question:</b> What behavior am I investigating?
+            </p>
+            <p>
+              <b>Prediction:</b> What do I expect to change?
+            </p>
+            <p>
+              <b>Setup:</b> Model, instructions, tools, memory state.
+            </p>
+            <p>
+              <b>Evidence:</b> Payload, call, result, approval.
+            </p>
+            <p>
+              <b>Conclusion:</b> What happened? What is still uncertain?
+            </p>
+            <p class="note">
+              Start with one variable. Small experiments are easier to understand and explain.
+            </p>
+          </div>
+        </div>
+        <div class="take">
+          <b>What you learn</b><br>Displayed model thinking is text exposed by the provider, not guaranteed access to its internal reasoning. The guide’s demonstrations are illustrative; live tool results and SENT blocks are your evidence.
+        </div>
+        <p class="reflect">
+          Pause and explain: Can another learner reproduce your experiment from your notes?
+        </p>
+        <label class="check"><input type="checkbox" data-complete="12"> I explored this step</label>
+      </section>
+      <section class="lesson" id="reference">
+        <div class="eyebrow">
+          Keep this nearby
+        </div>
+        <h2>
+          A small glossary
+        </h2>
+        <details>
+          <summary>
+            Model, harness, and inference
+          </summary>
+          <p>
+            <b>Model:</b> the system generating output from input. <b>Harness:</b> the software arranging instructions, memory, tools, and actions around it. <b>Inference:</b> running the model to produce an output.
+          </p>
+        </details>
+        <details>
+          <summary>
+            Memory, transcript, and context
+          </summary>
+          <p>
+            <b>Transcript:</b> the visible record of the conversation. <b>Retained memory:</b> the conversation content kept for future calls. <b>Context:</b> the input available on a particular call, including instructions and tools. These are related, but they are not identical.
+          </p>
+        </details>
+        <details>
+          <summary>
+            Tool, skill, and MCP server
+          </summary>
+          <p>
+            <b>Tool:</b> a callable operation. <b>Skill:</b> instructions for a workflow. <b>MCP server:</b> an external provider of tools and other context through a shared protocol.
+          </p>
+        </details>
+        <details>
+          <summary>
+            Tokens, compaction, and evidence
+          </summary>
+          <p>
+            <b>Token:</b> a model-specific encoding piece. <b>Compaction:</b> summarizing memory to reduce its size. <b>Evidence:</b> the actual payloads, calls, results, and explicitly labelled measurements you can inspect.
+          </p>
+        </details>
+        <h3>
+          Next discoveries
+        </h3>
+        <p>
+          After these experiments, explore Ollama templates and the illustrative Qwen prompt reconstruction in Explore, compare provider-native payloads, or use the headless runner to observe the same harness without the interface. Read the architecture documentation before extending the backend.
+        </p>
+        <p class="note">
+          This guide describes documented learning features. Multiple independent subagents, media input, hosted provider tools, and advanced reasoning controls are not presented as available exercises.
+        </p>
+      </section>
+      <footer>
+        <b>MyHarness · educational field guide</b>
+        <p>
+          Based on the project documentation retrieved on 6 October 2026. Labels and availability can change as the project evolves.
+        </p>
+        <p>
+          <a href="https://github.com/StreamingBoss/myharness/blob/main/README.md">Project README</a> · <a href="https://github.com/StreamingBoss/myharness/blob/main/TOKENIZATION.md">Tokenization and evidence limits</a> · <a href="https://github.com/StreamingBoss/myharness/blob/main/ARCHITECTURE.md">Architecture</a>
+        </p>
+        <p>
+          The guide does not connect to services. Real exercises use your selected provider and enabled project tools. Keep the Node HTTP service on localhost; use a scratch project for learning.
+        </p>
+      </footer>
+    </main>
+  </div>
+  <script>
+      const checks=[...document.querySelectorAll('[data-complete]')];
+      const key='myharness-guide-v1-progress';
+      let saved=[];
+      try{
+        saved=JSON.parse(localStorage.getItem(key)||'[]');
+        if(!Array.isArray(saved))saved=[]
+      }
+      catch{
+      }
+      checks.forEach(c=>{
+        c.checked=saved.includes(c.dataset.complete);
+        c.addEventListener('change',update)
+      }
+      );
+      function update(){
+        const done=checks.filter(c=>c.checked).map(c=>c.dataset.complete);
+        document.getElementById('progress').value=done.length;
+        document.getElementById('progressText').textContent=done.length+' of 12 steps explored';
+        try{
+          localStorage.setItem(key,JSON.stringify(done))
+        }
+        catch{
+        }
+      }
+      update();
+      document.getElementById('resetProgress').onclick=()=>{
+        checks.forEach(c=>c.checked=false);
+        update()
+      }
+      ;
+      document.getElementById('print').onclick=()=>window.print();
+      if('IntersectionObserver' in window){
+        const obs=new IntersectionObserver(entries=>{
+          entries.forEach(e=>{
+            if(e.isIntersecting){
+              document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#'+e.target.id))
+            }
+          }
+          )
+        }
+        ,{
+          rootMargin:'-8% 0px -65% 0px',threshold:0
+        }
+        );
+        document.querySelectorAll('.lesson').forEach(s=>obs.observe(s))
+      }
+      const mem=document.getElementById('memoryToggle');
+      function memory(){
+        const on=mem.getAttribute('aria-pressed')==='true';
+        mem.textContent=on?'Memory on':'Memory off';
+        document.getElementById('memoryPayload').textContent=JSON.stringify({
+          messages:on?[{
+            role:'user',content:'My favourite number is 42.'
+          }
+          ,{
+            role:'assistant',content:'Got it.'
+          }
+          ,{
+            role:'user',content:'What is my favourite number?'
+          }
+          ]:[{
+            role:'user',content:'What is my favourite number?'
+          }
+          ]
+        }
+        ,null,2);
+        document.getElementById('memoryExplanation').textContent=on?'The earlier fact is present in the input.':'The fact is absent. The model has no evidence of it in this illustrated request.'
+      }
+      mem.onclick=()=>{
+        mem.setAttribute('aria-pressed',mem.getAttribute('aria-pressed')==='true'?'false':'true');
+        memory()
+      }
+      ;
+      memory();
+      document.getElementById('approveDemo').onclick=()=>document.getElementById('approvalResult').textContent='Illustrated result: write succeeded. The model receives confirmation that lesson-note.txt was created.';
+      document.getElementById('denyDemo').onclick=()=>document.getElementById('approvalResult').textContent='Illustrated result: user denied the write. No file is created; the model receives the denial.';
+      let m=20,t=10;
+      function context(){
+        document.getElementById('memoryBar').style.width=m+'%';
+        document.getElementById('toolBar').style.width=t+'%';
+        let used=12+m+t+20;
+        document.getElementById('contextStatus').textContent='Illustrative budget: instructions 12%, memory '+m+'%, tool results '+t+'%, output reserve 20%. Total '+used+'%; '+(100-used)+'% remaining.'
+      }
+      document.getElementById('growContext').onclick=()=>{
+        t=Math.min(68-m,t+12);
+        context()
+      }
+      ;
+      document.getElementById('compactContext').onclick=()=>{
+        m=8;
+        context()
+      }
+      ;
+      document.getElementById('resetContext').onclick=()=>{
+        m=20;
+        t=10;
+        context()
+      }
+      ;
+      context();
+    </script>
+</body>
+</html>
