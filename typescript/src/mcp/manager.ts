@@ -13,6 +13,8 @@ export interface McpRuntime {
   /** Where the configuration comes from, for display. */
   readonly source: string;
   loadConfig(): Promise<unknown>;
+  /** Persists harness-owned configuration; never writes into the project workspace. */
+  saveConfig?(value: JsonObject): Promise<void>;
   fetch?: McpFetch;
   stdio?(config: StdioConfig): McpChannel;
   /** Why stdio servers cannot run in this runtime. */
@@ -269,6 +271,22 @@ export class McpManager {
     };
   }
 
+  /** Adds entries without overwriting existing servers, then reconnects. */
+  async addConfig(value: unknown): Promise<JsonObject> {
+    if (!this.runtime?.saveConfig) throw new Error('this runtime cannot save MCP configuration');
+    const added = parseConfig(value);
+    if (!Object.keys(added).length) throw new Error('Choose at least one MCP server to add');
+    for (const config of Object.values(added)) if (config instanceof Error) throw config;
+    const existing = await this.runtime.loadConfig();
+    parseConfig(existing);
+    const current = (existing ?? {}) as JsonObject;
+    const servers = (current.mcpServers ?? {}) as JsonObject;
+    for (const name of Object.keys(added)) if (Object.hasOwn(servers, name)) throw new Error(`MCP server '${name}' already exists; edit its configuration to replace it`);
+    await this.runtime.saveConfig({ ...current, mcpServers: { ...servers, ...(value as JsonObject).mcpServers as JsonObject } });
+    await this.load();
+    return this.status();
+  }
+
   /** Searches an MCP registry through the runtime's fetch. */
   async searchRegistry(query: { search?: string; cursor?: string; source?: RegistrySource }, signal?: AbortSignal): Promise<{ servers: RegistryServer[]; nextCursor: string }> {
     if (!this.runtime?.fetch) throw new Error('this runtime cannot reach the MCP registry');
@@ -276,10 +294,10 @@ export class McpManager {
   }
 
   /** Connects to a remote server once, lists what it offers, and disconnects. Nothing is called or added. */
-  async preview(target: { type: 'http' | 'sse'; url: string }, signal: AbortSignal = new AbortController().signal): Promise<JsonObject> {
+  async preview(target: { type: 'http' | 'sse'; url: string; headers?: unknown }, signal: AbortSignal = new AbortController().signal): Promise<JsonObject> {
     if (!this.runtime) throw new Error('this runtime does not provide MCP capabilities');
     const state: ServerState = { name: 'preview', transport: target.type, status: 'connecting', tools: [], resources: [], templates: [], prompts: [], warnings: [] };
-    await this.connect(state, { kind: target.type, url: target.url, headers: {} }, signal);
+    await this.connect(state, { kind: target.type, url: target.url, headers: strings(target.headers, 'headers') }, signal);
     await state.client?.close().catch(() => undefined);
     return describe(state);
   }

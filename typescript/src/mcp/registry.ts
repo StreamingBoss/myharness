@@ -57,7 +57,7 @@ function remote(raw: JsonObject, key: string): RegistryOption {
     notes.push(`Set ${envName(name)} for the ${name} header${header.isRequired ? ' (required)' : ''}${header.isSecret ? ', a secret' : ''}${header.description ? `: ${about(header.description)}` : ''}.`);
   }
   const resolved = !url.includes('${');
-  if (Object.keys(headers).length) notes.push('The tool preview connects without these headers, so a server that needs them will refuse it.');
+  if (Object.keys(headers).length) notes.push('The preview can send an Authorization header entered for that preview. Other headers must be supplied through the backend preview API or server configuration.');
   return { kind: 'remote', label: `Remote server · ${type === 'sse' ? 'HTTP+SSE (deprecated)' : 'Streamable HTTP'} · ${url}`, preview: resolved ? { type, url } : null,
     config: { mcpServers: { [key]: { ...(type === 'sse' ? { type } : {}), url, ...(Object.keys(headers).length ? { headers } : {}) } } }, notes };
 }

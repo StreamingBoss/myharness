@@ -26,8 +26,11 @@ export async function browserFixture(t: { after(callback: () => unknown): void }
 test('browser backend runs without UI, preserves setup snapshots, stores sessions and persists file effects', async t => {
   const { backend, storage, options } = await browserFixture(t);
   assert.equal((await backend.bootstrap()).runtime, 'browser');
-  assert.equal(((await backend.bootstrap()).tools as { name: string; supported: boolean }[]).find(tool => tool.name === 'run_command')!.supported, false);
-  assert.match((await backend.runTool('run_command', { command: 'true' }, ['run_command']) as { text: string }).text, /unsupported/);
+  const offered = ((await backend.bootstrap()).tools as { name: string }[]).map(tool => tool.name);
+  assert.equal(offered.includes('run_command'), false); assert.equal(offered.includes('web_search'), false); assert.equal(offered.includes('git_status'), false);
+  assert.deepEqual(offered, ['find_files', 'search', 'get_current_time', 'pwd', 'list_files', 'read_file', 'write_file', 'edit_file', 'delete_file', 'move_file', 'update_plan', 'use_skill']);
+  assert.deepEqual(Object.keys((await backend.bootstrap()).unavailable_tools as object), ['run_command', 'web_search', 'git_status', 'git_diff', 'git_log', 'git_branch', 'git_checkout', 'git_commit']);
+  assert.match((await backend.runTool('run_command', { command: 'true' }, ['run_command']) as { text: string }).text, /unsupported: 'run_command' is unavailable in the browser runtime: a browser page cannot start processes/);
   const events = await collect(backend.submit({ ...action, message: 'show instructions', agent: 'coder', prompt: 'teaching' }));
   assert.match(String(events.find(event => event.type === 'response')!.content), /Show the harness work/);
   assert.equal(backend.activeSessionRecord().settings.tools.includes('run_command'), false);

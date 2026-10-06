@@ -1,36 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalWorkspace, type LocalDirectory, type LocalFile } from '../src/browser/local.js';
+import { LocalWorkspace, type LocalDirectory } from '../src/browser/local.js';
+import { DiskDirectory } from './disk-handle.js';
 import { projectFromFiles } from '../src/browser/workspace.js';
 import { action, collect, fixture } from './browser-fixture.js';
 import type { RuntimePort } from '../src/runtime.js';
 import '../src/runtime.js';
-
-export class DiskFile implements LocalFile {
-  readonly kind = 'file'; bytes: Uint8Array; failed = false; aborted = false; oversized = false;
-  constructor(readonly name: string, text = '') { this.bytes = new TextEncoder().encode(text); }
-  async getFile() { return { size: this.oversized ? 10485761 : this.bytes.length, arrayBuffer: async () => this.bytes.slice().buffer as ArrayBuffer }; }
-  async createWritable() {
-    let staged = '';
-    return { write: async (text: string) => { if (this.failed) throw new Error('disk full'); staged = text; }, close: async () => { this.bytes = new TextEncoder().encode(staged); }, abort: async () => { this.aborted = true; } };
-  }
-  text(): string { return new TextDecoder().decode(this.bytes); }
-}
-export class DiskDirectory implements LocalDirectory {
-  readonly kind = 'directory'; permission = 'granted'; writePermission = 'granted'; children = new Map<string, DiskDirectory | DiskFile>();
-  constructor(readonly name: string) {}
-  async *entries(): AsyncIterable<[string, DiskDirectory | DiskFile]> { yield* this.children.entries(); }
-  async queryPermission(options: { mode: 'read' | 'readwrite' }) { return options.mode === 'read' ? this.permission : this.writePermission; }
-  async getDirectoryHandle(name: string, options?: { create: boolean }): Promise<DiskDirectory> {
-    if (!this.children.has(name) && options?.create) this.children.set(name, new DiskDirectory(name));
-    const entry = this.children.get(name); if (!entry) throw new DOMException('missing', 'NotFoundError'); if (entry.kind !== 'directory') throw new Error('not directory'); return entry;
-  }
-  async getFileHandle(name: string, options?: { create: boolean }): Promise<DiskFile> {
-    if (!this.children.has(name) && options?.create) this.children.set(name, new DiskFile(name));
-    const entry = this.children.get(name); if (!entry) throw new DOMException('missing', 'NotFoundError'); if (entry.kind !== 'file') throw new Error('not file'); return entry;
-  }
-  add(name: string, text: string) { const file = new DiskFile(name, text); this.children.set(name, file); return file; }
-}
 
 test('local workspace reads real handles, refreshes catalogs, skips binary files and writes with conflict checks', async () => {
   const disk = new DiskDirectory('code'), main = disk.add('main.py', 'old\r\nline\r'); disk.add('AGENTS.md', 'Read first');

@@ -77,7 +77,7 @@ test('web_search runs in a full headless turn with no key and no approval, and s
   await harness.initialize();
   const boot = await harness.bootstrap();
   assert.equal((boot.capabilities as Record<string, unknown>).web_search, 'DuckDuckGo (no key)');
-  assert.equal((boot.tools as { name: string; supported: boolean }[]).find(tool => tool.name === 'web_search')?.supported, true);
+  assert.ok((boot.tools as { name: string }[]).some(tool => tool.name === 'web_search')); assert.equal((boot.unavailable_tools as Record<string, string>).web_search, undefined);
   model.turns = [call({ query: ' renewable energy ' }), answer];
   const events = await collect(harness.submit(turn()));
   assert.equal(events.some(event => event.type === 'approval'), false);
@@ -121,5 +121,6 @@ test('the browser runtime reports web_search as unsupported and never offers it'
   assert.match((await backend.runTool('web_search', { query: 'x' }, ['web_search']) as Extract<ToolResult, { kind: 'text' }>).text, /unsupported: 'web_search' is unavailable in the browser runtime/);
   const boot = await backend.bootstrap();
   assert.equal((boot.capabilities as Record<string, unknown>).web_search, false);
-  assert.equal((boot.tools as { name: string; supported: boolean }[]).find(tool => tool.name === 'web_search')?.supported, false);
+  assert.equal((boot.tools as { name: string }[]).some(tool => tool.name === 'web_search'), false);
+  assert.match((boot.unavailable_tools as Record<string, string>).web_search!, /DuckDuckGo does not accept requests from web pages/);
 });

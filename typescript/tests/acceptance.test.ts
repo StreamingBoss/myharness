@@ -51,7 +51,7 @@ test('catalog loading, system ordering, frozen snapshots, manual skills and expl
   await writeFile(path.join(root, 'work/AGENTS.md'), 'Project rules');
   await writeFile(path.join(root, 'work/skills/override/SKILL.md'), '---\nname: basic\ndescription: overridden\n---\nproject skill');
   const bootstrap = await harness.bootstrap();
-  assert.equal((bootstrap.tools as unknown[]).length, 11); assert.equal((bootstrap.agents as unknown[]).length, 2);
+  assert.equal((bootstrap.tools as unknown[]).length, 14); assert.equal((bootstrap.agents as unknown[]).length, 2);
   const events = await collect(harness.submit(turn({ message: '/basic do work', agent: 'coder', prompt: 'product', tools: ['use_skill'] })));
   assert.equal(events[0]!.type, 'skill');
   assert.match(model.requests[0]!.messages[0]!.content, /Product rules\n\nProject persona\n\n# Project instructions/);

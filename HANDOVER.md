@@ -88,8 +88,8 @@ MCP configuration comes from `MYHARNESS_MCP` (default `<root>/mcp.json`) or, in 
 browser, an imported file; never from the project folder. MCP tool calls always go
 through approval while approvals are on; annotations are displayed, not trusted.
 Resource reads are not approved, like `read_file`. The registry browser (GitHub's registry by default, or the
-official one via `source`) only searches, previews remote servers and shows snippets; it never edits configuration
-or runs packages. Browser stdio servers are
+official one via `source`) searches, previews remote servers and shows snippets. The explicit Add action merges
+configuration through the backend and reloads servers (package entries start commands). Browser stdio servers are
 reported unsupported. Imported browser header values are not persisted. Tests use
 the scripted fixture in `typescript/tests/mcp-fixture.ts` (all eras, in-memory,
 HTTP and a real stdio process); no live MCP server is required.
@@ -102,6 +102,28 @@ key-based search services were deliberately not used (owner: free, no Ecosia). I
 core only as `RuntimePort.webSearch`; the browser runtime omits it and reports it unsupported.
 It is not approval-gated, like `read_file`: only the query is sent, and results are labelled
 untrusted. Tests use a fixture shaped like the real page; the live endpoint was checked once.
+
+## Files, plans and git
+
+`delete_file`, `move_file`, `update_plan` and the `git_*` tools are built in (`tools.ts`).
+Deletions, moves, branch creation, checkout and commit return an `action` effect: the preview
+is built when the model asks, `executeAction` asks approval and runs it (see ARCHITECTURE).
+`update_plan` is validated in `plan.ts` and returns the checklist; the UI draws it from the
+ordinary `tool` event, so no extra event exists. `Harness.availableTools()` decides what is
+offered (runtime support, plus a git adapter for git tools); bootstrap, requests, `explore` and
+agent tool lists all use it, and the UI never shows an unavailable tool. A local-folder move
+copies bytes, so binary files survive; deletes and moves refuse a text file that changed after it
+was read.
+
+Git: `GitPort` (`git.ts`) hides the runtime. `node/git.ts` runs `git` without a shell, with
+`GIT_CEILING_DIRECTORIES` (no repository above the project folder), `core.hooksPath=/dev/null`
+and `core.fsmonitor=false` (nothing in `.git` runs code), no prompts and a timeout. The
+browser uses isomorphic-git 1.43 (new runtime dependency, plus `buffer`, injected by esbuild
+in `scripts/build-browser.mjs`). Known differences: it reads only the repository's own
+`.git/config` (no global identity), refuses a branch switch whenever local changes exist,
+cannot see the executable bit, has no symbolic links, and hashes file contents on every
+status because `git-fs.ts` returns a fresh inode (otherwise a same-size edit within a second
+of a status looks unchanged). Neither adapter pushes, pulls or clones.
 
 ## Cloud model adapters
 

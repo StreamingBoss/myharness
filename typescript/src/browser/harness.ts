@@ -3,7 +3,8 @@ import type { ModelOption } from '../model.js';
 import { ProviderRouter, modelConfiguration, providerName, type ModelConfiguration } from '../providers.js';
 import { DemoModel } from './demo.js';
 import { Harness, BackendError, type ModelPort } from '../harness.js';
-import { TOOL_NAMES } from '../tools.js';
+import { GIT_TOOLS, TOOL_NAMES } from '../tools.js';
+import { BrowserGit } from './git.js';
 import { BrowserStorage } from './storage.js';
 import { BrowserSessions } from './sessions.js';
 import { BrowserWorkspace, absolutePath, projectFromFiles, type Project } from './workspace.js';
@@ -19,6 +20,9 @@ export interface BrowserOptions {
   storage: BrowserStorage; library: Library; seed: Record<string, string>;
   modelPort?: ModelPort; model?: string; contextLength?: number; approvalTimeoutMs?: number;
   mcpTimeouts?: { connectTimeoutMs?: number; probeTimeoutMs?: number };
+  allowSubagents?: boolean;
+  childTools?: string[];
+  childRoutes?: { provider: import('../model.js').Provider; model: string }[];
 }
 /** MCP configuration with header values; header values live only in Worker memory. */
 interface McpConfigHolder { value?: unknown }
@@ -28,8 +32,11 @@ export class BrowserHarness extends Harness {
   private constructor(private readonly browser: BrowserOptions, private readonly projects: Map<string, StoredProject>, workspace: string, private readonly router: ProviderRouter, private readonly mcpConfig: McpConfigHolder = {}) {
     super({ workspace, model: browser.model ?? 'qwen3:8b', contextLength: browser.contextLength ?? 8192,
       ...(browser.modelPort ? { ollama: browser.modelPort } : { modelAdapter: router }), sessions: new BrowserSessions(browser.storage),
-      ...(browser.approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs: browser.approvalTimeoutMs }), ...(browser.mcpTimeouts ? { mcpTimeouts: browser.mcpTimeouts } : {}), runtime: {
+      ...(browser.approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs: browser.approvalTimeoutMs }), ...(browser.mcpTimeouts ? { mcpTimeouts: browser.mcpTimeouts } : {}), ...(browser.allowSubagents ? { allowSubagents: true } : {}), ...(browser.childTools ? { childTools: browser.childTools } : {}), ...(browser.childRoutes ? { childRoutes: browser.childRoutes } : {}), saveHarnessSettings: async settings => { await browser.storage.put('settings', 'harness-settings', settings); }, runtime: {
         name: 'browser', supportedTools: TOOL_NAMES.filter(name => name !== 'run_command' && name !== 'web_search'),
+        unavailable: { run_command: 'a browser page cannot start processes', web_search: 'DuckDuckGo does not accept requests from web pages',
+          ...Object.fromEntries(GIT_TOOLS.map(name => [name, 'git tools need a repository: open a local folder that contains a .git directory (virtual projects have none)'])) },
+        git: workspace => workspace instanceof LocalWorkspace && workspace.isDirectory('.git') ? new BrowserGit(workspace.handle) : undefined,
         capabilities: { workspace: 'virtual text files or user-granted local folder', commands: false, web_search: false, persistence: 'IndexedDB', inference: 'external model provider' },
         workspace(folder) {
           const project: StoredProject = projects.get(folder) ?? projectFromFiles(folder, {});
@@ -47,6 +54,12 @@ export class BrowserHarness extends Harness {
           stdioUnsupported: 'stdio servers start local processes, which a browser cannot do. Use the Node runtime.',
           networkHint: 'Check that the MCP server allows this page origin and the MCP request headers (CORS).',
           loadConfig: async () => mcpConfig.value ?? await browser.storage.get('settings', 'mcp-config'),
+          async saveConfig(value) {
+            const stored = structuredClone(value);
+            for (const server of Object.values(stored.mcpServers as Record<string, unknown>)) if (isObject(server)) delete server.headers;
+            await browser.storage.put('settings', 'mcp-config', stored);
+            mcpConfig.value = value;
+          },
         },
       } });
   }
@@ -58,7 +71,8 @@ export class BrowserHarness extends Harness {
     const workspace = saved && projects.has(saved) ? saved : projects.keys().next().value!;
     const url = await options.storage.get<string>('settings', 'ollama-url');
     const router = new ProviderRouter(fetch, { demo: new DemoModel(), ollama: new OllamaAdapter(fetch, url ?? 'http://localhost:11434') }, options.model === DEMO_MODEL ? 'demo' : 'ollama');
-    const harness = new BrowserHarness(options, projects, workspace, router);
+    const settings = await options.storage.get<{ allowSubagents: boolean; childTools: string[]; childRoutes: { provider: import('../model.js').Provider; model: string }[] }>('settings', 'harness-settings');
+    const harness = new BrowserHarness({ ...options, allowSubagents: settings?.allowSubagents ?? options.allowSubagents ?? false, childTools: settings?.childTools ?? options.childTools ?? [], childRoutes: settings?.childRoutes ?? options.childRoutes ?? [] }, projects, workspace, router);
     await harness.initialize();
     return harness;
   }

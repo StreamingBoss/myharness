@@ -1,5 +1,6 @@
 import { BackendError } from '../harness.js';
 import { WorkerClient } from './client.js';
+import { agentRoute, agentQuery } from '../transport.js';
 
 /** Compatibility transport for the existing UI; requests travel to a Worker. */
 export function browserFetch(client: WorkerClient) {
@@ -9,6 +10,8 @@ export function browserFetch(client: WorkerClient) {
       const value = init.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BackendError('Expected a JSON object');
       let action = '', payload = value, status = 200;
+      const agent = agentRoute(method, route);
+      if (agent) return Response.json(await client.call(agent.action, { ...value, ...agentQuery(url.searchParams), ...(agent.id ? { id: agent.id } : {}) }), { status: 200 });
       if (route === '/chat' || route === '/compact') {
         if (method !== 'POST') throw new BackendError('Not found', 404);
         const iterator = client.stream(route.slice(1), value), first = await iterator.next();
@@ -33,6 +36,7 @@ export function browserFetch(client: WorkerClient) {
         if (route === '/sessions') action = 'newSession';
         else if (route === '/sessions/import') { action = 'importSession'; status = 201; }
         else if (['/reset', '/stop', '/approve', '/explore', '/project', '/tokenize'].includes(route)) action = route.slice(1);
+        else if (route === '/mcp/add') action = 'addMcp';
         else if (route === '/mcp/reload') action = 'reloadMcp';
         else if (route === '/mcp/preview') action = 'previewMcp';
       }

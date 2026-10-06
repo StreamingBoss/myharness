@@ -94,7 +94,7 @@ The existing static UI renders events; it does not advance the agent loop.
 | Reset memory | `POST /reset` |
 | Compact; stream events | `POST /compact` |
 | Inspect instructions/tools/template | `POST /explore` |
-| MCP server status; reload configuration | `GET /mcp`, `POST /mcp/reload` |
+| MCP server status; add entries; reload configuration | `GET /mcp`, `POST /mcp/add`, `POST /mcp/reload` |
 | Search an MCP registry; preview a remote server | `GET /mcp/registry?search=&cursor=&source=github\|official`, `POST /mcp/preview` |
 | Choose/browse project | `POST /project`, `GET /browse` |
 | List/create sessions | `GET` / `POST /sessions` |
@@ -144,7 +144,7 @@ RPC actions include `bootstrap`, `chat`, `compact`, `approve`, `stop`, `reset`,
 `explore`, `project`, `browse`, `sessions`, `newSession`, `getSession`,
 `patchSession`, `activateSession`, `importSession`, `importProject`,
 `exportProject`, `attachLocalFolder`, `configureModel`, `tokenize`, `mcp`,
-`reloadMcp`, `configureMcp`, `mcpRegistry` and `previewMcp`.
+`reloadMcp`, `addMcp`, `configureMcp`, `mcpRegistry` and `previewMcp`.
 Streams return the same structured core events. Ending a stream cancels its turn.
 An unanswered approval always denies on timeout or cancellation.
 
@@ -158,8 +158,10 @@ Virtual projects persist edits atomically in IndexedDB; importing a folder copy
 does not grant access to its original files. Sessions and project exports remain
 separate. Site origin/profile changes use different browser storage.
 
-The browser advertises all ten tools but marks `run_command` unsupported and
-omits it from model requests. Headless direct requests also report it unavailable.
+The browser leaves out the tools it cannot run (`run_command`, `web_search`, and the git tools
+unless a local folder with a `.git` directory is open). `bootstrap` lists only the available
+tools and reports the rest in `unavailable_tools` with a reason; the model is never offered
+them, and a direct request for one answers `unsupported: ... : <reason>`.
 The scripted demo is a deterministic model adapter, not an LLM, and labels its
 approximate token counts and prepared replies. Ollama remains an external model
 server; the harness does not move inference into the browser. Its connection
@@ -207,6 +209,16 @@ falls back to `initialize` on any non-modern error or after 5 seconds. Over HTTP
 client advertises no client capabilities: legacy `ping` is answered, other server
 requests and `input_required` results are reported as unsupported.
 
+Deleting or moving a file and the git changes (branch creation, checkout, commit) share one
+approval path. `runTool` validates the request, builds a preview and returns an `action`
+effect carrying a closure; the core forwards it to `executeAction`, which sends an
+`approval` event with `name`, `title` and `detail`, runs the closure only after
+`allowed-once`, and emits an `action` event with the outcome and result. A failed action is
+reported to the model as `error: ...`. The git tools use `RuntimePort.git(workspace, signal)`,
+which returns a `GitPort`: `node/git.ts` runs the real git program, `browser/git.ts` uses
+isomorphic-git over an `fs` adapter (`browser/git-fs.ts`) on the granted folder. Both are
+tested against one behavioural suite and against real git.
+
 `Harness` owns the `McpManager`. `initialize()` connects configured servers in
 parallel with a 15-second limit; failures become per-server status. Tool names are
 `mcp__<server>__<tool>`. `runTool` returns an `mcp` effect and the core forwards it
@@ -223,8 +235,9 @@ without header values.
 `mcp/registry.ts` searches GitHub's MCP registry (`/v0.1/servers`, the default) or the
 official one (`/v0/servers`, latest versions), with cursor paging, through the runtime's injected `fetch` and converts each
 entry into options: remote URLs and npm/PyPI/OCI/NuGet stdio packages, each with an
-`mcpServers` snippet, `${NAME}` placeholders and notes. The backend never writes
-the configuration. `previewMcp` connects once to a remote URL without headers,
+`mcpServers` snippet, `${NAME}` placeholders and notes. The explicit `addMcp` action merges entries without overwriting existing names, saves
+through the runtime adapter, and reloads. Node saves atomically; browser headers stay
+in memory. `previewMcp` connects once to a remote URL with optional caller-supplied headers,
 lists tools, resources and prompts, and disconnects; packages are never run.
 
 ## Shared model boundary

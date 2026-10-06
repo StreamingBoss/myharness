@@ -37,7 +37,7 @@ test('registry entries become remote and package options with ready mcp.json sni
   assert.deepEqual(option(remote), {
     kind: 'remote', label: 'Remote server · Streamable HTTP · https://eu.acme.test/${TENANT}/mcp', preview: null,
     config: { mcpServers: { weather: { url: 'https://eu.acme.test/${TENANT}/mcp', headers: { Authorization: '${AUTHORIZATION}', 'X-Client': 'harness-${TENANT}', 'X-Opt': '${X_OPT}' } } } },
-    notes: ['Set TENANT: Your tenant.', 'Set AUTHORIZATION for the Authorization header (required), a secret: Bearer token.', 'Set TENANT.', 'Set X_OPT for the X-Opt header.', 'The tool preview connects without these headers, so a server that needs them will refuse it.'],
+    notes: ['Set TENANT: Your tenant.', 'Set AUTHORIZATION for the Authorization header (required), a secret: Bearer token.', 'Set TENANT.', 'Set X_OPT for the X-Opt header.', 'The preview can send an Authorization header entered for that preview. Other headers must be supplied through the backend preview API or server configuration.'],
   });
   assert.deepEqual(option(remote, 1), { kind: 'remote', label: 'Remote server · HTTP+SSE (deprecated) · https://acme.test/sse', preview: { type: 'sse', url: 'https://acme.test/sse' }, config: { mcpServers: { weather: { type: 'sse', url: 'https://acme.test/sse' } } }, notes: [] });
   assert.equal(remote.options.length, 2);
@@ -104,6 +104,34 @@ test('previews connect once to a remote server and leave nothing behind', async 
   await assert.rejects(new McpManager(undefined).preview({ type: 'http', url: 'http://x.test' }), /does not provide MCP/);
   await assert.rejects(new McpManager(undefined).searchRegistry({}), /cannot reach the MCP registry/);
   await assert.rejects(new McpManager({ source: 'x', loadConfig: async () => undefined }).searchRegistry({}), /cannot reach/);
+});
+
+test('authenticated previews use ephemeral headers, reject invalid headers and do not retain credentials', async t => {
+  const token = 'Bearer preview-secret';
+  const fixture = fixtureFetch(new FixtureServer(), { stateless: true });
+  const seen: Record<string, string>[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string, init: Parameters<McpFetch>[1]) => {
+    seen.push(init.headers);
+    if (init.headers.Authorization !== token) return new Response('Authorization required', { status: 401 });
+    return fixture(url, init);
+  });
+  const root = await mkdtemp(path.join(tmpdir(), 'mcp-preview-auth-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const harness = new NodeHarness({ workspace: root, model: 'scripted', contextLength: 4000, ollama: { async *streamChat() { yield ''; } } });
+  t.after(() => harness.close());
+  const target = { type: 'http', url: 'http://remote.test/mcp' };
+  assert.equal((await harness.previewMcp(target)).status, 'error');
+  seen.length = 0;
+  const result = await harness.previewMcp({ ...target, headers: { Authorization: token, 'X-Client': 'preview' } });
+  assert.equal(result.status, 'connected');
+  assert.ok(seen.length > 1);
+  assert.ok(seen.every(headers => headers.Authorization === token && headers['X-Client'] === 'preview'));
+  assert.ok(!JSON.stringify(result).includes(token));
+  assert.ok(!JSON.stringify(harness.mcpStatus()).includes(token));
+  assert.deepEqual(harness.mcpStatus().servers, []);
+  assert.equal((await harness.previewMcp(target)).status, 'error');
+  for (const headers of [null, [], 'Bearer secret', { Authorization: 42 }]) {
+    await assert.rejects(harness.previewMcp({ ...target, headers }), /headers must be an object of strings/);
+  }
 });
 
 test('registry search and previews through Node HTTP, browser Worker RPC and the UI fetch shim', async t => {
