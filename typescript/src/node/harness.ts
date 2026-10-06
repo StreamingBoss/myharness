@@ -11,6 +11,7 @@ import { StdioChannel } from './mcp-stdio.js';
 import { TOOL_NAMES } from './tools.js';
 import { ProviderRouter } from '../providers.js';
 import { json } from '../format.js';
+import { webSearch } from '../websearch.js';
 export { BackendError } from '../harness.js';
 export type { TurnAction, HarnessState, ModelPort } from '../harness.js';
 export type HarnessOptions = Omit<SharedOptions, 'runtime'> & { /** MCP configuration file; never read from the project folder. */ mcpConfigFile?: string };
@@ -20,7 +21,7 @@ export class NodeHarness extends Harness {
   constructor(options: HarnessOptions) {
     super({ ...options, ...(!options.ollama && !options.modelAdapter ? { modelAdapter: new ProviderRouter(fetch, { ollama: new OllamaAdapter(fetch, 'http://localhost:11434') }) } : {}), runtime: {
       name: 'Node', supportedTools: TOOL_NAMES,
-      capabilities: { workspace: 'local filesystem', commands: true, persistence: 'session JSON files' },
+      capabilities: { workspace: 'local filesystem', commands: true, web_search: 'DuckDuckGo (no key)', persistence: 'session JSON files' },
       workspace: folder => new WorkspaceAdapter(folder),
       catalog: workspace => new Catalog(options.projectRoot ?? process.cwd(), workspace as WorkspaceAdapter),
       resolveProject(raw) {
@@ -29,6 +30,7 @@ export class NodeHarness extends Harness {
       },
       async saveProject(folder) { if (options.settingsFile) await writeFile(options.settingsFile, json({ project: folder }, 2) + '\n'); },
       executeCommand: (command, workspace, signal) => executeCommand(command, workspace, signal, options.commandTimeoutMs),
+      webSearch: (query, signal) => webSearch(fetch, query, signal),
       mcp: {
         source: options.mcpConfigFile ?? '(no MCP configuration file)', fetch, environment: process.env,
         stdio: config => new StdioChannel(config, options.projectRoot ?? process.cwd()),

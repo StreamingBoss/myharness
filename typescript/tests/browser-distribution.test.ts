@@ -22,7 +22,7 @@ async function send(page: Page, message: string) {
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
   await page.locator('#input').fill(message); await page.locator('#send').click();
 }
-async function ready(page: Page) { await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 10); }
+async function ready(page: Page) { await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 11); }
 
 test('static browser distribution runs the backend in a Worker, saves sessions/files and works after the server stops', async t => {
   const { base, child } = await staticServer(t);
@@ -96,7 +96,7 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   await page.waitForFunction(() => !(document.querySelector('#browser-model') as HTMLSelectElement).disabled);
   assert.equal(await page.locator('#browser-model').inputValue(), 'small:4b');
   assert.equal(page.workers().length, 1); assert.match(await page.locator('#browser-mode-label').innerText(), /ollama/i);
-  const command = page.locator('.tool-checkbox[data-supported="false"]'); assert.equal(await command.count(), 1); assert.equal(await command.isDisabled(), true);
+  const unsupported = page.locator('.tool-checkbox[data-supported="false"]'); assert.deepEqual(await unsupported.evaluateAll(boxes => boxes.map(box => (box as HTMLInputElement).value)), ['run_command', 'web_search']); assert.equal(await unsupported.first().isDisabled(), true); assert.equal(await unsupported.last().isDisabled(), true);
   // MCP from the Worker: a CORS-enabled Streamable HTTP server; stdio is reported unsupported.
   const fixture = new FixtureServer({ instructions: 'Browser MCP hints.' });
   const mcp = createServer(async (request, response) => {

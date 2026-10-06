@@ -16,8 +16,8 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   // The backend's fetch: a scripted registry and a remote MCP server for the preview.
   const remote = fixtureFetch(new FixtureServer({ instructions: 'Remote preview hints.' })), registryQueries: string[] = [];
   t.mock.method(globalThis, 'fetch', async (url: string, init: Parameters<typeof remote>[1]) => {
-    if (!url.startsWith('https://registry.modelcontextprotocol.io/')) return remote(url, init);
-    const query = new URL(url).searchParams; registryQueries.push(query.toString());
+    if (!url.startsWith('https://api.mcp.github.com/') && !url.startsWith('https://registry.modelcontextprotocol.io/')) return remote(url, init);
+    const query = new URL(url).searchParams; registryQueries.push(new URL(url).host.split('.')[0] + ' ' + query.toString());
     const servers = query.get('cursor')
       ? [{ server: { name: 'io.example/second', description: 'Second page', version: '1.0.0', packages: [{ registryType: 'npm', identifier: '@example/second', version: '1.0.0', transport: { type: 'stdio' }, environmentVariables: [{ name: 'SECOND_KEY', isRequired: true, isSecret: true }] }] } }]
       : [{ server: { name: 'io.example/weather', title: 'Weather <img src=x onerror="window.injected=1">', description: 'Forecasts', version: '2.0.0', remotes: [{ type: 'streamable-http', url: 'http://remote.test/mcp' }] } }];
@@ -33,7 +33,7 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   const browser = await chromium.launch({ executablePath: process.env.MYHARNESS_TEST_CHROMIUM ?? chromium.executablePath(), headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 11);
+  await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 12);
 
   assert.equal(await page.locator('.mcp-group').innerText(), 'MCP files:');
   const checkbox = page.locator('input.tool-checkbox[value="mcp__files__echo"]');
@@ -55,7 +55,7 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   assert.match(explored, /prompt \/mcp__files__review <topic>/);
   assert.match(explored, /wire log:/);
   await page.locator('#mcp-reload').click();
-  await page.waitForFunction(() => !(document.querySelector('#mcp-reload') as HTMLButtonElement).disabled && document.querySelectorAll('.tool-checkbox').length === 11);
+  await page.waitForFunction(() => !(document.querySelector('#mcp-reload') as HTMLButtonElement).disabled && document.querySelectorAll('.tool-checkbox').length === 12);
 
   await page.locator('#mcp-find').click();
   await page.getByText('Weather <img src=x onerror="window.injected=1"> 2.0.0').waitFor();
@@ -71,7 +71,9 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   assert.match(await page.locator('.registry-option pre').last().innerText(), /"command": "npx"[\s\S]*"SECOND_KEY": "\$\{SECOND_KEY\}"[\s\S]*• Set SECOND_KEY, a secret, in your environment\.[\s\S]*Registry entries are not reviewed\./);
   await page.locator('#mcp-registry-search').fill('weather'); await page.locator('#mcp-registry-go').click();
   await page.waitForFunction(() => document.querySelectorAll('.registry-server').length === 1);
-  assert.deepEqual(registryQueries, ['version=latest&limit=20', 'version=latest&limit=20&cursor=io.example%2Fweather%3A2.0.0', 'version=latest&limit=20&search=weather']);
+  await page.locator('#mcp-registry-source').selectOption('official');
+  await page.waitForFunction(() => document.querySelectorAll('.registry-server').length === 1);
+  assert.deepEqual(registryQueries, ['api limit=20', 'api limit=20&cursor=io.example%2Fweather%3A2.0.0', 'api limit=20&search=weather', 'registry version=latest&limit=20&search=weather']);
   await page.locator('#mcp-registry-close').click();
   assert.equal(await page.locator('#mcp-registry').isVisible(), false);
   assert.equal((harness.mcpStatus().servers as unknown[]).length, 1); // previews add nothing

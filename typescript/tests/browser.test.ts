@@ -44,7 +44,7 @@ test('a separately served UI approves a write and exports the backend session', 
   const address = backend.address(); assert.ok(address && typeof address !== 'string'); const base = `http://127.0.0.1:${address.port}`;
   const browser = await chromium.launch({ executablePath: process.env.MYHARNESS_TEST_CHROMIUM ?? chromium.executablePath(), headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await page.goto(origin + '/?api=' + encodeURIComponent(base)); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 10);
+  await page.goto(origin + '/?api=' + encodeURIComponent(base)); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 11);
   await page.locator('#input').fill('write'); await page.locator('#send').click(); await page.getByRole('button', { name: 'Approve', exact: true }).click();
   await page.getByText('Write completed', { exact: true }).first().waitFor(); assert.equal(await readFile(path.join(root, 'approved.txt'), 'utf8'), 'approved in browser');
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);

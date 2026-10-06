@@ -29,8 +29,8 @@ export class BrowserHarness extends Harness {
     super({ workspace, model: browser.model ?? 'qwen3:8b', contextLength: browser.contextLength ?? 8192,
       ...(browser.modelPort ? { ollama: browser.modelPort } : { modelAdapter: router }), sessions: new BrowserSessions(browser.storage),
       ...(browser.approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs: browser.approvalTimeoutMs }), ...(browser.mcpTimeouts ? { mcpTimeouts: browser.mcpTimeouts } : {}), runtime: {
-        name: 'browser', supportedTools: TOOL_NAMES.filter(name => name !== 'run_command'),
-        capabilities: { workspace: 'virtual text files or user-granted local folder', commands: false, persistence: 'IndexedDB', inference: 'external model provider' },
+        name: 'browser', supportedTools: TOOL_NAMES.filter(name => name !== 'run_command' && name !== 'web_search'),
+        capabilities: { workspace: 'virtual text files or user-granted local folder', commands: false, web_search: false, persistence: 'IndexedDB', inference: 'external model provider' },
         workspace(folder) {
           const project: StoredProject = projects.get(folder) ?? projectFromFiles(folder, {});
           const adapter = project.handle ? new LocalWorkspace(project, project.handle) : new BrowserWorkspace(project, value => browser.storage.put('projects', value.root, value));

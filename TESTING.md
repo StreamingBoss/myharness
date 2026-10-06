@@ -91,7 +91,8 @@ browser backends without UI: approval, denial, timeout, Stop, instructions,
 prompts, resources, reload, HTTP routes and Worker RPC. `mcp-registry.test.ts`
 covers registry entry conversion for every package and remote shape, search
 paging and failures, previews and their HTTP/Worker routes, without contacting
-the real registry. `mcp-ui.test.ts` (including the registry dialog, previews,
+the real registry. `websearch.test.ts` covers DuckDuckGo result parsing (ads, redirects, entities) and errors, a full headless
+turn (no key, no approval), Stop and the browser's unsupported report. `mcp-ui.test.ts` (including the registry dialog, previews,
 snippets and HTML-escaping of registry text) and `browser-distribution.test.ts`
 check the UI and the packaged Worker in Chromium.
 

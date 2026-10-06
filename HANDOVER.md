@@ -87,12 +87,21 @@ Windows/WSL Ollama launcher. Public users should follow the portable Node setup.
 MCP configuration comes from `MYHARNESS_MCP` (default `<root>/mcp.json`) or, in the
 browser, an imported file; never from the project folder. MCP tool calls always go
 through approval while approvals are on; annotations are displayed, not trusted.
-Resource reads are not approved, like `read_file`. The registry browser only
-searches, previews remote servers and shows snippets; it never edits configuration
+Resource reads are not approved, like `read_file`. The registry browser (GitHub's registry by default, or the
+official one via `source`) only searches, previews remote servers and shows snippets; it never edits configuration
 or runs packages. Browser stdio servers are
 reported unsupported. Imported browser header values are not persisted. Tests use
 the scripted fixture in `typescript/tests/mcp-fixture.ts` (all eras, in-memory,
 HTTP and a real stdio process); no live MCP server is required.
+
+## Web search
+
+`web_search` (`websearch.ts`) reads DuckDuckGo's keyless HTML endpoint: free, but a web page
+rather than an API, so the parser may need updating if the markup changes. Ecosia and paid or
+key-based search services were deliberately not used (owner: free, no Ecosia). It reaches the
+core only as `RuntimePort.webSearch`; the browser runtime omits it and reports it unsupported.
+It is not approval-gated, like `read_file`: only the query is sent, and results are labelled
+untrusted. Tests use a fixture shaped like the real page; the live endpoint was checked once.
 
 ## Cloud model adapters
 

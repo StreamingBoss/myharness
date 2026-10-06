@@ -95,7 +95,7 @@ The existing static UI renders events; it does not advance the agent loop.
 | Compact; stream events | `POST /compact` |
 | Inspect instructions/tools/template | `POST /explore` |
 | MCP server status; reload configuration | `GET /mcp`, `POST /mcp/reload` |
-| Search the MCP Registry; preview a remote server | `GET /mcp/registry?search=&cursor=`, `POST /mcp/preview` |
+| Search an MCP registry; preview a remote server | `GET /mcp/registry?search=&cursor=&source=github\|official`, `POST /mcp/preview` |
 | Choose/browse project | `POST /project`, `GET /browse` |
 | List/create sessions | `GET` / `POST /sessions` |
 | Inspect/rename | `GET` / `PATCH /sessions/<id>` |
@@ -220,8 +220,8 @@ never the project folder, and closes stdio servers when the HTTP server or headl
 run ends. The browser connects over HTTP only and persists imported configuration
 without header values.
 
-`mcp/registry.ts` searches the official MCP Registry (`/v0/servers`, latest
-versions, cursor paging) through the runtime's injected `fetch` and converts each
+`mcp/registry.ts` searches GitHub's MCP registry (`/v0.1/servers`, the default) or the
+official one (`/v0/servers`, latest versions), with cursor paging, through the runtime's injected `fetch` and converts each
 entry into options: remote URLs and npm/PyPI/OCI/NuGet stdio packages, each with an
 `mcpServers` snippet, `${NAME}` placeholders and notes. The backend never writes
 the configuration. `previewMcp` connects once to a remote URL without headers,

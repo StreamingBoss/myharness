@@ -473,7 +473,7 @@ Model: loading…
       <option value="final">prompt reconstruction (Qwen)</option>
     </select>
     <button id="mcp-reload" hidden title="Ask the backend to re-read its MCP configuration file and reconnect every server. The tool list below the chat is rebuilt from what the servers report.">Reload MCP servers</button>
-    <button id="mcp-find" hidden title="Search the official MCP Registry (registry.modelcontextprotocol.io). It lists servers, not tools: a server's tools are only known once the harness connects to it. Preview connects to a remote server once; the configuration snippet goes into your MCP configuration file.">Find MCP servers…</button>
+    <button id="mcp-find" hidden title="Search an MCP registry: GitHub's (the one VS Code uses) or the official one. It lists servers, not tools: a server's tools are only known once the harness connects to it. Preview connects to a remote server once; the configuration snippet goes into your MCP configuration file.">Find MCP servers…</button>
     <span id="explore-note"></span>
   </div>
   <pre id="memory"></pre>
@@ -483,11 +483,15 @@ Model: loading…
 
 <dialog id="mcp-registry" aria-label="MCP Registry">
   <form method="dialog" id="mcp-registry-form">
+    <select id="mcp-registry-source" aria-label="Registry" title="GitHub: api.mcp.github.com, the registry VS Code uses, most-starred first. Official: registry.modelcontextprotocol.io.">
+      <option value="github">GitHub registry</option>
+      <option value="official">Official registry</option>
+    </select>
     <input type="search" id="mcp-registry-search" placeholder="Search the MCP Registry, e.g. filesystem, github, weather" aria-label="Search the MCP Registry">
     <button id="mcp-registry-go" type="submit" value="search">Search</button>
     <button id="mcp-registry-close" type="button">Close</button>
   </form>
-  <div class="registry-note">Servers from the official MCP Registry. Entries are published by their authors and not reviewed. <b>Preview tools</b> connects once to a remote server, lists what it offers and disconnects; nothing is called. To use a server, copy its configuration into your MCP configuration file and choose <b>Reload MCP servers</b> (browser edition: <b>Import MCP config</b>).</div>
+  <div class="registry-note">Servers from the selected MCP registry. Entries are published by their authors and not reviewed. <b>Preview tools</b> connects once to a remote server, lists what it offers and disconnects; nothing is called. To use a server, copy its configuration into your MCP configuration file and choose <b>Reload MCP servers</b> (browser edition: <b>Import MCP config</b>).</div>
   <div id="mcp-registry-results" role="status"></div>
   <button id="mcp-registry-more" type="button" hidden>More results</button>
 </dialog>
@@ -923,6 +927,7 @@ const mcpFindBtn = document.getElementById("mcp-find");
 const registryDialog = document.getElementById("mcp-registry");
 mcpFindBtn.addEventListener("click", () => { registryDialog.showModal(); if (!registryCursor) searchRegistry(false); });
 document.getElementById("mcp-registry-form").addEventListener("submit", (event) => { event.preventDefault(); searchRegistry(false); });
+document.getElementById("mcp-registry-source").addEventListener("change", () => searchRegistry(false));
 document.getElementById("mcp-registry-close").addEventListener("click", () => registryDialog.close());
 document.getElementById("mcp-registry-more").addEventListener("click", () => searchRegistry(true));
 
@@ -1083,7 +1088,7 @@ async function searchRegistry(more) {
   const results = document.getElementById("mcp-registry-results"), moreBtn = document.getElementById("mcp-registry-more");
   if (!more) { results.replaceChildren(element("div", "searching…")); registryCursor = ""; }
   moreBtn.hidden = true;
-  const query = new URLSearchParams({ search: document.getElementById("mcp-registry-search").value.trim() });
+  const query = new URLSearchParams({ search: document.getElementById("mcp-registry-search").value.trim(), source: document.getElementById("mcp-registry-source").value });
   if (more && registryCursor) query.set("cursor", registryCursor);
   try {
     const response = await backendFetch(api("/mcp/registry?" + query));

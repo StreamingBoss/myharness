@@ -87,11 +87,12 @@ export class Harness implements TurnHost {
     return this.mcp.status();
   }
   mcpStatus(): Record<string, unknown> { return this.mcp.status(); }
-  /** Searches the MCP Registry. It lists servers; tools appear only after connecting (see previewMcp). */
-  async searchMcpRegistry(query: { search?: unknown; cursor?: unknown }): Promise<Record<string, unknown>> {
+  /** Searches an MCP registry (GitHub's unless `source` is "official"). It lists servers; tools appear only after connecting (see previewMcp). */
+  async searchMcpRegistry(query: { search?: unknown; cursor?: unknown; source?: unknown }): Promise<Record<string, unknown>> {
     if (query.search !== undefined && typeof query.search !== 'string') throw new BackendError('search must be a string');
     if (query.cursor !== undefined && typeof query.cursor !== 'string') throw new BackendError('cursor must be a string');
-    try { return { ...await this.mcp.searchRegistry({ ...(query.search ? { search: query.search } : {}), ...(query.cursor ? { cursor: query.cursor } : {}) }) }; }
+    if (query.source !== undefined && query.source !== 'github' && query.source !== 'official') throw new BackendError('source must be "github" or "official"');
+    try { return { ...await this.mcp.searchRegistry({ ...(query.search ? { search: query.search } : {}), ...(query.cursor ? { cursor: query.cursor } : {}), ...(query.source ? { source: query.source } : {}) }) }; }
     catch (error) { throw new BackendError(`Could not search the MCP registry: ${(error as Error).message}`, 502); }
   }
   /** Lists a remote server's tools, prompts and resources without adding it. Local packages are never run. */
@@ -367,6 +368,11 @@ export class Harness implements TurnHost {
           if (this.workspace.exists(target) && this.workspace.isDirectory(target)) throw new Error(`'${s('path')}' is a folder`);
           const repair = !content.includes('\n') && content.includes('\\n');
           return { kind: 'change', change: { path: s('path'), content: repair ? unescape(content) : content, note: repair ? ESCAPE_NOTE : '' } };
+        }
+        case 'web_search': {
+          const query = s('query').trim(); if (!query) throw new Error('query is empty');
+          if (!this.options.runtime.webSearch) throw new Error(`the ${this.options.runtime.name} runtime has no web search`);
+          return { kind: 'text', text: await this.options.runtime.webSearch(query, this.controller.signal) };
         }
         case 'run_command': {
           const command = s('command'); if (!command.trim()) throw new Error('command is empty');

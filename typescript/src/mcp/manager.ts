@@ -1,7 +1,7 @@
 import type { ToolDefinition, ToolResult } from '../core.js';
 import { McpClient, withDeadline, type McpChannel, type WireEntry } from './client.js';
 import { LegacySseChannel, StreamableHttpChannel, type McpFetch } from './http.js';
-import { searchRegistry, type RegistryServer } from './registry.js';
+import { searchRegistry, type RegistryServer, type RegistrySource } from './registry.js';
 import { HttpStatusError, contentText, headerAnnotations, isObject, limitText, mirroredHeaders, resourceText, toolResultText, type HeaderAnnotation, type JsonObject, type RpcRequest, type RpcResponse } from './protocol.js';
 
 export type StdioConfig = { kind: 'stdio'; command: string; args: string[]; env: Record<string, string>; cwd?: string };
@@ -269,8 +269,8 @@ export class McpManager {
     };
   }
 
-  /** Searches the MCP Registry through the runtime's fetch. */
-  async searchRegistry(query: { search?: string; cursor?: string }, signal?: AbortSignal): Promise<{ servers: RegistryServer[]; nextCursor: string }> {
+  /** Searches an MCP registry through the runtime's fetch. */
+  async searchRegistry(query: { search?: string; cursor?: string; source?: RegistrySource }, signal?: AbortSignal): Promise<{ servers: RegistryServer[]; nextCursor: string }> {
     if (!this.runtime?.fetch) throw new Error('this runtime cannot reach the MCP registry');
     return searchRegistry(this.runtime.fetch, query, signal);
   }

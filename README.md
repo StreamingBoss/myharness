@@ -166,6 +166,16 @@ Configuration uses `MYHARNESS_MODEL`, `OLLAMA_URL`, `MYHARNESS_WORKSPACE`,
 project or `workspace/`, `sessions/`, `settings.json`, `mcp.json`, the current
 directory and port 5001.
 
+## Web search
+
+The `web_search` tool searches the web with DuckDuckGo and returns the top five
+results (title, URL, snippet) to the model. It is free and needs no account or key.
+DuckDuckGo has no official search API, so the harness reads its plain HTML results page
+(ads skipped): a layout change or a bot check makes the tool answer with an error rather
+than guess. Only the query leaves your computer. Like `read_file`, a search does not ask
+for approval, and the query and results are visible in the chat. It is Node-only; the
+browser edition reports it unsupported.
+
 ## Connect MCP servers
 
 [MCP](https://modelcontextprotocol.io) servers give the harness more tools without
@@ -208,8 +218,10 @@ prompts, warnings, recent stderr and the JSON-RPC wire log. Internals shows each
 call's request and response. Static `headers` cover token authentication; OAuth
 sign-in, sampling, elicitation, roots and change subscriptions are not supported.
 
-**Explore → MCP servers → Find MCP servers…** searches the official
-[MCP Registry](https://registry.modelcontextprotocol.io). The registry lists servers,
+**Explore → MCP servers → Find MCP servers…** searches an MCP registry, chosen in the
+dialog: [GitHub's registry](https://api.mcp.github.com) (the one VS Code uses; curated,
+most-starred first, the default) or the official
+[MCP Registry](https://registry.modelcontextprotocol.io). A registry lists servers,
 not tools: a server's tools are only known once the harness connects to it.
 **Preview tools** connects once to a remote server, lists its tools, prompts and
 resources and disconnects, without calling anything. Packages (npm, PyPI, Docker,

@@ -32,6 +32,8 @@ export interface RuntimePort {
   resolveProject(raw: string): string;
   saveProject(folder: string): Promise<void>;
   executeCommand(command: string, workspace: string, signal: AbortSignal): Promise<{ output: string; status: string }>;
+  /** Web search for the `web_search` tool, returning text for the model. Without it the tool is unsupported. */
+  webSearch?(query: string, signal: AbortSignal): Promise<string>;
   /** MCP transports and configuration. Without it, MCP is reported as unsupported. */
   readonly mcp?: McpRuntime;
 }
