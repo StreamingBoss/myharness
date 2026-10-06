@@ -51,7 +51,9 @@ output is `dist/myharness-browser.zip`. Do not add DOM/Worker dependencies to th
 File tools resolve paths within the workspace and reject escaping or dangling
 symlinks. Bash commands run with account permissions, a timeout and process-group
 cancellation; they are not confined to the workspace. Missing approval answers
-deny actions. Keep requests, proposed effects, decisions and results visible.
+deny actions: approvals settle as `allowed-once`, `rejected`, `cancelled` or
+`unavailable`, and only the first runs anything. `guard.ts` holds the advisory
+repeat-call guard used by the core; the UI only words `guard` events and denials. Keep requests, proposed effects, decisions and results visible.
 
 Context handling trims old tool output at 75% pressure and attempts summarization
 at 90%, retaining the last four messages and whole tool batches. Failed, empty,

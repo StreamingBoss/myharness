@@ -160,8 +160,8 @@ test('abandoned pending approvals are denied when a turn finishes', async t => {
   const pending = harness.applyChange('write_file', { path: 'pending.txt', content: 'draft' });
   const proposal = await pending.next(); assert.ok(!proposal.done); assert.equal(proposal.value.type, 'approval');
   await collect(harness.submit(action));
-  const decision = await pending.next(); assert.ok(!decision.done); assert.equal(decision.value.approved, false);
-  assert.match(String((await pending.next()).value), /refused/);
+  const decision = await pending.next(); assert.ok(!decision.done); assert.equal(decision.value.approved, false); assert.equal(decision.value.outcome, 'cancelled');
+  assert.match(String((await pending.next()).value), /cancelled/);
   assert.equal(harness.approve(String(proposal.value.id), true), false);
 });
 

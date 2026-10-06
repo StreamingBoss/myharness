@@ -671,15 +671,22 @@ function replaySessionEvent(event) {
     printBlock("TOOL — the harness ran " + event.name, "arguments: " + event.arguments + "\nresult:    " + event.result);
     addDivider("used tool " + event.name);
   } else if (event.type === "command") {
-    printBlock("COMMAND — " + (event.approved ? event.status : "refused"), "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
+    printBlock("COMMAND — " + (event.approved ? event.status : denialLabel(event)), "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
   } else if (event.type === "change") {
-    printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (refused)"), (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
+    printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (" + denialLabel(event) + ")"), (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
   } else if (event.type === "mcp") renderMcpEvent(event, false);
   else if (event.type === "mcp_prompt") addDivider("used MCP prompt " + event.name + " from " + event.server);
   else if (event.type === "context") handleContextEvent(event);
   else if (event.type === "project_instructions") addDivider("— project instructions refreshed" + (event.changed ? " (changed)" : "") + " —");
   else if (event.type === "reset") addDivider("— memory reset —");
+  else if (event.type === "guard") renderGuardEvent(event);
   else if (event.type === "stopped") { printBlock("STOPPED", event.reason); addDivider(event.reason); }
+}
+
+// A loop-hygiene guard fired in the backend: the reminder it added to the conversation is shown verbatim.
+function renderGuardEvent(event) {
+  printBlock("GUARD — repeated tool call (" + event.tool + " x" + event.count + ", " + event.level + " reminder added to the conversation)", event.content);
+  addDivider("harness reminded the model: repeated " + event.tool);
 }
 
 function replaySession() {
@@ -700,7 +707,7 @@ function replaySession() {
     }
     if (event.type === "response") [assistant, assistantText] = completeReply(event, assistant, assistantText);
     replaySessionEvent(event);
-    if (["tool", "chat_user", "stopped", "context"].includes(event.type)) {
+    if (["tool", "chat_user", "stopped", "context", "guard"].includes(event.type)) {
       assistant = null; assistantText = ""; thinking = null; thinkingText = "";
     }
   }
@@ -829,16 +836,19 @@ async function sendMessage() {
             out.textContent = event.output || "(no output)";
             changeBox.querySelector(".change-actions").before(out);
           }
-          setChangeStatus(changeBox, event.approved, event.status);
+          setChangeStatus(changeBox, event.approved, event.status, denialLabel(event));
           changeBox = null;
-          printBlock("COMMAND — " + (event.approved ? event.status : "refused"),
+          printBlock("COMMAND — " + (event.approved ? event.status : denialLabel(event)),
                      "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
         } else if (event.type === "change") {
           if (!changeBox) changeBox = renderChangeBox(event.path, event.diff, event.note);
-          setChangeStatus(changeBox, event.approved, "written");
+          setChangeStatus(changeBox, event.approved, "written", denialLabel(event));
           changeBox = null;
-          printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (refused)"),
+          printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (" + denialLabel(event) + ")"),
                      (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
+        } else if (event.type === "guard") {
+          renderGuardEvent(event);
+          memoryEl.textContent = event.memory;
         } else if (event.type === "stopped") {
           printBlock("STOPPED", event.reason);
           addDivider(event.reason);
@@ -1189,11 +1199,11 @@ function renderMcpEvent(event, live) {
       out.textContent = event.result || "(no content)";
       changeBox.querySelector(".change-actions").before(out);
     }
-    setChangeStatus(changeBox, event.approved, event.is_error ? "ran: the server reported an error" : "ran");
+    setChangeStatus(changeBox, event.approved, event.is_error ? "ran: the server reported an error" : "ran", denialLabel(event));
     changeBox = null;
   }
   const wire = event.request ? "\n\nJSON-RPC request:\n" + JSON.stringify(event.request, null, 2) + "\n\nJSON-RPC response:\n" + JSON.stringify(event.response, null, 2) : "";
-  printBlock("MCP — " + label + (event.approved ? " over " + event.transport + ", protocol " + event.protocol_version : " (refused)"),
+  printBlock("MCP — " + label + (event.approved ? " over " + event.transport + ", protocol " + event.protocol_version : " (" + denialLabel(event) + ")"),
              "arguments: " + event.arguments + (event.approved ? "\nresult:    " + event.result + wire : ""));
 }
 
@@ -1246,11 +1256,16 @@ function addApprovalButtons(box, id) {
   actions.append(deny, approve);
 }
 
-function setChangeStatus(box, approved, doneLabel) {
+// Why an action did not run: the backend reports how the approval ended; the UI only words it.
+function denialLabel(event) {
+  return event.outcome === "unavailable" ? "no answer" : event.outcome === "cancelled" ? "cancelled" : "refused";
+}
+
+function setChangeStatus(box, approved, doneLabel, denial = "refused") {
   const actions = box.querySelector(".change-actions");
   const status = document.createElement("span");
   status.className = "change-status " + (approved ? "approved" : "refused");
-  status.textContent = approved ? doneLabel : "refused";
+  status.textContent = approved ? doneLabel : denial;
   actions.replaceChildren(status);
 }
 
