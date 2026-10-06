@@ -328,6 +328,15 @@ export class Harness implements TurnHost {
     return this.mcp.status();
   }
   mcpStatus(): Record<string, unknown> { return this.mcp.status(); }
+  async mcpConfiguration(): Promise<Record<string, unknown>> { return this.mcp.configuration(); }
+  async configureMcp(value: unknown): Promise<Record<string, unknown>> {
+    this.idle('configuring MCP servers');
+    this.running = true;
+    try { await this.mcp.replaceConfig(value); }
+    catch (error) { throw new BackendError((error as Error).message); }
+    finally { this.running = false; }
+    return this.mcp.status();
+  }
   /** Searches an MCP registry (GitHub's unless `source` is "official"). It lists servers; tools appear only after connecting (see previewMcp). */
   async searchMcpRegistry(query: { search?: unknown; cursor?: unknown; source?: unknown }): Promise<Record<string, unknown>> {
     if (query.search !== undefined && typeof query.search !== 'string') throw new BackendError('search must be a string');

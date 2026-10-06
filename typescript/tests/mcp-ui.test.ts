@@ -52,12 +52,26 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   assert.match(await page.locator('#terminal').innerText(), /MCP — files\/echo over stdio, protocol 2026-07-28[\s\S]*"method": "tools\/call"/);
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
 
+  assert.equal(await page.locator('#mcp-config-editor').isVisible(), false);
+  let exploreRequests = 0;
+  await page.route('**/explore', route => { exploreRequests++; return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Model metadata unavailable' }) }); });
   await page.locator('#explore-view').selectOption('mcp');
+  await page.waitForFunction(() => document.querySelector('#mcp-config-source')!.textContent!.startsWith('Editable source:'));
+  assert.equal(exploreRequests, 0);
+  assert.match(await page.locator('#explore-note').innerText(), /MCP servers from/);
+  assert.equal(JSON.parse(await page.locator('#mcp-config-text').inputValue()).mcpServers.files.command, process.execPath);
+  assert.equal(await page.locator('#mcp-config-source').innerText(), 'Editable source: ' + config);
+
+  await page.locator('#explore-view').selectOption('tokens');
+  assert.equal(await page.locator('#mcp-config-editor').isVisible(), false);
+  assert.equal(await page.locator('#mcp-server-details').isVisible(), false);
+  await page.locator('#explore-view').selectOption('mcp');
+  await page.locator('#mcp-server-details summary').click();
   await page.getByText('== files — connected (stdio)', { exact: false }).waitFor();
-  const explored = await page.locator('#explore').innerText();
-  assert.match(explored, /instructions \(added to the system message when its tools are checked\):\n {2}Echo politely\./);
-  assert.match(explored, /prompt \/mcp__files__review <topic>/);
-  assert.match(explored, /wire log:/);
+  const explored = await page.locator('#mcp-server-status').textContent();
+  assert.match(explored!, /instructions \(added to the system message when its tools are checked\):\n {2}Echo politely\./);
+  assert.match(explored!, /prompt \/mcp__files__review <topic>/);
+  assert.match(explored!, /wire log:/);
   await page.locator('#mcp-reload').click();
   await page.waitForFunction(() => !(document.querySelector('#mcp-reload') as HTMLButtonElement).disabled && document.querySelector('input.tool-checkbox[value="mcp__files__echo"]') !== null);
 

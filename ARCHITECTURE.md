@@ -262,7 +262,7 @@ without header values.
 `mcp/registry.ts` searches GitHub's MCP registry (`/v0.1/servers`, the default) or the
 official one (`/v0/servers`, latest versions), with cursor paging, through the runtime's injected `fetch` and converts each
 entry into options: remote URLs and npm/PyPI/OCI/NuGet stdio packages, each with an
-`mcpServers` snippet, `${NAME}` placeholders and notes. The explicit `addMcp` action merges entries without overwriting existing names, saves
+`mcpServers` snippet, `${NAME}` placeholders and notes. The explicit `addMcp` action merges entries, replacing same-named server entries, saves
 through the runtime adapter, and reloads. Node saves atomically; browser headers stay
 in memory. `previewMcp` connects once to a remote URL with optional caller-supplied headers,
 lists tools, resources and prompts, and disconnects; packages are never run.

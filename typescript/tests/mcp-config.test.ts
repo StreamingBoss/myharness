@@ -18,7 +18,7 @@ import { FixtureServer, fixtureFetch } from './mcp-fixture.js';
 const entry = { mcpServers: { added: { url: 'http://remote.test/mcp', headers: { Authorization: 'Bearer config-secret' } } } };
 const model = { async *streamChat() { yield ''; } };
 
-test('Node saves MCP entries atomically, preserves configuration and rejects collisions/errors without UI', async t => {
+test('Node saves MCP entries atomically, replaces collisions, preserves configuration and rejects errors without UI', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'mcp-config-')); t.after(() => rm(root, { recursive: true, force: true }));
   t.mock.method(globalThis, 'fetch', fixtureFetch(new FixtureServer(), { stateless: true }));
   const file = path.join(root, 'mcp.json');
@@ -31,8 +31,9 @@ test('Node saves MCP entries atomically, preserves configuration and rejects col
   await writeFile(file, JSON.stringify(original));
   await backend.addMcp({ mcpServers: { other: { disabled: true } } });
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { ...original, mcpServers: { ...original.mcpServers, other: { disabled: true } } });
+  await backend.addMcp({ mcpServers: { added: { url: 'http://replacement.test/mcp', disabled: true } } });
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { ...original, mcpServers: { ...original.mcpServers, added: { url: 'http://replacement.test/mcp', disabled: true }, other: { disabled: true } } });
   const before = await readFile(file, 'utf8');
-  await assert.rejects(backend.addMcp(entry), /already exists/);
   await assert.rejects(backend.addMcp({ mcpServers: { broken: { command: '' } } }), /command must/);
   await assert.rejects(backend.addMcp({}), /at least one/);
   await assert.rejects(backend.addMcp(null), /JSON object/);
@@ -64,6 +65,8 @@ test('browser and Worker additions merge config, retain headers only in memory a
   const host = new WorkerHost(async () => backend, message => messages.push(message));
   await host.handle({ id: 'add', action: 'addMcp', payload: entry });
   assert.equal(messages[0]!.type, 'result');
+  await host.handle({ id: 'config', action: 'mcpConfiguration', payload: {} });
+  assert.equal(messages[1]!.type, 'result');
   assert.deepEqual(await storage.get('settings', 'mcp-config'), { mcpServers: { keep: { disabled: true }, added: { url: 'http://remote.test/mcp' } } });
   assert.equal((backend.mcpStatus().servers as { status: string }[])[1]!.status, 'connected');
   let release!: () => void;
@@ -90,4 +93,34 @@ test('Node HTTP exposes explicit MCP config additions', async t => {
     }); outgoing.on('error', reject); outgoing.end(JSON.stringify(entry));
   });
   assert.equal(result.status, 200); assert.equal(result.value.servers.length, 1);
+  const configRequest = (method: string, config?: unknown) => new Promise<{ status: number; value: Record<string, unknown> }>((resolve, reject) => {
+    const outgoing = request(`http://127.0.0.1:${address.port}/mcp/config`, { method, headers: { 'content-type': 'application/json' } }, response => {
+      let body = ''; response.on('data', chunk => { body += String(chunk); }); response.on('end', () => resolve({ status: response.statusCode!, value: JSON.parse(body) }));
+    }); outgoing.on('error', reject); outgoing.end(config === undefined ? undefined : JSON.stringify({ config }));
+  });
+  assert.deepEqual((await configRequest('GET')).value.config, entry);
+  assert.equal((await configRequest('PUT', { mcpServers: { off: { disabled: true } } })).status, 200);
+  assert.deepEqual((await configRequest('GET')).value.config, { mcpServers: { off: { disabled: true } } });
+  assert.equal((await configRequest('PUT', [])).status, 400);
+
+});
+
+test('editable MCP configuration works headlessly, reports unsupported and read failures, and preserves failed saves', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'mcp-edit-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const file = path.join(root, 'mcp.json');
+  const backend = new NodeHarness({ workspace: root, model: 'scripted', contextLength: 4000, ollama: model, mcpConfigFile: file }); t.after(() => backend.close());
+  assert.deepEqual(await backend.mcpConfiguration(), { source: file, editable: true, config: { mcpServers: {} } });
+  await backend.configureMcp({ mcpServers: { off: { disabled: true } } });
+  assert.deepEqual((await backend.mcpConfiguration()).config, { mcpServers: { off: { disabled: true } } });
+  await assert.rejects(backend.configureMcp([]), /mcpServers/);
+  await assert.rejects(backend.configureMcp(undefined), /JSON object/);
+  await writeFile(file, '{'); await assert.rejects(backend.mcpConfiguration(), /mcp.json/);
+  await writeFile(file, 'null'); assert.deepEqual((await backend.mcpConfiguration()).config, { mcpServers: {} });
+  await rm(file); await mkdir(file); await assert.rejects(backend.configureMcp({}), /EISDIR/);
+  const unsupported = new McpManager(undefined);
+  assert.deepEqual(await unsupported.configuration(), { source: '(unsupported)', editable: false, config: { mcpServers: {} } });
+  await assert.rejects(unsupported.replaceConfig({}), /cannot save/);
+  const readOnly = new McpManager({ source: 'read-only', loadConfig: async () => ({}) });
+  assert.equal((await readOnly.configuration()).editable, false);
+  await assert.rejects(readOnly.replaceConfig({}), /cannot save/);
 });

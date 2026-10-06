@@ -1,7 +1,7 @@
 import { ModelPicker } from '../src/browser/model-picker.js';
 import { ModelControls } from '../src/browser/model-controls.js';
 import { WorkerClient, type WorkerPort } from '../src/browser/client.js';
-import { browserFetch } from '../src/browser/fetch.js';
+import { browserFetch, reportBrowserMcpConfig } from '../src/browser/fetch.js';
 
 interface BrowserWindow extends Window {
   MYHARNESS_FETCH?: ReturnType<typeof browserFetch>;
@@ -109,6 +109,7 @@ export async function mountBrowser(): Promise<void> {
     try {
       const file = (event.target as HTMLInputElement).files![0]!;
       const result = await client.call('configureMcp', JSON.parse(await file.text())) as { servers: { status: string }[] };
+      await reportBrowserMcpConfig(client);
       status.textContent = `MCP: ${result.servers.filter(server => server.status === 'connected').length} of ${result.servers.length} servers connected. See Explore → MCP servers.`;
       render(await client.call('bootstrap') as Record<string, unknown>);
     } catch (error) { failure(error); }

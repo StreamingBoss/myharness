@@ -271,7 +271,22 @@ export class McpManager {
     };
   }
 
-  /** Adds entries without overwriting existing servers, then reconnects. */
+  async configuration(): Promise<JsonObject> {
+    const value = await this.runtime?.loadConfig();
+    return { source: this.runtime?.source ?? '(unsupported)', editable: !!this.runtime?.saveConfig,
+      config: value && isObject(value) ? value : { mcpServers: {} } };
+  }
+
+  async replaceConfig(value: unknown): Promise<JsonObject> {
+    if (!this.runtime?.saveConfig) throw new Error('this runtime cannot save MCP configuration');
+    parseConfig(value);
+    if (!isObject(value)) throw new Error('MCP configuration must be a JSON object');
+    await this.runtime.saveConfig(value);
+    await this.load();
+    return this.status();
+  }
+
+  /** Adds entries or replaces same-named servers, then reconnects. */
   async addConfig(value: unknown): Promise<JsonObject> {
     if (!this.runtime?.saveConfig) throw new Error('this runtime cannot save MCP configuration');
     const added = parseConfig(value);
@@ -281,7 +296,6 @@ export class McpManager {
     parseConfig(existing);
     const current = (existing ?? {}) as JsonObject;
     const servers = (current.mcpServers ?? {}) as JsonObject;
-    for (const name of Object.keys(added)) if (Object.hasOwn(servers, name)) throw new Error(`MCP server '${name}' already exists; edit its configuration to replace it`);
     await this.runtime.saveConfig({ ...current, mcpServers: { ...servers, ...(value as JsonObject).mcpServers as JsonObject } });
     await this.load();
     return this.status();

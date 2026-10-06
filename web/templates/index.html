@@ -375,6 +375,13 @@
   }
   #explore-note { color: #8a8a8a; font-size: 12px; }
   #explore[hidden], #memory[hidden] { display: none; }
+  #harness-box.mcp-view { height: 45vh; }
+  #mcp-config-editor { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; padding: 8px; }
+  #mcp-config-editor[hidden] { display: none; }
+  #mcp-config-text { display: block; box-sizing: border-box; width: 100%; min-height: 100px; flex: 1; margin: 6px 0; resize: vertical; font: 12px/1.45 ui-monospace, monospace; }
+  #mcp-server-details { flex: 0 0 auto; max-height: 10vh; overflow: auto; padding: 4px 8px; font-size: 12px; }
+  #mcp-server-status { max-height: 8vh; overflow: auto; white-space: pre-wrap; }
+  #mcp-config-source, #mcp-config-message { color: #8a8a8a; font-size: 12px; }
   #explore .token { color: #e0b050; font-weight: bold; }
   #explore .skill-loaded { color: #80d890; }
   #terminal, #memory, #explore {
@@ -495,6 +502,17 @@ Model: loading…
   </div>
   <pre id="memory"></pre>
   <pre id="explore" hidden></pre>
+  <details id="mcp-server-details" hidden>
+    <summary>Server status, warnings and protocol log</summary>
+    <pre id="mcp-server-status"></pre>
+  </details>
+  <section id="mcp-config-editor" hidden aria-label="MCP configuration">
+    <strong>MCP configuration JSON</strong>
+    <div id="mcp-config-source"></div>
+    <textarea id="mcp-config-text" aria-label="MCP configuration JSON" spellcheck="false" title="The active MCP configuration. Edit this JSON, then save to replace the configuration and reconnect its servers."></textarea>
+    <button id="mcp-config-save" type="button" title="Save the edited JSON to the displayed configuration source and reconnect the MCP servers.">Save configuration and reconnect</button>
+    <span id="mcp-config-message" role="status"></span>
+  </section>
   <div id="tokenization" hidden></div>
 </div>
 
@@ -967,6 +985,21 @@ const exploreEl = document.getElementById("explore");
 const exploreNote = document.getElementById("explore-note");
 const mcpReloadBtn = document.getElementById("mcp-reload");
 mcpReloadBtn.addEventListener("click", reloadMcp);
+const mcpConfigEditor = document.getElementById("mcp-config-editor");
+const mcpConfigText = document.getElementById("mcp-config-text");
+const mcpServerDetails = document.getElementById("mcp-server-details");
+const mcpServerStatus = document.getElementById("mcp-server-status");
+document.getElementById("mcp-config-save").addEventListener("click", async () => {
+  const message = document.getElementById("mcp-config-message");
+  try {
+    const config = JSON.parse(mcpConfigText.value);
+    const response = await backendFetch(api("/mcp/config"), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error);
+    message.textContent = "Saved and reconnected.";
+    const boot = await backendFetch(api("/bootstrap")); initialize(await boot.json());
+  } catch (error) { message.textContent = "Save failed: " + error.message; }
+});
 const mcpFindBtn = document.getElementById("mcp-find");
 const registryDialog = document.getElementById("mcp-registry");
 mcpFindBtn.addEventListener("click", () => { registryDialog.showModal(); if (!registryCursor) searchRegistry(false); });
@@ -1128,7 +1161,7 @@ function renderRegistryOption(option) {
     catch { copy.textContent = "Select the text to copy"; }
   });
   const editor = element("textarea"); editor.hidden = true; editor.value = snippet;
-  editor.title = "JSON entries to merge into the harness MCP configuration. Replace placeholders with values or Node environment references such as ${TOKEN}. Existing server names cannot be overwritten.";
+  editor.title = "JSON entries to add to or replace in the harness MCP configuration. Replace placeholders with values or Node environment references such as ${TOKEN}. Same-named server entries are replaced; other servers are preserved.";
   editor.setAttribute("aria-label", "MCP configuration to add"); editor.rows = 10;
   editor.style.width = "100%";
   const tokenLabel = element("label", "Authorization header to save (optional) "); tokenLabel.hidden = true;
@@ -1199,19 +1232,50 @@ async function reloadMcp() {
 async function refreshExplorer() {
   if (!initialized) return;
   const view = exploreView.value;
+  const showMemory = view === "memory";
+  const showMcp = view === "mcp";
+  document.getElementById("harness-box").classList.toggle("mcp-view", showMcp);
+  mcpConfigEditor.hidden = view !== "mcp";
+  mcpServerDetails.hidden = !showMcp;
+  mcpReloadBtn.hidden = mcpFindBtn.hidden = view !== "mcp";
   document.getElementById('tokenization').hidden = view !== 'tokens';
   if (view === 'tokens') {
     memoryEl.hidden = true; exploreEl.hidden = true;
     exploreNote.textContent = 'Inspect the saved request for a specific model call. Source, coverage and limitations appear below.';
     await tokenViewer.refresh(session.id); return;
   }
-  const showMemory = view === "memory";
-  mcpReloadBtn.hidden = mcpFindBtn.hidden = view !== "mcp";
   memoryEl.hidden = !showMemory;
-  exploreEl.hidden = showMemory;
+  exploreEl.hidden = showMemory || showMcp;
   let note = EXPLORE_NOTES[view];
   if (showMemory) {
     exploreNote.textContent = note;
+    return;
+  }
+  exploreNote.textContent = note;
+  if (showMcp) {
+    mcpServerStatus.textContent = "Loading MCP server status…";
+    document.getElementById("mcp-config-source").textContent = "Loading configuration…";
+    await Promise.all([
+      (async () => {
+        try {
+          const response = await backendFetch(api("/mcp"));
+          const status = await response.json();
+          if (!response.ok) throw new Error(status.error);
+          mcpServerStatus.textContent = mcpText(status);
+        } catch (error) { mcpServerStatus.textContent = "Could not read MCP server status: " + error.message; }
+      })(),
+      (async () => {
+        try {
+          const response = await backendFetch(api("/mcp/config"));
+          const configuration = await response.json();
+          if (!response.ok) throw new Error(configuration.error);
+          document.getElementById("mcp-config-source").textContent = "Editable source: " + configuration.source;
+          mcpConfigText.value = JSON.stringify(configuration.config, null, 2);
+          document.getElementById("mcp-config-save").disabled = !configuration.editable;
+          document.getElementById("mcp-config-message").textContent = configuration.editable ? "" : "This runtime does not support editing MCP configuration.";
+        } catch (error) { document.getElementById("mcp-config-source").textContent = "Could not read configuration: " + error.message; }
+      })(),
+    ]);
     return;
   }
   const resp = await backendFetch(api("/explore"), {
@@ -1240,8 +1304,6 @@ async function refreshExplorer() {
       : "none: create AGENTS.md in the project folder";
   } else if (view === "tools") {
     text = data.tools === "[]" ? "(no tools checked: the request has no 'tools' field)" : data.tools;
-  } else if (view === "mcp") {
-    text = mcpText(data.mcp);
   } else if (view === "skills") {
     skillsExplorerData = data;
     renderSkills(data, activeSkillContext || data.skill_context);

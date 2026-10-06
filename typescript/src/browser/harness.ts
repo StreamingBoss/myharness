@@ -81,7 +81,7 @@ export class BrowserHarness extends Harness {
   }
 
   /** Validates and stores an MCP configuration, then reconnects. Header values are not persisted. */
-  async configureMcp(value: unknown): Promise<Record<string, unknown>> {
+  override async configureMcp(value: unknown): Promise<Record<string, unknown>> {
     this.idle('configuring MCP servers');
     try { parseConfig(value); } catch (error) { throw new BackendError((error as Error).message); }
     const stored = structuredClone(value) as { mcpServers?: Record<string, unknown> };

@@ -27,6 +27,37 @@ async function send(page: Page, message: string) {
 }
 async function ready(page: Page) { await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 12); }
 
+test('browser MCP edits and imports print their storage location and saved content in the static server terminal', async t => {
+  const { base, child } = await staticServer(t);
+  let output = '';
+  child.stdout.on('data', chunk => { output += String(chunk); });
+  const browser = await chromium.launch({ headless: true }); t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(base + '/?database=mcp-terminal-debug');
+  await ready(page);
+  await page.locator('#explore-view').selectOption('mcp');
+  await page.waitForFunction(() => (document.querySelector('#mcp-config-text') as HTMLTextAreaElement).value.includes('mcpServers'));
+  const config = { mcpServers: { github: { disabled: true, url: 'https://example.test/mcp', headers: { Authorization: 'Bearer terminal-debug' } } } };
+  await page.locator('#mcp-config-text').fill(JSON.stringify(config));
+  await page.locator('#mcp-config-save').click();
+  await page.waitForFunction(() => !(document.querySelector('#mcp-config-save') as HTMLButtonElement).disabled);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('No saved MCP config was printed: ' + output)), 5000);
+    const check = () => { if (output.includes('Bearer terminal-debug')) { clearTimeout(timer); resolve(); } };
+    child.stdout.on('data', check); check();
+  });
+  assert.match(output, /IndexedDB mcp-terminal-debug \/ settings \/ mcp-config/);
+  assert.match(output, /MCP configuration content:/);
+  const imported = { mcpServers: { github: { disabled: true, headers: { Authorization: 'Bearer imported-debug' } } } };
+  await page.locator('#browser-mcp-config').setInputFiles({ name: 'mcp.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(imported)) });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('No imported MCP config was printed: ' + output)), 5000);
+    const check = () => { if (output.includes('Bearer imported-debug')) { clearTimeout(timer); resolve(); } };
+    child.stdout.on('data', check); check();
+  });
+  assert.match(await page.locator('#mcp-config-source').innerText(), /browser storage/);
+});
+
 test('static browser distribution runs the backend in a Worker, saves sessions/files and works after the server stops', async t => {
   const { base, child } = await staticServer(t);
   assert.equal((await fetch(base + '/chat', { method: 'POST' })).status, 404);
@@ -128,8 +159,9 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   await page.waitForFunction(() => document.querySelector('.tool-checkbox[value="mcp__web__echo"]'));
   assert.equal(await page.locator('.mcp-group').innerText(), 'MCP web:');
   await page.locator('#explore-view').selectOption('mcp');
+  await page.locator('#mcp-server-details').evaluate(node => (node as HTMLDetailsElement).open = true);
   await page.getByText('== local — unsupported', { exact: false }).waitFor();
-  assert.match(await page.locator('#explore').innerText(), /== web — connected \(http\)[\s\S]*Browser MCP hints\./);
+  assert.match(await page.locator('#mcp-server-status').innerText(), /== web — connected \(http\)[\s\S]*Browser MCP hints\./);
   await page.locator('#explore-view').selectOption('memory');
   // The imported configuration persists (without header values); clear it so later steps see the ten harness tools.
   await page.evaluate(() => (window as unknown as { harness: { call(action: string, payload: unknown): Promise<unknown> } }).harness.call('configureMcp', { mcpServers: {} }));

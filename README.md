@@ -293,10 +293,17 @@ for the keys or arguments it needs. Registry entries are published by their
 authors and not reviewed: check what a command runs before adding it.
 
 After **Show configuration**, edit the configuration fields as needed, then choose
-**Add to harness** to merge the entry into the harness config and reload servers.
+**Add to harness** to add the entry to the harness config, replacing any same-named server entry, then reload servers.
 The **Authorization header to save** field accepts the full header value if a token
 is needed. Node stores it in the configured MCP file; browser headers stay in memory.
-Existing server names are protected from replacement. Adding a package starts its command.
+Adding a package starts its command.
+
+**Explore → MCP servers → MCP configuration JSON** shows the active configuration
+source and its editable JSON. This view works independently of the model provider.
+In the browser edition, the source is browser storage, rather than a filesystem
+`mcp.json`. With the local `npm run start:browser` server, edits, additions and
+imports also print the browser storage location and current JSON (including
+in-memory authentication headers) in that server's terminal.
 
 In the browser edition, **Import MCP config** loads the same file. The Worker can
 reach HTTP servers that allow the page origin and the MCP headers (CORS); stdio

@@ -63,6 +63,7 @@ export class WorkerHost {
         case 'configureModelAndNewSession': await backend.configureModel(modelConfiguration(payload), action === 'configureModelAndNewSession'); value = { ok: true }; break;
         case 'forgetApiKey': backend.forgetApiKey(); value = { ok: true }; break;
         case 'mcp': value = backend.mcpStatus(); break;
+        case 'mcpConfiguration': value = await backend.mcpConfiguration(); break;
         case 'addMcp': value = await backend.addMcp(payload); break;
         case 'reloadMcp': value = await backend.reloadMcp(); break;
         case 'configureMcp': value = await backend.configureMcp(payload); break;
