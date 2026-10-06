@@ -1,6 +1,24 @@
 # myharness
 
-Explore the harness in the [interactive learning guide](docs/myharness-learning-guide.html).
+MyHarness is a learning tool for seeing what a harness adds to an LLM: memory,
+instructions, tools, skills, approvals and context management. Inspect the actual
+requests and tool results while experimenting with those behaviors.
+
+## Learning guides and demos
+
+- [Interactive learning guide — English](docs/myharness-learning-guide.html)
+- [Guide interactif — Français](docs/myharness-learning-guide.fr.html)
+- [Markdown learning guide](docs/myharness-learning-guide.md)
+
+The HTML guides offer twelve steps, a glossary, progress tracking and interactive
+illustrations of memory, approvals and context. Open the HTML files in a browser
+after cloning the repository; a GitHub file link shows the source. The guides
+work offline and make no model calls or file changes. Their exercises explain
+what to try in the running harness. Progress is saved in browser storage, and
+**Reset progress** clears the guide checklist. The lessons remain readable
+without JavaScript; illustrations and progress tracking require it.
+
+## Goals and subagents
 
 Describe your task in chat. The master can use `get_orchestration` to inspect host
 permissions and ceilings, then `configure_goal` to choose an objective, completion
@@ -57,7 +75,14 @@ shared backend.
 | Context | Measured input tokens, estimated pressure, trimmed tool output and visible summary requests. |
 | Sessions | Saved transcript, retained memory and instruction snapshots; reset memory while keeping the transcript visible. |
 
-The bottom **Explore → tokenization of a saved request** view can inspect individual model calls. It shows token pieces and IDs where a configured/provider tokenizer exposes them, and explicitly explains count-only or unavailable results. See [TOKENIZATION.md](TOKENIZATION.md) for Ollama tokenizer setup, remote Gemini configuration, and exactness limits.
+The bottom **Explore → tokenization of a saved request** view can inspect individual
+model calls, including tool follow-ups and compaction requests. Choose a call and
+click **Inspect selected request**. Where a configured/provider tokenizer exposes
+pieces, click one to see its position, ID and bytes. The view labels its source,
+coverage and limitations, including count-only or unavailable results. Reopening
+a saved inspection makes no new model call; fresh inspection can load a local
+model or use provider quota. See [TOKENIZATION.md](TOKENIZATION.md) for Ollama
+tokenizer setup, remote Gemini configuration, and exactness limits.
 
 The **Chat** pane shows answers and actions. **Internals** shows the API exchange
 and tool effects. **Explore** shows the pieces used to build a request, the model's
@@ -199,6 +224,57 @@ network configuration.
 
 Tools are requests from the model; the harness executes them. A model may fail
 to request the intended tool. The internals make that difference visible.
+
+## Sessions, instructions and skills
+
+Use the Session controls to create, rename, resume, delete, export or import a
+conversation. Startup restores the latest session when its model configuration
+can be resumed. Replaying a saved transcript displays recorded events without
+rerunning model calls, tools or approvals. If its project folder is missing,
+choose a replacement before continuing.
+
+With memory enabled, the first turn freezes the selected system prompt, agent
+and skill contents for that session. **Reset memory** clears retained messages
+and releases those snapshots while preserving the transcript. Project `AGENTS.md`
+instructions refresh when resuming, successfully compacting or changing projects.
+Inspect Explore to see which instructions are actually in the request.
+
+Skills are `skills/<name>/SKILL.md` files in the harness or project folder.
+Enabling `use_skill` offers their names and short descriptions; the model can
+load the full instructions on demand. Typing `/` offers slash autocomplete, and
+`/write-readme your request` loads that skill directly. Recognized skill names
+appear blue in the input. Green highlighting in Explore indicates skill text
+present in the current harness context; it clears as that text leaves memory.
+
+## Approvals, cancellation and repeated calls
+
+Proposed file changes, commands, git changes and MCP tool calls show an approval
+request while approvals are enabled. Each request settles as **`allowed-once`**,
+**`rejected`**, **`cancelled`** or **`unavailable`**. Only `allowed-once` executes
+the action. The model receives the result or specific denial, and the UI
+distinguishes refusal, cancellation and a missing answer.
+
+**Stop** aborts model requests, cancels pending approvals and, in the Node
+edition, terminates running shell command process groups. Resuming an interrupted
+session repairs incomplete tool exchanges without rerunning their actions.
+
+When a model makes the same consecutive tool call with identical arguments,
+the backend adds visible reminders after the third, fifth and eighth calls.
+Denied calls count too. These reminders advise the model to inspect results and
+change approach; they do not block execution or grant approval. Each new turn
+starts a fresh repeat count.
+
+## Context management
+
+With Harness memory enabled, the backend trims older tool outputs at 75% context
+pressure and attempts to summarize older memory at 90%. It retains the last four
+messages and complete tool batches, and shows the trimming and compaction events
+in the UI. Compaction can
+also be requested manually. Failed, empty, interrupted or ineffective summaries
+leave memory unchanged. The saved transcript remains available after trimming,
+compaction or memory reset.
+If the input and output reserve still exceed the working context budget, the
+backend stops and asks you to compact or reset memory.
 
 ## Use the backend without the UI
 
