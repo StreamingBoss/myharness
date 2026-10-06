@@ -1,5 +1,7 @@
 # myharness
 
+Explore the harness in the [interactive learning guide](docs/myharness-learning-guide.html).
+
 Describe your task in chat. The master can use `get_orchestration` to inspect host
 permissions and ceilings, then `configure_goal` to choose an objective, completion
 criteria, deadline, round limit and shared request budget. It can choose child tasks,
