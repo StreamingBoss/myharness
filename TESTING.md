@@ -91,7 +91,15 @@ browser backends without UI: approval, denial, timeout, Stop, instructions,
 prompts, resources, reload, HTTP routes and Worker RPC. `mcp-registry.test.ts`
 covers registry entry conversion for every package and remote shape, search
 paging and failures, previews and their HTTP/Worker routes, without contacting
-the real registry. `mcp-ui.test.ts` (including the registry dialog, previews,
+the real registry. `git.test.ts` runs one behavioural suite against both git adapters (real git in Node,
+isomorphic-git over a real folder) on repositories made by real git, and checks results with
+real `git log`, `status` and `fsck`; `git-fs.test.ts` covers the `fs` adapter's error codes.
+`agentic-tools.test.ts` and `browser-agentic.test.ts` drive `delete_file`, `move_file`,
+`update_plan` and the git tools through the backend without a UI (approve, deny, time out,
+Stop, races, unavailable tools), on the Node, virtual and local-folder workspaces;
+`agentic-ui.test.ts` checks the approvals and plan checklist in Chromium, live and after replay.
+`websearch.test.ts` covers DuckDuckGo result parsing (ads, redirects, entities) and errors, a full headless
+turn (no key, no approval), Stop and the browser's unsupported report. `mcp-ui.test.ts` (including the registry dialog, previews,
 snippets and HTML-escaping of registry text) and `browser-distribution.test.ts`
 check the UI and the packaged Worker in Chromium.
 

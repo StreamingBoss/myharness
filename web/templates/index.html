@@ -235,6 +235,11 @@
     background: #555;
   }
   .change-actions .approve { background: #2e7d32; }
+  .plan { border: 1px solid #555; border-radius: 6px; padding: 8px 12px; margin: 8px 0; background: #1e1e1e; font-size: 13px; }
+  .plan-title { font-weight: 600; margin-bottom: 4px; }
+  .plan-item { font-family: ui-monospace, "SF Mono", Consolas, monospace; white-space: pre-wrap; }
+  .plan-done { color: #6fcf6f; }
+  .plan-in_progress { color: #ffb86c; }
   .change-status.approved { color: #6fcf6f; }
   .change-status.refused { color: #ff6b6b; }
   .msg.thinking {
@@ -438,7 +443,7 @@
   <div id="tools-row">
     <label class="toggle" title="Tools let the model ask the harness to run a function (read a file, get the time...). The model never runs anything itself: it replies with a tool call, the harness runs it and sends the result back in a new request. Unchecked: no tools are described to the model, so it doesn't know they exist."><input id="use-tools" type="checkbox" checked> <span class="help">Tools:</span></label>
     <span id="tool-list"></span>
-    <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added); before run_command runs, it shows the command; before an MCP tool runs, it shows the server, the tool and its arguments. The harness then waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written, and commands and MCP tools run, immediately. Careful: the project-folder limit only applies to the file tools; a shell command can do anything your user account can (cd .., rm...), so approval is the real protection."><input id="ask-approval" type="checkbox" checked> <span class="help">Ask before changes and commands</span></label>
+    <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added); before run_command runs, it shows the command; before an MCP tool runs, it shows the server, the tool and its arguments; before a file is deleted or moved, or git creates a branch, switches branch or commits, it shows what will happen. The harness then waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written, and commands and MCP tools run, immediately. Careful: the project-folder limit only applies to the file tools; a shell command can do anything your user account can (cd .., rm...), so approval is the real protection."><input id="ask-approval" type="checkbox" checked> <span class="help">Ask before changes and commands</span></label>
   </div>
 </div>
 
@@ -473,7 +478,7 @@ Model: loading…
       <option value="final">prompt reconstruction (Qwen)</option>
     </select>
     <button id="mcp-reload" hidden title="Ask the backend to re-read its MCP configuration file and reconnect every server. The tool list below the chat is rebuilt from what the servers report.">Reload MCP servers</button>
-    <button id="mcp-find" hidden title="Search the official MCP Registry (registry.modelcontextprotocol.io). It lists servers, not tools: a server's tools are only known once the harness connects to it. Preview connects to a remote server once; the configuration snippet goes into your MCP configuration file.">Find MCP servers…</button>
+    <button id="mcp-find" hidden title="Search an MCP registry: GitHub's (the one VS Code uses) or the official one. It lists servers, not tools: a server's tools are only known once the harness connects to it. Preview connects to a remote server once; the configuration snippet goes into your MCP configuration file.">Find MCP servers…</button>
     <span id="explore-note"></span>
   </div>
   <pre id="memory"></pre>
@@ -483,16 +488,21 @@ Model: loading…
 
 <dialog id="mcp-registry" aria-label="MCP Registry">
   <form method="dialog" id="mcp-registry-form">
+    <select id="mcp-registry-source" aria-label="Registry" title="GitHub: api.mcp.github.com, the registry VS Code uses, most-starred first. Official: registry.modelcontextprotocol.io.">
+      <option value="github">GitHub registry</option>
+      <option value="official">Official registry</option>
+    </select>
     <input type="search" id="mcp-registry-search" placeholder="Search the MCP Registry, e.g. filesystem, github, weather" aria-label="Search the MCP Registry">
     <button id="mcp-registry-go" type="submit" value="search">Search</button>
     <button id="mcp-registry-close" type="button">Close</button>
   </form>
-  <div class="registry-note">Servers from the official MCP Registry. Entries are published by their authors and not reviewed. <b>Preview tools</b> connects once to a remote server, lists what it offers and disconnects; nothing is called. To use a server, copy its configuration into your MCP configuration file and choose <b>Reload MCP servers</b> (browser edition: <b>Import MCP config</b>).</div>
+  <div class="registry-note">Servers from the selected MCP registry. Entries are published by their authors and not reviewed. <b>Preview tools</b> connects once to a remote server, lists what it offers and disconnects; nothing is called. Choose <b>Show configuration → Add to harness</b> to save and reload a server, or copy its configuration into your MCP configuration file and choose <b>Reload MCP servers</b> (browser edition: <b>Import MCP config</b>).</div>
   <div id="mcp-registry-results" role="status"></div>
   <button id="mcp-registry-more" type="button" hidden>More results</button>
 </dialog>
 
 <script src="/static/tokenization.js"></script>
+<script src="/static/orchestration.js"></script>
 <script>
 const messagesEl = document.getElementById("messages");
 const terminalEl = document.getElementById("terminal");
@@ -523,6 +533,7 @@ let toolCheckboxes = [];
 let contextLength = 0;
 let initialized = false;
 const tokenViewer = new TokenViewer(document.getElementById('tokenization'), (path, options) => backendFetch(api(path), options), busy => setControlsDisabled(busy));
+const orchestrationPanel = new OrchestrationPanel(document.getElementById('chat-pane'), (path, options) => backendFetch(api(path), options), () => ({ use_memory: memoryCheckbox.checked, ask_approval: askApprovalCheckbox.checked, tools: toolCheckboxes.filter(box => box.checked).map(box => box.value), agent: agentSelect.value, prompt: promptSelect.value }));
 const sessionSelect = document.getElementById("session-select");
 const sessionStatus = document.getElementById("session-status");
 
@@ -670,11 +681,13 @@ function replaySessionEvent(event) {
   else if (event.type === "tool") {
     printBlock("TOOL — the harness ran " + event.name, "arguments: " + event.arguments + "\nresult:    " + event.result);
     addDivider("used tool " + event.name);
+    renderPlan(event);
   } else if (event.type === "command") {
     printBlock("COMMAND — " + (event.approved ? event.status : denialLabel(event)), "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
   } else if (event.type === "change") {
     printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (" + denialLabel(event) + ")"), (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
-  } else if (event.type === "mcp") renderMcpEvent(event, false);
+  } else if (event.type === "action") printActionBlock(event);
+  else if (event.type === "mcp") renderMcpEvent(event, false);
   else if (event.type === "mcp_prompt") addDivider("used MCP prompt " + event.name + " from " + event.server);
   else if (event.type === "context") handleContextEvent(event);
   else if (event.type === "project_instructions") addDivider("— project instructions refreshed" + (event.changed ? " (changed)" : "") + " —");
@@ -684,6 +697,19 @@ function replaySessionEvent(event) {
 }
 
 // A loop-hygiene guard fired in the backend: the reminder it added to the conversation is shown verbatim.
+function printActionBlock(event) {
+  printBlock("ACTION — " + event.name + (event.approved ? "" : " (" + denialLabel(event) + ")"), event.title + "\n\n" + event.detail + (event.approved ? "\n\nresult: " + event.result : ""));
+}
+
+// update_plan: the model's checklist, shown in the chat. Text only; nothing here is a harness decision.
+function renderPlan(event) {
+  if (event.name !== "update_plan" || !String(event.result).startsWith("Plan updated")) return;
+  const box = element("div", null, "plan");
+  box.append(element("div", event.result.split("\n")[0], "plan-title"));
+  for (const item of JSON.parse(event.arguments).items) box.append(element("div", ({ pending: "[ ] ", in_progress: "[~] ", done: "[x] " })[item.status] + item.step, "plan-item plan-" + item.status));
+  messagesEl.appendChild(box); messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
 function renderGuardEvent(event) {
   printBlock("GUARD — repeated tool call (" + event.tool + " x" + event.count + ", " + event.level + " reminder added to the conversation)", event.content);
   addDivider("harness reminded the model: repeated " + event.tool);
@@ -746,7 +772,7 @@ async function sendMessage() {
         agent: agentSelect.value,
         prompt: promptSelect.value,
         tools: toolsCheckbox.checked
-          ? toolCheckboxes.filter((c) => c.checked && c.dataset.supported !== "false").map((c) => c.value)
+          ? toolCheckboxes.filter((c) => c.checked).map((c) => c.value)
           : [],
       }),
     });
@@ -808,6 +834,7 @@ async function sendMessage() {
                      "arguments: " + event.arguments + "\nresult:    " + event.result);
           memoryEl.textContent = event.memory;
           addDivider("used tool " + event.name);
+          renderPlan(event);
           // text after a tool run goes in new bubbles, below the tool note
           assistantDiv = null;
           replyText = "";
@@ -821,6 +848,15 @@ async function sendMessage() {
           renderMcpEvent(event, true);
         } else if (event.type === "mcp_prompt") {
           addDivider("used MCP prompt " + event.name + " from " + event.server);
+        } else if (event.type === "approval" && event.title !== undefined) {
+          changeBox = renderChangeBox(event.title, event.detail);
+          addApprovalButtons(changeBox, event.id);
+        } else if (event.type === "action") {
+          if (!changeBox) changeBox = renderChangeBox(event.title, event.detail);
+          const failed = event.approved && event.result.startsWith("error:");
+          setChangeStatus(changeBox, event.approved && !failed, event.result, failed ? event.result : denialLabel(event));
+          changeBox = null;
+          printActionBlock(event);
         } else if (event.type === "approval") {
           changeBox = event.command !== undefined
             ? renderChangeBox("run_command wants to run, in " + projectInput.value + ":",
@@ -923,6 +959,7 @@ const mcpFindBtn = document.getElementById("mcp-find");
 const registryDialog = document.getElementById("mcp-registry");
 mcpFindBtn.addEventListener("click", () => { registryDialog.showModal(); if (!registryCursor) searchRegistry(false); });
 document.getElementById("mcp-registry-form").addEventListener("submit", (event) => { event.preventDefault(); searchRegistry(false); });
+document.getElementById("mcp-registry-source").addEventListener("change", () => searchRegistry(false));
 document.getElementById("mcp-registry-close").addEventListener("click", () => registryDialog.close());
 document.getElementById("mcp-registry-more").addEventListener("click", () => searchRegistry(true));
 
@@ -939,7 +976,7 @@ const EXPLORE_NOTES = {
 };
 
 function currentTools() {
-  return toolsCheckbox.checked ? toolCheckboxes.filter((c) => c.checked && c.dataset.supported !== "false").map((c) => c.value) : [];
+  return toolsCheckbox.checked ? toolCheckboxes.filter((c) => c.checked).map((c) => c.value) : [];
 }
 
 function showHighlighted(text) {
@@ -1039,18 +1076,26 @@ function renderRegistryOption(option) {
   row.append(element("span", option.label));
   const output = element("pre"); output.hidden = true;
   if (option.preview) {
+    const authLabel = element("label", "Authorization header (optional) ");
+    const auth = element("input"); auth.type = "password"; auth.autocomplete = "off";
+    auth.placeholder = "Bearer …";
+    authLabel.append(auth);
+    row.append(authLabel);
+    row.append(element("div", "For servers requiring authentication, enter the full header value. Used for this preview only; cleared after sending. OAuth sign-in is unavailable.", "registry-note"));
     const preview = element("button", "Preview tools");
     preview.type = "button";
     preview.title = "Connect once to " + option.preview.url + ", list its tools, prompts and resources, then disconnect. No tool is called.";
     preview.addEventListener("click", async () => {
       preview.disabled = true; output.hidden = false; output.textContent = "connecting…";
       try {
-        const response = await backendFetch(api("/mcp/preview"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(option.preview) });
+        const body = JSON.stringify({ ...option.preview, ...(auth.value.trim() ? { headers: { Authorization: auth.value.trim() } } : {}) });
+        auth.value = "";
+        const response = await backendFetch(api("/mcp/preview"), { method: "POST", headers: { "Content-Type": "application/json" }, body });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error);
         output.textContent = mcpServerLines(data).join("\n");
       } catch (error) { output.textContent = "Preview failed: " + error.message; }
-      finally { preview.disabled = false; }
+      finally { auth.value = ""; preview.disabled = false; }
     });
     row.append(preview);
   }
@@ -1067,7 +1112,33 @@ function renderRegistryOption(option) {
     try { await navigator.clipboard.writeText(snippet); copy.textContent = "Copied"; }
     catch { copy.textContent = "Select the text to copy"; }
   });
-  row.append(config, copy, output);
+  const editor = element("textarea"); editor.hidden = true; editor.value = snippet;
+  editor.setAttribute("aria-label", "MCP configuration to add"); editor.rows = 10;
+  editor.style.width = "100%";
+  const tokenLabel = element("label", "Authorization header to save (optional) "); tokenLabel.hidden = true;
+  const token = element("input"); token.type = "password"; token.autocomplete = "off"; token.placeholder = "Bearer …";
+  tokenLabel.append(token);
+  const saveNote = element("div", "Edit placeholders above or enter the full Authorization header below if needed. Node saves credentials in the MCP config file; the browser keeps headers in memory only. Adding a package starts its command.", "registry-note"); saveNote.hidden = true;
+  const add = element("button", "Add to harness"); add.type = "button"; add.hidden = true;
+  add.title = "Save this entry in the harness MCP configuration and reload servers. Package entries start their configured command.";
+  config.addEventListener("click", () => { add.hidden = editor.hidden = tokenLabel.hidden = saveNote.hidden = !option.config; });
+  add.addEventListener("click", async () => {
+    add.disabled = true;
+    try {
+      const configuration = JSON.parse(editor.value);
+      if (token.value.trim()) for (const server of Object.values(configuration.mcpServers)) server.headers = { ...server.headers, Authorization: token.value.trim() };
+      const body = JSON.stringify(configuration);
+      token.value = "";
+      const response = await backendFetch(api("/mcp/add"), { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      output.textContent = "Saved to " + data.source + "\n\n" + mcpText(data);
+      const boot = await backendFetch(api("/bootstrap"));
+      initialize(await boot.json());
+      add.textContent = "Added";
+    } catch (error) { output.textContent = "Could not add MCP server: " + error.message; add.disabled = false; }
+  });
+  row.append(config, copy, output, editor, saveNote, tokenLabel, add);
   return row;
 }
 function renderRegistryServer(server) {
@@ -1083,7 +1154,7 @@ async function searchRegistry(more) {
   const results = document.getElementById("mcp-registry-results"), moreBtn = document.getElementById("mcp-registry-more");
   if (!more) { results.replaceChildren(element("div", "searching…")); registryCursor = ""; }
   moreBtn.hidden = true;
-  const query = new URLSearchParams({ search: document.getElementById("mcp-registry-search").value.trim() });
+  const query = new URLSearchParams({ search: document.getElementById("mcp-registry-search").value.trim(), source: document.getElementById("mcp-registry-source").value });
   if (more && registryCursor) query.set("cursor", registryCursor);
   try {
     const response = await backendFetch(api("/mcp/registry?" + query));
@@ -1275,7 +1346,7 @@ function setControlsDisabled(disabled) {
     el.disabled = disabled;
   }
   compactBtn.disabled = disabled || !memoryCheckbox.checked;
-  for (const c of toolCheckboxes) c.disabled = disabled || !toolsCheckbox.checked || c.dataset.supported === "false";
+  for (const c of toolCheckboxes) c.disabled = disabled || !toolsCheckbox.checked;
   agentSelect.disabled = promptSelect.disabled = disabled || conversationLocked;
   lockNote.hidden = !conversationLocked;
   // while a turn runs, Stop takes the place of Send
@@ -1290,7 +1361,7 @@ function unlockConversation() {
 }
 
 toolsCheckbox.addEventListener("change", () => {
-  for (const c of toolCheckboxes) c.disabled = !toolsCheckbox.checked || c.dataset.supported === "false";
+  for (const c of toolCheckboxes) c.disabled = !toolsCheckbox.checked;
 });
 
 let agents = [];
@@ -1335,8 +1406,8 @@ agentSelect.addEventListener("change", () => {
   if (agent) {
     toolsCheckbox.checked = agent.tools.length > 0;
     for (const c of toolCheckboxes) {
-      c.checked = c.dataset.supported !== "false" && agent.tools.includes(c.value);
-      c.disabled = !toolsCheckbox.checked || c.dataset.supported === "false";
+      c.checked = agent.tools.includes(c.value);
+      c.disabled = !toolsCheckbox.checked;
     }
   }
   addDivider("— agent: " + agentSelect.selectedOptions[0].textContent + " —");
@@ -1464,10 +1535,7 @@ function renderTools(tools) {
     checkbox.type = "checkbox";
     checkbox.className = "tool-checkbox";
     checkbox.value = tool.name;
-    checkbox.dataset.supported = tool.supported === false ? "false" : "true";
-    checkbox.checked = tool.supported !== false;
-    checkbox.disabled = tool.supported === false;
-    if (tool.supported === false) label.title += "\nUnavailable in this runtime. Bash requires the Node backend.";
+    checkbox.checked = true;
     checkbox.addEventListener("change", saveSessionSettings);
     label.append(checkbox, " ");
     const name = document.createElement("span");
@@ -1482,6 +1550,7 @@ function renderTools(tools) {
 function initialize(data) {
   contextLength = data.context_length;
   session = data.session || {};
+  orchestrationPanel.initialize(data);
   sessionEvents = session.events || [];
   agents = data.agents;
   prompts = data.prompts;
@@ -1512,7 +1581,7 @@ function initialize(data) {
     promptSelect.value = session.setup.prompt || "";
     agentSelect.value = session.setup.agent || "";
   }
-  for (const checkbox of toolCheckboxes) checkbox.checked = checkbox.dataset.supported !== "false" && (session.settings?.tools || toolCheckboxes.map(c => c.value)).includes(checkbox.value);
+  for (const checkbox of toolCheckboxes) checkbox.checked = (session.settings?.tools || toolCheckboxes.map(c => c.value)).includes(checkbox.value);
   toolsCheckbox.checked = toolCheckboxes.some(c => c.checked);
   askApprovalCheckbox.checked = session.settings?.ask_approval ?? true;
   memoryCheckbox.checked = session.settings?.use_memory ?? true;
@@ -1581,7 +1650,7 @@ document.getElementById("import-session").addEventListener("change", async (e) =
 if (session.settings) {
   memoryCheckbox.checked = session.settings.use_memory !== false;
   askApprovalCheckbox.checked = session.settings.ask_approval !== false;
-  for (const checkbox of toolCheckboxes) checkbox.checked = checkbox.dataset.supported !== "false" && (session.settings.tools || []).includes(checkbox.value);
+  for (const checkbox of toolCheckboxes) checkbox.checked = (session.settings.tools || []).includes(checkbox.value);
   toolsCheckbox.checked = toolCheckboxes.some(c => c.checked);
   try {
     const hideThinking = localStorage.getItem("hideThinking") === "1";

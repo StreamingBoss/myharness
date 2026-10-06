@@ -44,17 +44,36 @@ export class BrowserWorkspace implements WorkspacePort {
     if (!Object.hasOwn(this.project.files, name)) throw new Error(`'${name}' is not a project file`);
     return this.project.files[name]!.replace(/\r\n?/g, '\n');
   }
-  async writeText(input: string, text: string): Promise<void> {
-    const name = this.relative(input), pieces = name.split('/');
-    if (this.isDirectory(input)) throw new Error(`'${name}' is a folder`);
-    const dirs = new Set(this.project.directories);
+  /** The project's folders plus every parent of `name`, which must not be a file. */
+  private withParents(name: string): string[] {
+    const pieces = name.split('/'), dirs = new Set(this.project.directories);
     for (let i = 1; i < pieces.length; i++) {
       const parent = pieces.slice(0, i).join('/');
       if (Object.hasOwn(this.project.files, parent)) throw new Error(`'${parent}' is a file, not a folder`);
       dirs.add(parent);
     }
-    const next = { ...this.project, files: { ...this.project.files, [name]: text }, directories: [...dirs].sort() };
+    return [...dirs].sort();
+  }
+  async writeText(input: string, text: string): Promise<void> {
+    const name = this.relative(input);
+    if (this.isDirectory(input)) throw new Error(`'${name}' is a folder`);
+    const next = { ...this.project, files: { ...this.project.files, [name]: text }, directories: this.withParents(name) };
     await this.persist(next);
+    Object.assign(this.project, next);
+  }
+  async remove(input: string): Promise<void> {
+    const name = this.relative(input);
+    if (!Object.hasOwn(this.project.files, name)) throw new Error(`'${name}' is not a project file`);
+    const files = { ...this.project.files }; delete files[name];
+    const next = { ...this.project, files }; await this.persist(next);
+    Object.assign(this.project, next);
+  }
+  async move(from: string, to: string): Promise<void> {
+    const source = this.relative(from), target = this.relative(to);
+    if (!Object.hasOwn(this.project.files, source)) throw new Error(`'${source}' is not a project file`);
+    if (this.exists(to)) throw new Error(`'${target}' already exists`);
+    const files = { ...this.project.files }; files[target] = files[source]!; delete files[source];
+    const next = { ...this.project, files, directories: this.withParents(target) }; await this.persist(next);
     Object.assign(this.project, next);
   }
   async listFiles(input = '.'): Promise<string> {

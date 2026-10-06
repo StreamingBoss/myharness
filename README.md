@@ -71,8 +71,35 @@ in browser storage. Changes to these copies do not modify the original folder;
 use **Export project** to save their files and sessions. Folder copies skip binary/non-UTF8
 files. Direct access reads UTF8 text up to 10 MiB per file and skips dependency
 directories; exporting a local project requires its included files to be text.
-The browser does not run Bash; `run_command` is visibly unavailable. Use the Node
-edition below when you need shell commands.
+A browser page cannot start programs, so the browser edition does not offer
+`run_command`, and it does not offer `web_search` (DuckDuckGo refuses requests from web
+pages). Tools a runtime cannot run are left out of the tool list rather than shown
+disabled. When you open a local folder that contains a `.git` directory, the git tools
+below work in the browser too, through [isomorphic-git](https://isomorphic-git.org). Use
+the Node edition when you need shell commands.
+
+### Files, plans and git
+
+Besides reading, searching and writing files, the model has these tools. Everything that
+changes something asks for approval first and shows what will happen:
+
+- **`delete_file`** and **`move_file`** act on one file (never a folder). A deletion shows
+  the removed lines; a move shows `from -> to`.
+- **`update_plan`** lets the model write its steps down and tick them off. It changes
+  nothing; the plan appears as a checklist in the chat.
+- **`git_status`**, **`git_diff`** and **`git_log`** only read, so they do not ask.
+- **`git_branch`** lists branches, or creates one when given a name. **`git_checkout`**
+  switches to an existing branch and fails rather than overwrite uncommitted work.
+  **`git_commit`** stages the given paths (default: every change) and commits what is
+  staged; its approval shows the message, the files and the diff first.
+
+There is no push, pull or clone. In the Node edition git is the real `git` program, run
+without a shell in the project folder: repositories above the folder are ignored, hooks do
+not run, and nothing can prompt for a password. In the browser edition isomorphic-git reads
+the same repository without a git program. It reads only the repository's own
+`.git/config`, so set `user.name` and `user.email` there before the model commits; it
+is stricter than git about switching branches with uncommitted changes, and it compares
+file contents on every status, so it is slower on large repositories.
 
 ### Connect a real model
 
@@ -166,6 +193,16 @@ Configuration uses `MYHARNESS_MODEL`, `OLLAMA_URL`, `MYHARNESS_WORKSPACE`,
 project or `workspace/`, `sessions/`, `settings.json`, `mcp.json`, the current
 directory and port 5001.
 
+## Web search
+
+The `web_search` tool searches the web with DuckDuckGo and returns the top five
+results (title, URL, snippet) to the model. It is free and needs no account or key.
+DuckDuckGo has no official search API, so the harness reads its plain HTML results page
+(ads skipped): a layout change or a bot check makes the tool answer with an error rather
+than guess. Only the query leaves your computer. Like `read_file`, a search does not ask
+for approval, and the query and results are visible in the chat. It is Node-only; the
+browser edition reports it unsupported.
+
 ## Connect MCP servers
 
 [MCP](https://modelcontextprotocol.io) servers give the harness more tools without
@@ -208,15 +245,27 @@ prompts, warnings, recent stderr and the JSON-RPC wire log. Internals shows each
 call's request and response. Static `headers` cover token authentication; OAuth
 sign-in, sampling, elicitation, roots and change subscriptions are not supported.
 
-**Explore → MCP servers → Find MCP servers…** searches the official
-[MCP Registry](https://registry.modelcontextprotocol.io). The registry lists servers,
+**Explore → MCP servers → Find MCP servers…** searches an MCP registry, chosen in the
+dialog: [GitHub's registry](https://api.mcp.github.com) (the one VS Code uses; curated,
+most-starred first, the default) or the official
+[MCP Registry](https://registry.modelcontextprotocol.io). A registry lists servers,
 not tools: a server's tools are only known once the harness connects to it.
 **Preview tools** connects once to a remote server, lists its tools, prompts and
 resources and disconnects, without calling anything. Packages (npm, PyPI, Docker,
-NuGet) are never run for a preview. **Show configuration** gives the `mcpServers`
+NuGet) are never run for a preview. If the server requires authentication, enter
+the full value (for example, `Bearer <token>`) in **Authorization header (optional)**.
+The field is cleared after sending and the value is used only for that preview;
+OAuth sign-in is not supported. Configure headers separately to use the server
+in conversations. **Show configuration** gives the `mcpServers`
 entry to paste into your configuration file, with `${NAME}` placeholders and notes
 for the keys or arguments it needs. Registry entries are published by their
 authors and not reviewed: check what a command runs before adding it.
+
+After **Show configuration**, edit the configuration fields as needed, then choose
+**Add to harness** to merge the entry into the harness config and reload servers.
+The **Authorization header to save** field accepts the full header value if a token
+is needed. Node stores it in the configured MCP file; browser headers stay in memory.
+Existing server names are protected from replacement. Adding a package starts its command.
 
 In the browser edition, **Import MCP config** loads the same file. The Worker can
 reach HTTP servers that allow the page origin and the MCP headers (CORS); stdio

@@ -1,1 +1,1 @@
-export { TOOLS, TOOL_NAMES } from '../tools.js';
+export { TOOLS, TOOL_NAMES, GIT_TOOLS } from '../tools.js';

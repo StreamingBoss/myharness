@@ -37,7 +37,7 @@ test('registry entries become remote and package options with ready mcp.json sni
   assert.deepEqual(option(remote), {
     kind: 'remote', label: 'Remote server · Streamable HTTP · https://eu.acme.test/${TENANT}/mcp', preview: null,
     config: { mcpServers: { weather: { url: 'https://eu.acme.test/${TENANT}/mcp', headers: { Authorization: '${AUTHORIZATION}', 'X-Client': 'harness-${TENANT}', 'X-Opt': '${X_OPT}' } } } },
-    notes: ['Set TENANT: Your tenant.', 'Set AUTHORIZATION for the Authorization header (required), a secret: Bearer token.', 'Set TENANT.', 'Set X_OPT for the X-Opt header.', 'The tool preview connects without these headers, so a server that needs them will refuse it.'],
+    notes: ['Set TENANT: Your tenant.', 'Set AUTHORIZATION for the Authorization header (required), a secret: Bearer token.', 'Set TENANT.', 'Set X_OPT for the X-Opt header.', 'The preview can send an Authorization header entered for that preview. Other headers must be supplied through the backend preview API or server configuration.'],
   });
   assert.deepEqual(option(remote, 1), { kind: 'remote', label: 'Remote server · HTTP+SSE (deprecated) · https://acme.test/sse', preview: { type: 'sse', url: 'https://acme.test/sse' }, config: { mcpServers: { weather: { type: 'sse', url: 'https://acme.test/sse' } } }, notes: [] });
   assert.equal(remote.options.length, 2);
@@ -82,9 +82,11 @@ test('registry search asks for the latest versions, pages with a cursor and repo
   const found = await searchRegistry(reply(page), { search: 'weather', cursor: 'abc' });
   assert.deepEqual(found.servers.map(server => server.name), ['io.github.acme/weather']);
   assert.equal(found.nextCursor, 'io.github.acme/weather:1.2.0');
-  assert.equal(urls[0], 'https://registry.modelcontextprotocol.io/v0/servers?version=latest&limit=20&search=weather&cursor=abc');
+  assert.equal(urls[0], 'https://api.mcp.github.com/v0.1/servers?limit=20&search=weather&cursor=abc');
   assert.deepEqual(await searchRegistry(reply('[]'), { limit: 5 }, new AbortController().signal, 'http://local.test'), { servers: [], nextCursor: '' });
-  assert.equal(urls[1], 'http://local.test/v0/servers?version=latest&limit=5');
+  assert.equal(urls[1], 'http://local.test/v0.1/servers?limit=5');
+  await searchRegistry(reply('{}'), { source: 'official', search: 'git' });
+  assert.equal(urls[2], 'https://registry.modelcontextprotocol.io/v0/servers?version=latest&limit=20&search=git');
   assert.deepEqual(await searchRegistry(reply('{"servers":"x","metadata":[]}'), {}), { servers: [], nextCursor: '' });
   await assert.rejects(searchRegistry(reply('down', 503), {}), /HTTP 503/);
   await assert.rejects(searchRegistry(reply('<html>'), {}), /invalid JSON/);
@@ -104,11 +106,40 @@ test('previews connect once to a remote server and leave nothing behind', async 
   await assert.rejects(new McpManager({ source: 'x', loadConfig: async () => undefined }).searchRegistry({}), /cannot reach/);
 });
 
+test('authenticated previews use ephemeral headers, reject invalid headers and do not retain credentials', async t => {
+  const token = 'Bearer preview-secret';
+  const fixture = fixtureFetch(new FixtureServer(), { stateless: true });
+  const seen: Record<string, string>[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string, init: Parameters<McpFetch>[1]) => {
+    seen.push(init.headers);
+    if (init.headers.Authorization !== token) return new Response('Authorization required', { status: 401 });
+    return fixture(url, init);
+  });
+  const root = await mkdtemp(path.join(tmpdir(), 'mcp-preview-auth-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const harness = new NodeHarness({ workspace: root, model: 'scripted', contextLength: 4000, ollama: { async *streamChat() { yield ''; } } });
+  t.after(() => harness.close());
+  const target = { type: 'http', url: 'http://remote.test/mcp' };
+  assert.equal((await harness.previewMcp(target)).status, 'error');
+  seen.length = 0;
+  const result = await harness.previewMcp({ ...target, headers: { Authorization: token, 'X-Client': 'preview' } });
+  assert.equal(result.status, 'connected');
+  assert.ok(seen.length > 1);
+  assert.ok(seen.every(headers => headers.Authorization === token && headers['X-Client'] === 'preview'));
+  assert.ok(!JSON.stringify(result).includes(token));
+  assert.ok(!JSON.stringify(harness.mcpStatus()).includes(token));
+  assert.deepEqual(harness.mcpStatus().servers, []);
+  assert.equal((await harness.previewMcp(target)).status, 'error');
+  for (const headers of [null, [], 'Bearer secret', { Authorization: 42 }]) {
+    await assert.rejects(harness.previewMcp({ ...target, headers }), /headers must be an object of strings/);
+  }
+});
+
 test('registry search and previews through Node HTTP, browser Worker RPC and the UI fetch shim', async t => {
   const remote = new FixtureServer(), mcp = fixtureFetch(remote);
   let registryStatus = 200;
-  const fake = async (url: string, init: Parameters<McpFetch>[1]) => url.startsWith('https://registry.modelcontextprotocol.io/')
-    ? new Response(JSON.stringify({ servers: [entry({ remotes: [{ type: 'streamable-http', url: 'http://remote.test/mcp' }] })], metadata: {} }), { status: registryStatus })
+  const registryUrls: string[] = [];
+  const fake = async (url: string, init: Parameters<McpFetch>[1]) => url.startsWith('https://registry.modelcontextprotocol.io/') || url.startsWith('https://api.mcp.github.com/')
+    ? (registryUrls.push(url),  new Response(JSON.stringify({ servers: [entry({ remotes: [{ type: 'streamable-http', url: 'http://remote.test/mcp' }] })], metadata: {} }), { status: registryStatus }))
     : mcp(url, init);
   t.mock.method(globalThis, 'fetch', fake);
   const root = await mkdtemp(path.join(tmpdir(), 'mcp-registry-')); t.after(() => rm(root, { recursive: true, force: true }));
@@ -127,6 +158,9 @@ test('registry search and previews through Node HTTP, browser Worker RPC and the
   const found = await http('/mcp/registry?search=weather');
   assert.equal(found.status, 200); assert.equal((found.body.servers as RegistryServer[])[0]!.options[0]!.preview!.url, 'http://remote.test/mcp');
   assert.equal((await http('/mcp/registry')).status, 200);
+  assert.equal((await http('/mcp/registry?source=official')).status, 200);
+  assert.deepEqual(registryUrls.map(url => new URL(url).host), ['api.mcp.github.com', 'api.mcp.github.com', 'registry.modelcontextprotocol.io']);
+  const badSource = await http('/mcp/registry?source=evil'); assert.equal(badSource.status, 400); assert.match(String(badSource.body.error), /source must be/);
   const preview = await http('/mcp/preview', { method: 'POST', body: JSON.stringify({ type: 'http', url: 'http://remote.test/mcp' }) });
   assert.equal(preview.body.status, 'connected');
   const refused = await http('/mcp/preview', { method: 'POST', body: JSON.stringify({ command: 'npx' }) });
@@ -153,8 +187,8 @@ test('registry search and previews through Node HTTP, browser Worker RPC and the
 
   const calls: [string, Record<string, unknown>][] = [];
   const shim = browserFetch({ call: async (action: string, payload: Record<string, unknown>) => { calls.push([action, payload]); return {}; } } as unknown as WorkerClient);
-  await shim('/mcp/registry?search=git&cursor=c1');
+  await shim('/mcp/registry?search=git&cursor=c1&source=official');
   await shim('/mcp/preview', { method: 'POST', body: JSON.stringify({ type: 'sse', url: 'http://x.test' }) });
-  assert.deepEqual(calls, [['mcpRegistry', { search: 'git', cursor: 'c1' }], ['previewMcp', { type: 'sse', url: 'http://x.test' }]]);
+  assert.deepEqual(calls, [['mcpRegistry', { search: 'git', cursor: 'c1', source: 'official' }], ['previewMcp', { type: 'sse', url: 'http://x.test' }]]);
   await harness.close();
 });

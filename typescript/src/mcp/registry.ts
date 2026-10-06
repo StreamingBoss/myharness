@@ -1,8 +1,14 @@
 import type { McpFetch } from './http.js';
 import { isObject, type JsonObject } from './protocol.js';
 
-/** The official MCP Registry. It lists servers; their tools are known only after connecting. */
-export const REGISTRY_URL = 'https://registry.modelcontextprotocol.io';
+/** Registries share one entry format. Both list servers; their tools are known only after connecting. */
+export type RegistrySource = 'github' | 'official';
+export const REGISTRY_SOURCES: Record<RegistrySource, { url: string; path: string; latestOnly: boolean }> = {
+  /** GitHub's MCP registry, the one VS Code uses: curated, one entry per server, most-starred first. */
+  github: { url: 'https://api.mcp.github.com', path: '/v0.1/servers', latestOnly: false },
+  /** The official MCP Registry; every version is listed unless the latest are requested. */
+  official: { url: 'https://registry.modelcontextprotocol.io', path: '/v0/servers', latestOnly: true },
+};
 
 /** One way to run a registry server, with a ready-to-paste mcp.json entry. */
 export interface RegistryOption {
@@ -51,7 +57,7 @@ function remote(raw: JsonObject, key: string): RegistryOption {
     notes.push(`Set ${envName(name)} for the ${name} header${header.isRequired ? ' (required)' : ''}${header.isSecret ? ', a secret' : ''}${header.description ? `: ${about(header.description)}` : ''}.`);
   }
   const resolved = !url.includes('${');
-  if (Object.keys(headers).length) notes.push('The tool preview connects without these headers, so a server that needs them will refuse it.');
+  if (Object.keys(headers).length) notes.push('The preview can send an Authorization header entered for that preview. Other headers must be supplied through the backend preview API or server configuration.');
   return { kind: 'remote', label: `Remote server · ${type === 'sse' ? 'HTTP+SSE (deprecated)' : 'Streamable HTTP'} · ${url}`, preview: resolved ? { type, url } : null,
     config: { mcpServers: { [key]: { ...(type === 'sse' ? { type } : {}), url, ...(Object.keys(headers).length ? { headers } : {}) } } }, notes };
 }
@@ -105,10 +111,12 @@ export function registryServer(entry: unknown): RegistryServer | undefined {
   };
 }
 
-/** Searches the registry's latest server versions. Deleted entries are left out. */
-export async function searchRegistry(fetch_: McpFetch, query: { search?: string; cursor?: string; limit?: number }, signal?: AbortSignal, base = REGISTRY_URL): Promise<{ servers: RegistryServer[]; nextCursor: string }> {
-  const url = new URL('/v0/servers', base);
-  url.searchParams.set('version', 'latest'); url.searchParams.set('limit', String(query.limit ?? 20));
+/** Searches a registry's latest server versions (GitHub's by default). Deleted entries are left out. */
+export async function searchRegistry(fetch_: McpFetch, query: { search?: string; cursor?: string; limit?: number; source?: RegistrySource }, signal?: AbortSignal, base?: string): Promise<{ servers: RegistryServer[]; nextCursor: string }> {
+  const source = REGISTRY_SOURCES[query.source ?? 'github'];
+  const url = new URL(source.path, base ?? source.url);
+  if (source.latestOnly) url.searchParams.set('version', 'latest');
+  url.searchParams.set('limit', String(query.limit ?? 20));
   if (query.search) url.searchParams.set('search', query.search);
   if (query.cursor) url.searchParams.set('cursor', query.cursor);
   const response = await fetch_(url.href, { method: 'GET', headers: { accept: 'application/json' }, ...(signal ? { signal } : {}) });

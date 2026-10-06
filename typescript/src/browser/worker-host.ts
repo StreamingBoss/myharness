@@ -1,7 +1,7 @@
 import { modelConfiguration } from '../providers.js';
 import { BackendError } from '../harness.js';
 import type { CoreEvent } from '../core.js';
-import { turnAction } from '../transport.js';
+import { AGENT_ACTIONS, agentAction, turnAction } from '../transport.js';
 import { sessionSummary } from '../sessions.js';
 import type { BrowserHarness } from './harness.js';
 import type { LocalDirectory } from './local.js';
@@ -36,6 +36,7 @@ export class WorkerHost {
         this.send({ id, type: 'done' }); return;
       }
       let value: unknown;
+      if (AGENT_ACTIONS.includes(action)) { this.send({ id, type: 'result', value: await agentAction(backend, action, payload) }); return; }
       switch (action) {
         case 'bootstrap': value = await backend.bootstrap(); break;
         case 'sessions': value = { active_id: backend.activeSessionRecord().id, sessions: (await backend.listSessions()).map(sessionSummary) }; break;
@@ -61,6 +62,7 @@ export class WorkerHost {
         case 'configureModel': await backend.configureModel(modelConfiguration(payload)); value = { ok: true }; break;
         case 'forgetApiKey': backend.forgetApiKey(); value = { ok: true }; break;
         case 'mcp': value = backend.mcpStatus(); break;
+        case 'addMcp': value = await backend.addMcp(payload); break;
         case 'reloadMcp': value = await backend.reloadMcp(); break;
         case 'configureMcp': value = await backend.configureMcp(payload); break;
         case 'mcpRegistry': value = await backend.searchMcpRegistry(payload); break;
