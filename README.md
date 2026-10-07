@@ -312,6 +312,24 @@ than guess. Only the query leaves your computer. Like `read_file`, a search does
 for approval, and the query and results are visible in the chat. It is Node-only; the
 browser edition reports it unsupported.
 
+Exa search is also included through the root `mcp.json`, using its free hosted
+MCP endpoint without an account or API key. Its tool appears as
+`mcp__exa__web_search_exa` in the **MCP exa** tool group. Select it to offer it to
+the model. Calls use the backend's MCP approval policy, and Stop cancels requests.
+Results are external, untrusted content. Anonymous usage is rate limited by
+public IP, so users of a hosted backend share the allowance; this is suitable for
+experiments rather than an unlimited public search service.
+
+On an already running Node service, choose **Explore → MCP servers → Reload MCP
+servers**, then select the Exa tool. Startup also loads it automatically. If
+`MYHARNESS_MCP` points to another file, add the `exa` entry there instead. For the
+browser edition, import `mcp.json` to connect through its HTTP MCP adapter.
+
+To use your own Exa account quota in Node, add
+`"headers": { "x-api-key": "${EXA_API_KEY}" }` to the `exa` entry and set
+`EXA_API_KEY` in the server environment. Keep literal keys out of the configuration
+file. See [Exa's MCP documentation](https://exa.ai/mcp) for access and limits.
+
 ## Connect MCP servers
 
 [MCP](https://modelcontextprotocol.io) servers give the harness more tools without

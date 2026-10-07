@@ -22,6 +22,7 @@ test('the UI shows the repeat-guard reminder and why an unanswered approval did 
   const browser = await chromium.launch({ executablePath: process.env.MYHARNESS_TEST_CHROMIUM ?? chromium.executablePath(), headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
+  await page.locator('.tool-menu summary').evaluateAll(items => items.forEach(item => (item.parentElement as HTMLDetailsElement).open = true));
   for (const name of ['pwd', 'run_command']) await page.locator(`input.tool-checkbox[value="${name}"]`).check();
   await page.locator('#input').fill('look around'); await page.locator('#send').click();
   await page.getByText('all done', { exact: true }).first().waitFor();

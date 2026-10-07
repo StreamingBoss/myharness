@@ -27,6 +27,7 @@ async function checkHelp(page: Page) {
   assert.ok(filesBox && searchBox);
   assert.equal(Math.round(filesBox.y), Math.round(searchBox.y));
   assert.ok(searchBox.x > filesBox.x + filesBox.width);
+  await fileTools.locator('summary').click();
   const readBox = await fileTools.locator('input[value="read_file"]').boundingBox();
   const writeBox = await fileTools.locator('input[value="write_file"]').boundingBox();
   assert.ok(readBox && writeBox);

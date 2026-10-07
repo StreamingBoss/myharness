@@ -111,6 +111,14 @@ HTTP and a real stdio process); no live MCP server is required.
 
 ## Web search
 
+The root `mcp.json` also connects Exa's free, keyless hosted MCP endpoint, limited
+to `web_search_exa`. This is an ordinary MCP tool (`mcp__exa__web_search_exa`), so
+the shared backend owns discovery, approvals and cancellation; no UI search logic
+or new core capability is needed. Tools are unticked until selected. Anonymous
+usage shares limits by public IP. Node hosts can add an `x-api-key` header using
+`${EXA_API_KEY}` to use their own account quota. Browser users import the config.
+An overridden `MYHARNESS_MCP` file must include the entry separately.
+
 `web_search` (`websearch.ts`) reads DuckDuckGo's keyless HTML endpoint: free, but a web page
 rather than an API, so the parser may need updating if the markup changes. Ecosia and paid or
 key-based search services were deliberately not used (owner: free, no Ecosia). It reaches the

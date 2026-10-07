@@ -313,6 +313,10 @@
   .tool-family legend { font-size: 12px; font-weight: bold; color: #ddd; margin-bottom: 5px; padding: 0; }
   .tool-family .toggle.tool { margin-left: 0; }
   .tool-family .mcp-group { color: #c792ea; white-space: nowrap; cursor: help; }
+  .tool-family legend label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .tool-menu { display: flex; flex-direction: column; gap: 3px; }
+  .tool-menu summary { font-size: 12px; color: #aaa; cursor: pointer; margin-bottom: 3px; }
+  .tool-menu-items { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; padding-right: 8px; }
   #mcp-reload, #mcp-find { margin-left: 8px; }
   #mcp-registry { width: min(900px, 92vw); max-height: 85vh; background: #1e1e1e; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: 14px; }
   #mcp-registry::backdrop { background: rgba(0, 0, 0, 0.6); }
@@ -1428,6 +1432,7 @@ function setControlsDisabled(disabled) {
   }
   compactBtn.disabled = disabled || !memoryCheckbox.checked;
   for (const c of toolCheckboxes) c.disabled = disabled || !toolsCheckbox.checked;
+  syncToolGroups();
   agentSelect.disabled = promptSelect.disabled = disabled || conversationLocked;
   lockNote.hidden = !conversationLocked;
   // while a turn runs, Stop takes the place of Send
@@ -1443,6 +1448,7 @@ function unlockConversation() {
 
 toolsCheckbox.addEventListener("change", () => {
   for (const c of toolCheckboxes) c.disabled = !toolsCheckbox.checked;
+  syncToolGroups();
 });
 
 let agents = [];
@@ -1490,6 +1496,7 @@ agentSelect.addEventListener("change", () => {
       c.checked = agent.tools.includes(c.value);
       c.disabled = !toolsCheckbox.checked;
     }
+    syncToolGroups();
   }
   addDivider("— agent: " + agentSelect.selectedOptions[0].textContent + " —");
 });
@@ -1612,7 +1619,21 @@ function renderTools(tools) {
       const column = document.createElement("fieldset");
       column.className = "tool-family";
       const heading = document.createElement("legend");
-      heading.textContent = family;
+      const groupBox = document.createElement("input");
+      groupBox.type = "checkbox";
+      groupBox.className = "tool-group-checkbox";
+      groupBox.title = "Tick or untick every tool in '" + family + "' at once. Each tool's description is sent with every request, so fewer ticked tools means fewer input tokens.";
+      groupBox.addEventListener("change", () => {
+        for (const box of column.querySelectorAll(".tool-checkbox")) box.checked = groupBox.checked;
+        syncToolGroups();
+        saveSessionSettings();
+        setTimeout(refreshExplorer);
+      });
+      const groupName = document.createElement("span");
+      groupName.textContent = family;
+      const groupLabel = document.createElement("label");
+      groupLabel.append(groupBox, groupName);
+      heading.append(groupLabel);
       if (tool.source === "mcp") {
         heading.className = "mcp-group";
         heading.title = tool.server
@@ -1632,6 +1653,7 @@ function renderTools(tools) {
     checkbox.value = tool.name;
     checkbox.checked = true;
     checkbox.addEventListener("change", saveSessionSettings);
+    checkbox.addEventListener("change", syncToolGroups);
     label.append(checkbox, " ");
     const name = document.createElement("span");
     name.className = "help";
@@ -1639,9 +1661,37 @@ function renderTools(tools) {
     label.append(name);
     groups.get(family).append(label);
   }
+  for (const column of groups.values()) {
+    const labels = [...column.querySelectorAll("label.tool")];
+    // every group folds into a scrollable drop-down
+    const menu = document.createElement("details");
+    menu.className = "tool-menu";
+    const summary = document.createElement("summary");
+    summary.title = "Show or hide this group's tools. The group checkbox above ticks or unticks all of them.";
+    const items = document.createElement("div");
+    items.className = "tool-menu-items";
+    items.append(...labels);
+    menu.append(summary, items);
+    column.append(menu);
+  }
   for (const [family] of families) if (groups.has(family)) list.append(groups.get(family));
   for (const [family, column] of groups) if (!families.some(([name]) => name === family)) list.append(column);
   toolCheckboxes = [...list.querySelectorAll(".tool-checkbox")];
+  syncToolGroups();
+}
+
+// Group checkboxes and counts mirror the individual tool checkboxes (tri-state when partly ticked).
+function syncToolGroups() {
+  for (const column of document.querySelectorAll("#tool-list .tool-family")) {
+    const boxes = [...column.querySelectorAll(".tool-checkbox")];
+    const ticked = boxes.filter(box => box.checked).length;
+    const groupBox = column.querySelector(".tool-group-checkbox");
+    groupBox.checked = ticked === boxes.length;
+    groupBox.indeterminate = ticked > 0 && ticked < boxes.length;
+    groupBox.disabled = boxes.length > 0 && boxes[0].disabled;
+    const summary = column.querySelector("summary");
+    if (summary) summary.textContent = ticked + " of " + boxes.length + " tools ticked";
+  }
 }
 
 function initialize(data) {
@@ -1680,6 +1730,7 @@ function initialize(data) {
   }
   for (const checkbox of toolCheckboxes) checkbox.checked = (session.settings?.tools || toolCheckboxes.map(c => c.value)).includes(checkbox.value);
   toolsCheckbox.checked = toolCheckboxes.some(c => c.checked);
+  syncToolGroups();
   askApprovalCheckbox.checked = session.settings?.ask_approval ?? true;
   memoryCheckbox.checked = session.settings?.use_memory ?? true;
   initialized = true;
@@ -1751,6 +1802,7 @@ if (session.settings) {
   askApprovalCheckbox.checked = session.settings.ask_approval !== false;
   for (const checkbox of toolCheckboxes) checkbox.checked = (session.settings.tools || []).includes(checkbox.value);
   toolsCheckbox.checked = toolCheckboxes.some(c => c.checked);
+  syncToolGroups();
   try {
     const hideThinking = localStorage.getItem("hideThinking") === "1";
     document.getElementById("hide-thinking").checked = hideThinking;

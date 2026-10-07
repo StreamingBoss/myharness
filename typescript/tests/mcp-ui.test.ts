@@ -42,6 +42,7 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   assert.equal(await page.locator('.mcp-group').innerText(), 'MCP files:');
   const checkbox = page.locator('input.tool-checkbox[value="mcp__files__echo"]');
   assert.equal(await checkbox.isChecked(), false);
+  await page.locator('.tool-family summary').last().click();
   await checkbox.check();
   await page.locator('#input').fill('echo something'); await page.locator('#send').click();
   await page.getByText("MCP tool echo on server 'files' wants to run with these arguments:").waitFor();
