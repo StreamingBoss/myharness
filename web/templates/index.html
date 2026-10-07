@@ -370,7 +370,13 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-#tokenization { overflow: auto; padding: 12px; font: 13px system-ui; }
+/* token pieces need more room than the default 25vh; the splitter can still make it taller */
+#harness-box:has(#tokenization:not([hidden])) { min-height: 45vh; }
+#tokenization { flex: 1; min-height: 0; overflow: auto; padding: 12px; font: 13px system-ui; }
+#token-intro { margin: 8px 0; color: #aaa; }
+#token-intro summary, #tokenization details summary { cursor: pointer; }
+.token-empty { border-left: 4px solid #e0b050; background: #2a2418; padding: 8px 12px; margin: 8px 0; }
+#token-about { color: #aaa; border-top: 1px solid #333; margin-top: 12px; }
 #tokenization p, #tokenization li { line-height: 1.5; }
 #tokenization pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .token-controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
