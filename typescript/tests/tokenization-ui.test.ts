@@ -28,12 +28,19 @@ test('bottom viewer explains exactness, shows real pieces/bytes and restores ins
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
   await page.locator('#token-inspect').waitFor({ state: 'visible' }); await page.waitForFunction(() => !(document.querySelector('#token-inspect') as HTMLButtonElement).disabled);
   assert.match(await page.locator('#terminal').textContent() ?? '', /SENT to gemini-vertex/); assert.match(await page.locator('#terminal').textContent() ?? '', /generationConfig/);
+  assert.equal(await page.locator('#token-details').isVisible(), false); assert.equal(await page.locator('#token-intro').getAttribute('open'), null);
+  assert.match(await page.locator('#token-inspect').getAttribute('title') ?? '', /may use provider quota/);
   await page.locator('#token-inspect').click(); await page.getByText('Provider tokenization of text', { exact: true }).waitFor(); assert.equal(inspected, 1);
+  // Pieces come before the source/coverage notes and are visible without scrolling the enlarged box.
+  const panel = (await page.locator('#tokenization').boundingBox())!, chip = (await page.locator('.token-chip').first().boundingBox())!, viewport = page.viewportSize()!;
+  assert.ok((await page.locator('#harness-box').boundingBox())!.height >= viewport.height * 0.45 - 1); assert.ok(chip.y + chip.height <= panel.y + panel.height);
+  assert.equal(await page.locator('#token-empty').count(), 0); assert.match(await page.locator('#token-about').textContent() ?? '', /Actual provider pieces.*Coverage: User message text only/);
   assert.equal(await page.locator('.token-chip').count(), 3); await page.locator('.token-chip').first().click();
   const detail = await page.locator('#token-details').textContent(); assert.match(detail!, /9007199254740993/); assert.match(detail!, /C3/); assert.match(detail!, /part of a UTF-8/);
   assert.match(await page.locator('#token-summary').textContent() ?? '', /Input count reported during generation: 12/); assert.equal(await page.locator('#tokenization img').count(), 0);
   await page.reload(); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0); await page.locator('#explore-view').selectOption('tokens'); await page.locator('.token-chip').first().waitFor(); assert.equal(inspected, 1);
-  await page.locator('#explore-view').selectOption('memory'); assert.equal(await page.locator('#tokenization').isVisible(), false); assert.equal(await page.locator('#memory').isVisible(), true); assert.deepEqual(errors, []);
+  await page.locator('#explore-view').selectOption('memory'); assert.equal(await page.locator('#tokenization').isVisible(), false); assert.equal(await page.locator('#memory').isVisible(), true);
+  assert.ok((await page.locator('#harness-box').boundingBox())!.height < page.viewportSize()!.height * 0.45 - 1); assert.deepEqual(errors, []);
 });
 
 test('viewer distinguishes count-only, configured-tokenizer, unavailable and failed inspection and ignores stale responses', async t => {
@@ -51,7 +58,14 @@ test('viewer distinguishes count-only, configured-tokenizer, unavailable and fai
   const base = { model: 'qwen', provider: 'ollama', source: 'configured tokenizer', explanation: 'Separately tokenized; not inference capture.', coverage: 'Rendered prompt.', limitations: ['Model match is operator configured.'], groups: [] };
   await page.evaluate(data => (globalThis as unknown as { viewer: { render(data: unknown): void } }).viewer.render(data), { ...base, fidelity: 'configured-tokenizer', count: 0, renderedPrompt: '<|marker|>' });
   await page.getByText('Configured tokenizer · separate tokenization', { exact: true }).waitFor(); await page.getByText('Ollama-rendered prompt text (separate inspection)').click(); assert.match(await page.locator('#root').textContent() ?? '', /<\|marker\|>/);
+  // No pieces: a callout says so up front, with the backend's reason and where to read about setups that can show pieces.
+  const empty = await page.locator('#token-empty').textContent() ?? '';
+  assert.match(empty, /^No token pieces to show for this request\.Separately tokenized; not inference capture\.TOKENIZATION\.md describes/);
+  assert.equal(await page.locator('#token-details').isVisible(), false); assert.doesNotMatch(await page.locator('#token-about').textContent() ?? '', /Separately tokenized/);
   await page.evaluate(data => (globalThis as unknown as { viewer: { render(data: unknown): void } }).viewer.render(data), { ...base, fidelity: 'count-only', count: 10 }); assert.match(await page.locator('#token-summary').textContent() ?? '', /Count only/); assert.equal(await page.locator('.token-chip').count(), 0);
+  assert.match(await page.locator('#token-about').textContent() ?? '', /Model: qwen · Provider: ollama · Source: configured tokenizer.*Coverage: Rendered prompt\.Model match is operator configured\./);
+  await page.evaluate(data => (globalThis as unknown as { viewer: { render(data: unknown): void } }).viewer.render(data), { ...base, fidelity: 'configured-tokenizer', count: 1, groups: [{ label: 'Prompt', tokens: [{ id: '7', bytes: [104] }] }] });
+  assert.equal(await page.locator('#token-empty').count(), 0); assert.equal(await page.locator('#token-details').isVisible(), true); assert.match(await page.locator('#token-about').textContent() ?? '', /Separately tokenized/);
   await page.evaluate(data => { const s = globalThis as unknown as { viewer: { refresh(id: string): Promise<void> }; reply: unknown }; s.reply = data; return s.viewer.refresh('id'); }, { ...base, fidelity: 'unavailable' });
   await page.locator('#token-request').selectOption('0'); await page.locator('#token-inspect').click(); await page.getByText('Token sequence unavailable', { exact: true }).waitFor(); assert.equal(await page.locator('#token-inspect').isEnabled(), true);
   await page.evaluate(() => { (globalThis as unknown as { status: number }).status = 400; }); await page.locator('#token-inspect').click(); await page.getByText('Inspection failed. Check the connection and retry. No token sequence is shown.').waitFor();

@@ -14,17 +14,23 @@
     constructor(root, fetchBackend, busy) {
       this.root = root; this.fetchBackend = fetchBackend; this.busy = busy;
       this.epoch = 0; this.cache = new Map(); this.sessionId = '';
-      root.append(element('p', 'Tokenization splits text into model-specific pieces. Colours show boundaries, not meaning. Numeric IDs identify pieces in this model’s vocabulary; they are not portable between models.'));
-      root.append(element('p', 'Inspect a saved request to see the best evidence its provider exposes. Inspection is a separate request and may use provider quota. Ollama inspection asks its renderer; an older server ignoring the debug flag may generate at most one token. No agent tools are run.'));
+      const quota = 'Inspection is a separate request and may use provider quota. Ollama inspection asks its renderer; an older server ignoring the debug flag may generate at most one token. No agent tools are run.';
       const controls = element('div', undefined, 'token-controls');
       const label = element('label', 'Saved model request ');
       this.select = element('select'); this.select.id = 'token-request'; this.select.title = label.title = 'Choose a model request saved in the active session. Selecting it shows cached evidence; use Inspect selected request to fetch new evidence.'; this.select.setAttribute('aria-label', 'Saved model request'); label.append(this.select);
       this.inspect = element('button', 'Inspect selected request'); this.inspect.id = 'token-inspect'; this.inspect.title = 'Ask the backend for tokenizer evidence for this saved request. This separate inspection may use provider quota; it runs no agent tools. Unsupported evidence is reported explicitly.';
       controls.append(label, this.inspect); root.append(controls);
+      // Background help is collapsed so the result, and its pieces, start near the top of the small box.
+      const intro = element('details'); intro.id = 'token-intro';
+      intro.append(element('summary', 'What is this view?'),
+        element('p', 'Tokenization splits text into model-specific pieces. Colours show boundaries, not meaning. Numeric IDs identify pieces in this model’s vocabulary; they are not portable between models.'),
+        element('p', 'Inspect a saved request to see the best evidence its provider exposes. ' + quota));
+      root.append(intro);
       this.summary = element('div'); this.summary.id = 'token-summary'; this.summary.setAttribute('aria-live', 'polite');
-      this.details = element('pre', 'Click a token to see its position, ID and bytes.'); this.details.id = 'token-details';
       this.groups = element('div'); this.groups.id = 'token-groups';
-      root.append(this.summary, this.details, this.groups);
+      this.details = element('pre'); this.details.id = 'token-details';
+      this.about = element('div'); this.about.id = 'token-about';
+      root.append(this.summary, this.groups, this.details, this.about);
       this.select.addEventListener('change', () => this.showSelected());
       this.inspect.addEventListener('click', () => this.run());
     }
@@ -51,7 +57,7 @@
         this.showSelected();
       } catch { if (epoch === this.epoch) this.summary.textContent = 'Could not load saved requests. Choose the active session and try again.'; }
     }
-    clear() { this.groups.replaceChildren(); this.summary.replaceChildren(); this.details.textContent = 'Click a token to see its position, ID and bytes.'; }
+    clear() { this.groups.replaceChildren(); this.summary.replaceChildren(); this.about.replaceChildren(); this.details.textContent = 'Click a token to see its position, ID and bytes.'; this.details.hidden = true; }
     showSelected() {
       this.clear();
       const cached = this.cache.get(this.select.value);
@@ -76,11 +82,20 @@
     render(data) {
       this.clear();
       const names = { 'provider-content': 'Provider tokenization of text', 'configured-tokenizer': 'Configured tokenizer · separate tokenization', 'count-only': 'Count only · token pieces unavailable', unavailable: 'Token sequence unavailable' };
+      const hasPieces = !!data.groups?.length;
       this.summary.append(element('strong', names[data.fidelity]));
-      this.summary.append(element('p', 'Model: ' + data.model + ' · Provider: ' + data.provider + ' · Source: ' + data.source));
-      this.summary.append(element('p', data.explanation));
-      this.summary.append(element('p', 'Coverage: ' + data.coverage));
-      const limits = element('ul'); (data.limitations || []).forEach(text => limits.append(element('li', text))); this.summary.append(limits);
+      // Without pieces the view would otherwise look empty: say so first and give the backend's reason.
+      if (!hasPieces) {
+        const empty = element('div', undefined, 'token-empty'); empty.id = 'token-empty';
+        empty.append(element('strong', 'No token pieces to show for this request.'), element('p', data.explanation));
+        empty.append(element('p', 'TOKENIZATION.md describes which providers and setups can show token pieces, for example a matching llama.cpp tokenizer for a local Ollama model.'));
+        this.summary.append(empty);
+      }
+      this.about.append(element('p', 'Model: ' + data.model + ' · Provider: ' + data.provider + ' · Source: ' + data.source));
+      if (hasPieces) this.about.append(element('p', data.explanation));
+      this.about.append(element('p', 'Coverage: ' + data.coverage));
+      const limits = element('ul'); (data.limitations || []).forEach(text => limits.append(element('li', text))); this.about.append(limits);
+      this.details.hidden = !hasPieces;
       if (data.count !== undefined) this.summary.append(element('p', (data.fidelity === 'count-only' ? 'Inspection count: ' : 'Displayed tokens: ') + data.count));
       if (data.measuredCount !== undefined) this.summary.append(element('p', data.provider === 'demo'
         ? 'Scripted demo input estimate: ' + data.measuredCount + '. There is no LLM tokenizer or inference measurement.'
@@ -99,7 +114,7 @@
         });
         section.append(chips); this.groups.append(section);
       }
-      if (data.groups?.length) this.groups.prepend(element('p', 'Visible whitespace: · = space, ↵ = newline, ⇥ = tab. These symbols are display aids. Token IDs and raw bytes retain the original content.'));
+      if (hasPieces) this.groups.prepend(element('p', 'Visible whitespace: · = space, ↵ = newline, ⇥ = tab. These symbols are display aids. Token IDs and raw bytes retain the original content.'));
       if (data.renderedPrompt !== undefined) {
         const prompt = element('details'); prompt.append(element('summary', 'Ollama-rendered prompt text (separate inspection)'), element('pre', data.renderedPrompt)); this.groups.append(prompt);
       }

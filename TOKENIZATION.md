@@ -12,8 +12,10 @@ visible display symbols. UTF-8 characters can span tokens, so individual invalid
 UTF-8 pieces display hex escapes; the combined-byte preview restores the text.
 IDs are stored as strings to preserve large provider IDs exactly.
 
-The explanation, model/provider, source, coverage and limitations always remain
-beside the visualization. Displayed token counts are separate from the input
+The view opens to at least 45% of the window height. The pieces come first; the
+explanation, model/provider, source, coverage and limitations always remain
+visible directly below them. When a result has no pieces, a highlighted notice
+says so first and gives the reason. Displayed token counts are separate from the input
 count reported during the original generation. Equal counts do not establish
 identical token sequences.
 
