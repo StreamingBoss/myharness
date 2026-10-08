@@ -75,7 +75,9 @@ export type ToolResult =
   | { kind: "text"; text: string }
   | { kind: "change"; change: unknown }
   | { kind: "command"; command: string }
-  | { kind: "mcp"; call: unknown };
+  | { kind: "mcp"; call: unknown }
+  /** An effect that is shown and approved first: a file deletion or move, a git change. */
+  | { kind: "action"; action: unknown };
 
 /** Runtime boundary. No Node, browser, HTTP, or UI types appear in this API. */
 export interface TurnHost {
@@ -102,9 +104,18 @@ export interface TurnHost {
   executeCommand(command: string): AsyncGenerator<CoreEvent, string, void>;
   /** Asks approval for, then performs, an MCP tool call. */
   executeMcp?(call: unknown): AsyncGenerator<CoreEvent, string, void>;
+  /** Asks approval for, then performs, a prepared action. */
+  executeAction?(action: unknown): AsyncGenerator<CoreEvent, string, void>;
   recordEvent(event: CoreEvent): void;
   requestMetadata?(payload: ModelRequest): Record<string, unknown>;
+  /** Admission/budget boundary before a model request, including runtime-owned autonomous work. */
+  beforeModelRequest?(): Promise<void>;
+  /** Terminal goal updates close tool admission after the balanced batch. */
+  concludesTurn?(): boolean;
+  takeContext?(): ChatMessage[];
 }
+
+export type TurnOutcome = 'completed' | 'cancelled' | 'step-limit' | 'context-limit' | 'output-limit' | 'error';
 
 export const STOPPED_RESULT = "stopped: the user stopped the turn before this tool ran";
 const MARKER = "@@HIGHLIGHT@@";
@@ -112,7 +123,7 @@ const MARKER = "@@HIGHLIGHT@@";
 export class HarnessCore {
   constructor(private readonly host: TurnHost) {}
 
-  async *runTurn(turn: Turn): AsyncGenerator<CoreEvent> {
+  async *runTurn(turn: Turn): AsyncGenerator<CoreEvent, TurnOutcome> {
     if (turn.manualSkill) {
       yield this.emit({ type: "skill", name: turn.manualSkill });
     }
@@ -120,6 +131,7 @@ export class HarnessCore {
     let compactAttempted = false;
     const repeats = new RepeatGuard();
     for (let step = 0; step < this.host.maxSteps; step += 1) {
+      turn.conversation.push(...(this.host.takeContext?.() ?? []));
       const system = this.host.systemMessages(turn.setup, turn.enabledTools.includes("use_skill"), turn.enabledTools);
       if (turn.useMemory) {
         const estimated = this.host.estimateTokens(system, turn.conversation, turn.selectedTools) + (this.host.maxOutputTokens?.() ?? 0);
@@ -136,14 +148,15 @@ export class HarnessCore {
         }
         if (this.host.stopped()) {
           yield this.emit(this.stoppedEvent());
-          return;
+          return 'cancelled';
         }
         if (this.host.estimateTokens(system, turn.conversation, turn.selectedTools) + (this.host.maxOutputTokens?.() ?? 0) >= this.host.contextLength()) {
           yield this.emit({ type: "stopped", reason: "context full: use Compact or Reset memory", memory: this.host.memoryText() });
-          return;
+          return 'context-limit';
         }
       }
 
+      await this.host.beforeModelRequest?.();
       const payload: ModelRequest = {
         model: this.host.model(), messages: [...system, ...turn.conversation], stream: true,
         options: { num_ctx: this.host.contextLength(), ...(this.host.maxOutputTokens?.() ? { num_predict: this.host.maxOutputTokens()! } : {}) },
@@ -177,14 +190,14 @@ export class HarnessCore {
       if (this.host.stopped()) {
         if (answer) turn.conversation.push({ role: "assistant", content: answer });
         yield this.emit(this.stoppedEvent());
-        return;
+        return 'cancelled';
       }
       if (!completed) throw new Error('Model stream ended without a completed response; no tools were executed.');
       const assistant = completed.message, toolCalls = assistant.tool_calls ?? [];
       if (completed.status !== 'completed') {
         if (assistant.content) turn.conversation.push({ role: 'assistant', content: assistant.content });
         yield this.emit({ type: 'stopped', reason: `Model response ${completed.status}; no tools were executed.`, memory: this.host.memoryText() });
-        return;
+        return completed.status === 'length' ? 'output-limit' : 'error';
       }
       if (payload.provider && !['demo', 'ollama', 'vertex'].includes(payload.provider)) validateToolBatch(toolCalls, turn.selectedTools);
       turn.conversation.push(assistant);
@@ -199,7 +212,7 @@ export class HarnessCore {
       });
       if (!toolCalls.length) {
         if (!assistant.content) yield this.emit({ type: 'stopped', reason: 'The model returned an empty reply. Send another message to try again.', memory: this.host.memoryText() });
-        return;
+        return assistant.content ? 'completed' : 'error';
       }
 
       const reminders: RepeatReminder[] = [];
@@ -222,7 +235,7 @@ export class HarnessCore {
       }
       if (this.host.stopped()) {
         yield this.emit(this.stoppedEvent());
-        return;
+        return 'cancelled';
       }
       // Reminders follow the whole tool batch so every tool result stays next to its call.
       for (const reminder of reminders) {
@@ -230,8 +243,10 @@ export class HarnessCore {
         turn.conversation.push({ role: "user", content });
         yield this.emit({ type: "guard", name: "repeat_tool_call", tool: reminder.tool, count: reminder.count, level: reminder.level, content, memory: this.host.memoryText() });
       }
+      if (this.host.concludesTurn?.()) return 'completed';
     }
     yield this.emit({ type: "stopped", reason: `stopped after ${this.host.maxSteps} calls to the model` });
+    return 'step-limit';
   }
 
   private emit(event: CoreEvent): CoreEvent {
@@ -247,6 +262,7 @@ export class HarnessCore {
     if (result.kind === "text") return result.text;
     const action = result.kind === "change" ? this.host.applyChange(name, result.change)
       : result.kind === "command" ? this.host.executeCommand(result.command)
+      : result.kind === "action" ? this.host.executeAction!(result.action)
       : this.host.executeMcp!(result.call);
     return yield* this.forwardAction(action);
   }

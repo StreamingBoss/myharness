@@ -1,5 +1,15 @@
 # Verification
 
+`orchestration.test.ts` tests independent headless execution, child isolation,
+elapsed-time timeout, retained partial output, restart history, global disabling,
+inherited approvals, shared request limits, explicit resume, HTTP/Worker routing,
+cloud child routes and current credentials. Injectable clocks keep deadline tests
+deterministic. `master-config.test.ts` checks host ceilings, adoption without replay,
+request accounting, deadline changes, cancellation, headless approvals and both runtimes.
+`orchestration-ui.test.ts` checks hidden read-only inspection, stable child cards,
+partial results, Stop, restoration and approvals/errors while closed. Cloud
+child checks use native response fixtures; live authenticated inference remains unverified.
+
 The maintained backend is TypeScript. Checks use scripted models, temporary
 workspaces/settings/sessions and ephemeral localhost ports. They do not send
 requests to Ollama or the owner's port-5000 service.
@@ -91,7 +101,15 @@ browser backends without UI: approval, denial, timeout, Stop, instructions,
 prompts, resources, reload, HTTP routes and Worker RPC. `mcp-registry.test.ts`
 covers registry entry conversion for every package and remote shape, search
 paging and failures, previews and their HTTP/Worker routes, without contacting
-the real registry. `mcp-ui.test.ts` (including the registry dialog, previews,
+the real registry. `git.test.ts` runs one behavioural suite against both git adapters (real git in Node,
+isomorphic-git over a real folder) on repositories made by real git, and checks results with
+real `git log`, `status` and `fsck`; `git-fs.test.ts` covers the `fs` adapter's error codes.
+`agentic-tools.test.ts` and `browser-agentic.test.ts` drive `delete_file`, `move_file`,
+`update_plan` and the git tools through the backend without a UI (approve, deny, time out,
+Stop, races, unavailable tools), on the Node, virtual and local-folder workspaces;
+`agentic-ui.test.ts` checks the approvals and plan checklist in Chromium, live and after replay.
+`websearch.test.ts` covers DuckDuckGo result parsing (ads, redirects, entities) and errors, a full headless
+turn (no key, no approval), Stop and the browser's unsupported report. `mcp-ui.test.ts` (including the registry dialog, previews,
 snippets and HTML-escaping of registry text) and `browser-distribution.test.ts`
 check the UI and the packaged Worker in Chromium.
 

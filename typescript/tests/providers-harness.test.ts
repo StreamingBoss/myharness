@@ -114,8 +114,10 @@ test('model UI controller clears credentials before connecting, updates state wi
   const controls = new ModelControls({ async call(action, payload) { calls.push(action); if (error) throw error; if (action === 'configureModel') { assert.equal(cleared, true); assert.equal(payload!.apiKey, 'key'); } return { provider: 'gemini' }; } },
     { settings: () => ({ provider: 'gemini', apiKey: 'key' }), clearKey: () => { cleared = true; }, status: value => { status = value; }, render: value => { shown = value; } });
   await controls.connect(); assert.deepEqual(calls, ['configureModel', 'bootstrap']); assert.deepEqual(shown, { provider: 'gemini' }); assert.equal(status, '');
+  calls = []; await controls.newSession(); assert.deepEqual(calls, ['configureModelAndNewSession', 'bootstrap']); assert.equal(status, '');
   calls = []; await controls.forget(); assert.deepEqual(calls, ['forgetApiKey', 'bootstrap']);
   error = new Error('invalid key'); await controls.connect(); assert.equal(status, 'invalid key');
+  calls = []; await controls.newSession(); assert.equal(status, 'invalid key'); assert.deepEqual(calls, ['configureModelAndNewSession']);
   error = 'offline'; await controls.forget(); assert.equal(status, 'offline');
 });
 

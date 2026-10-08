@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -48,6 +48,55 @@ async function nodeFixture(t: { after(callback: () => unknown): void }, model: S
   return { harness, root, config };
 }
 
+test('bundled Exa config discovers search and enforces headless approval and cancellation', async t => {
+  const config = path.resolve('mcp.json');
+  assert.deepEqual(JSON.parse(await readFile(config, 'utf8')), {
+    mcpServers: { exa: { url: 'https://mcp.exa.ai/mcp?tools=web_search_exa' } },
+  });
+  const server = new FixtureServer({ era: 'legacy', legacyVersion: '2025-11-25', tools: [{
+    name: 'web_search_exa', description: 'Search the web',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+    annotations: { readOnlyHint: true },
+  }], call: (_name, args) => ({ content: [{ type: 'text', text: `Search results for ${String(args.query)}: https://example.org` }] }) });
+  const fetch_ = fixtureFetch(server, { sse: true });
+  let hanging = false, aborted = false;
+  t.mock.method(globalThis, 'fetch', async (url: string, init: Parameters<typeof fetch_>[1]) => {
+    assert.equal(url, 'https://mcp.exa.ai/mcp?tools=web_search_exa');
+    assert.equal(init.headers['x-api-key'], undefined);
+    assert.equal(init.headers.Authorization, undefined);
+    if (hanging && init.body && JSON.parse(init.body).method === 'tools/call') {
+      return new Promise((_resolve, reject) => {
+        init.signal!.addEventListener('abort', () => { aborted = true; reject(init.signal!.reason); }, { once: true });
+        setTimeout(() => harness.stop(), 10);
+      });
+    }
+    return fetch_(url, init);
+  });
+  const root = await mkdtemp(path.join(tmpdir(), 'exa-harness-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const name = 'mcp__exa__web_search_exa';
+  const search = () => callTool(name, { query: 'TypeScript docs' });
+  const model = new ScriptedModel([search(), done, search(), done, search(), done, search(), search()]);
+  const harness = new NodeHarness({ workspace: root, model: 'scripted', contextLength: 20000, ollama: model, mcpConfigFile: config, approvalTimeoutMs: 20 });
+  t.after(() => harness.close());
+  await harness.initialize();
+  assert.ok(((await harness.bootstrap()).tools as { name: string }[]).some(tool => tool.name === name));
+  const calls = () => server.log.filter(message => 'method' in message && message.method === 'tools/call');
+  const approved = await run(harness, turn('search', [name]), true);
+  assert.equal(approved.find(event => event.type === 'mcp')!.outcome, 'allowed-once');
+  assert.match(String(approved.find(event => event.type === 'tool')!.result), /Search results for TypeScript docs/);
+  assert.equal(calls().length, 1);
+  for (const [answer, outcome] of [[false, 'rejected'], [undefined, 'unavailable'], ['stop', 'cancelled']] as const) {
+    const events = await run(harness, turn('search', [name]), answer);
+    assert.equal(events.find(event => event.type === 'mcp')!.outcome, outcome);
+    assert.equal(calls().length, 1);
+  }
+  hanging = true;
+  const stopped = await run(harness, turn('search', [name]), true);
+  assert.equal(aborted, true);
+  assert.equal(stopped.at(-1)!.type, 'stopped');
+});
+
 test('Node: an MCP tool call is described, approved, executed over stdio and shown as events', async t => {
   const model = new ScriptedModel([callTool('mcp__files__echo', { text: 'hello' }), done, callTool('mcp__files__echo', { text: 'again' }), done]);
   const { harness } = await nodeFixture(t, model);
@@ -67,7 +116,7 @@ test('Node: an MCP tool call is described, approved, executed over stdio and sho
   assert.equal((mcp.request as { method: string }).method, 'tools/call'); assert.ok(mcp.response);
   assert.equal(events.find(event => event.type === 'tool')!.result, 'echo: hello');
   const first = model.payloads[0]!;
-  assert.deepEqual(first.tools!.map(item => item.function.name), ['read_file', 'mcp__files__echo']);
+  assert.deepEqual(first.tools!.map(item => item.function.name), ['read_file', 'mcp__files__echo', 'get_orchestration', 'configure_goal', 'get_goal', 'update_goal']);
   assert.match(first.messages[0]!.content, /# MCP server instructions[\s\S]*## files\n\nUse echo to repeat text\./);
   assert.deepEqual(harness.activeSessionRecord().settings.tools, ['read_file', 'mcp__files__echo']);
   assert.equal(harness.state.memory.at(-2)!.content, 'echo: hello');
@@ -103,7 +152,7 @@ test('Node: approvals off, Stop during a call, timeouts, disabled tools and disc
   const offline = new NodeHarness({ workspace: hanging.root, model: 'scripted', contextLength: 20000, ollama: after, mcpConfigFile: path.join(hanging.root, 'missing.json') });
   await offline.initialize();
   const disconnected = await run(offline, turn('gone', ['mcp__files__echo', 'list_mcp_resources']));
-  assert.equal(after.payloads[0]!.tools, undefined);
+  assert.deepEqual(after.payloads[0]!.tools!.map(tool => tool.function.name), ['get_orchestration', 'configure_goal', 'get_goal', 'update_goal']);
   assert.equal(disconnected.find(event => event.type === 'tool')!.result, "error: unknown tool 'mcp__files__echo'");
   assert.deepEqual(offline.activeSessionRecord().settings.tools, ['mcp__files__echo', 'list_mcp_resources']);
 });

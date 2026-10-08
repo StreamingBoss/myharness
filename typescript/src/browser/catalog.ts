@@ -1,6 +1,6 @@
 import type { Agent, Skill } from '../catalog.js';
 import type { CatalogPort } from '../runtime.js';
-import { TOOL_NAMES } from '../tools.js';
+import { AGENT_TOOL_NAMES } from '../tools.js';
 import { characters, lines, sliceCharacters } from '../format.js';
 import { BrowserWorkspace } from './workspace.js';
 
@@ -14,7 +14,7 @@ export class BrowserCatalog implements CatalogPort {
     for (const [entries, source] of [[this.library.agents, 'harness'], [project, 'project']] as const) {
       for (const [name, original] of Object.entries(entries)) {
         const text = original.replace(/\r\n?/g, '\n'), index = text.indexOf('\n---\n');
-        const tools = index < 0 ? [] : lines(text.slice(0, index)).filter(line => line.split(':')[0]!.trim() === 'tools').flatMap(line => line.slice(line.indexOf(':') + 1).split(',').map(tool => tool.trim()).filter(tool => TOOL_NAMES.includes(tool)));
+        const tools = index < 0 ? [] : lines(text.slice(0, index)).filter(line => line.split(':')[0]!.trim() === 'tools').flatMap(line => line.slice(line.indexOf(':') + 1).split(',').map(tool => tool.trim()).filter(tool => AGENT_TOOL_NAMES.includes(tool)));
         result[name] = { prompt: (index < 0 ? text : text.slice(index + 5)).trim(), tools, source };
       }
     }

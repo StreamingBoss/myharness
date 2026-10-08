@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { NodeHarness, BackendError } from './harness.js';
 import { sessionSummary } from './sessions.js';
 import type { CoreEvent } from '../core.js';
-import { turnAction as action } from '../transport.js';
+import { turnAction as action, agentRoute, agentAction, agentQuery } from '../transport.js';
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
   let text = '';
@@ -53,6 +53,11 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
         response.writeHead(200, { 'content-type': route === '/' ? 'text/html; charset=utf-8' : 'application/javascript' }); response.end(await readFile(file)); return;
       }
       if (request.method === 'GET' && route === '/bootstrap') { send(response, 200, await harness.bootstrap()); return; }
+      const agent = agentRoute(request.method!, route);
+      if (agent) {
+        const value = { ...(request.method === 'GET' ? agentQuery(url.searchParams) : await body(request)), ...(agent.id ? { id: agent.id } : {}) };
+        send(response, 200, await agentAction(harness, agent.action, value)); return;
+      }
       if (request.method === 'GET' && route === '/sessions') { send(response, 200, { active_id: harness.activeSessionRecord().id, sessions: (await harness.listSessions()).map(sessionSummary) }); return; }
       if (request.method === 'POST' && route === '/sessions') {
         const value = await body(request);
@@ -74,8 +79,11 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
       }
       if (request.method === 'POST' && route === '/model') { const value = await body(request); if (value.apiKey !== undefined) throw new BackendError('Node HTTP uses server environment credentials.'); await harness.configureModel(modelConfiguration(value)); send(response, 200, { ok: true }); return; }
       if (request.method === 'GET' && route === '/mcp') { send(response, 200, harness.mcpStatus()); return; }
-      if (request.method === 'GET' && route === '/mcp/registry') { send(response, 200, await harness.searchMcpRegistry({ search: url.searchParams.get('search') ?? undefined, cursor: url.searchParams.get('cursor') ?? undefined })); return; }
+      if (request.method === 'GET' && route === '/mcp/config') { send(response, 200, await harness.mcpConfiguration()); return; }
+      if (request.method === 'PUT' && route === '/mcp/config') { send(response, 200, await harness.configureMcp((await body(request)).config)); return; }
+      if (request.method === 'GET' && route === '/mcp/registry') { send(response, 200, await harness.searchMcpRegistry({ search: url.searchParams.get('search') ?? undefined, cursor: url.searchParams.get('cursor') ?? undefined, source: url.searchParams.get('source') ?? undefined })); return; }
       if (request.method === 'POST' && route === '/mcp/preview') { send(response, 200, await harness.previewMcp(await body(request))); return; }
+      if (request.method === 'POST' && route === '/mcp/add') { send(response, 200, await harness.addMcp(await body(request))); return; }
       if (request.method === 'POST' && route === '/mcp/reload') { send(response, 200, await harness.reloadMcp()); return; }
       if (request.method === 'POST' && route === '/reset') { await harness.reset(); send(response, 200, { memory: harness.memoryText() }); return; }
       if (request.method === 'POST' && route === '/stop') { harness.stop(); send(response, 200, { ok: true }); return; }

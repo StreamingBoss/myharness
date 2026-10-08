@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import test from 'node:test';
+import { GOAL_TOOLS } from '../src/tools.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { createHarnessServer } from '../src/node/http.js';
 import type { CoreEvent, ModelChunk, ModelRequest } from '../src/core.js';
@@ -45,13 +46,27 @@ for (const file of readdirSync('tests/scenarios').filter(name => name.endsWith('
     const reference = JSON.parse(python.stdout);
     // Only generated approval IDs and the isolated workspace roots vary.
     const normalize = (value: unknown, workspace: string): unknown => {
-      const encoded = JSON.stringify(value).replaceAll(workspace, '<workspace>');
+      const encoded = JSON.stringify(value, (key, item) => {
+        // The retired Python oracle predates master configuration. Compare its existing
+        // behaviors; master-config.test.ts verifies the additive automatic tool contract.
+        if (key === 'tools' && Array.isArray(item)) {
+          const legacy = item.filter(tool => !GOAL_TOOLS.some(control => control.function.name === tool.function?.name));
+          return legacy.length ? legacy : undefined;
+        }
+        return item;
+      }).replaceAll(workspace, '<workspace>');
       const data = JSON.parse(encoded);
       if (Array.isArray(data)) return data.map(item => {
         if (item.type === 'approval') item.id = '<approval>';
         // The TypeScript backend adds the approval `outcome` to result events; the retired Python oracle has only `approved`.
         delete item.outcome;
-        if (item.parts) item.parts = JSON.parse(item.parts.join(''));
+        if (item.parts) {
+          item.parts = JSON.parse(item.parts.join(''));
+          if (item.parts.tools) {
+            item.parts.tools = item.parts.tools.filter((tool: { function: { name: string } }) => !GOAL_TOOLS.some(control => control.function.name === tool.function.name));
+            if (!item.parts.tools.length) delete item.parts.tools;
+          }
+        }
         if (item.arguments) item.arguments = JSON.parse(item.arguments);
         return item;
       });

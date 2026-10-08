@@ -1,5 +1,18 @@
 import { BackendError } from '../harness.js';
 import { WorkerClient } from './client.js';
+import { agentRoute, agentQuery } from '../transport.js';
+
+/** Logs browser MCP storage through the local static server when served on localhost. */
+export async function reportBrowserMcpConfig(client: WorkerClient): Promise<void> {
+  if (typeof location === 'undefined' || !['localhost', '127.0.0.1'].includes(location.hostname)) return;
+  try {
+    const configuration = await client.call('mcpConfiguration') as { config: unknown };
+    const url = new URL('/__debug/mcp-config', location.origin);
+    url.search = location.search;
+    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) });
+    if (!response.ok) console.warn('Could not print MCP configuration in the static server console:', await response.text());
+  } catch (error) { console.warn('Could not print MCP configuration in the static server console:', error); }
+}
 
 /** Compatibility transport for the existing UI; requests travel to a Worker. */
 export function browserFetch(client: WorkerClient) {
@@ -9,6 +22,8 @@ export function browserFetch(client: WorkerClient) {
       const value = init.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BackendError('Expected a JSON object');
       let action = '', payload = value, status = 200;
+      const agent = agentRoute(method, route);
+      if (agent) return Response.json(await client.call(agent.action, { ...value, ...agentQuery(url.searchParams), ...(agent.id ? { id: agent.id } : {}) }), { status: 200 });
       if (route === '/chat' || route === '/compact') {
         if (method !== 'POST') throw new BackendError('Not found', 404);
         const iterator = client.stream(route.slice(1), value), first = await iterator.next();
@@ -27,17 +42,21 @@ export function browserFetch(client: WorkerClient) {
         else if (method === 'POST' && session[2] === 'activate') action = 'activateSession';
       } else if (method === 'GET') {
         if (route === '/bootstrap' || route === '/sessions' || route === '/mcp') action = route.slice(1);
+        else if (route === '/mcp/config') action = 'mcpConfiguration';
         else if (route === '/mcp/registry') { action = 'mcpRegistry'; payload = Object.fromEntries(url.searchParams); }
         else if (route === '/browse') { action = 'browse'; const path = url.searchParams.get('path'); payload = path ? { path } : {}; }
       } else if (method === 'POST') {
         if (route === '/sessions') action = 'newSession';
         else if (route === '/sessions/import') { action = 'importSession'; status = 201; }
         else if (['/reset', '/stop', '/approve', '/explore', '/project', '/tokenize'].includes(route)) action = route.slice(1);
+        else if (route === '/mcp/add') action = 'addMcp';
         else if (route === '/mcp/reload') action = 'reloadMcp';
         else if (route === '/mcp/preview') action = 'previewMcp';
-      }
+      } else if (method === 'PUT' && route === '/mcp/config') { action = 'configureMcp'; payload = value.config as Record<string, unknown>; }
       if (!action) throw new BackendError('Not found', 404);
-      return Response.json(await client.call(action, payload), { status });
+      const result = await client.call(action, payload);
+      if (action === 'addMcp' || action === 'configureMcp') await reportBrowserMcpConfig(client);
+      return Response.json(result, { status });
     } catch (error) { return Response.json({ error: String(error instanceof Error ? error.message : error) }, { status: error instanceof BackendError ? error.status : 400 }); }
   };
 }

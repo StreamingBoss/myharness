@@ -14,6 +14,10 @@ export class ModelControls {
     const settings = this.view.settings(); this.view.clearKey(); this.view.status('Connecting…');
     await this.run('configureModel', settings as Record<string, unknown>);
   }
+  async newSession(): Promise<void> {
+    const settings = this.view.settings(); this.view.clearKey(); this.view.status('Creating session…');
+    await this.run('configureModelAndNewSession', settings as Record<string, unknown>);
+  }
   async forget(): Promise<void> { await this.run('forgetApiKey', {}); }
   private async run(action: string, payload: Record<string, unknown>): Promise<void> {
     try {

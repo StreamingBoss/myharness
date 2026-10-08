@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { characters, lines, sliceCharacters } from '../format.js';
-import { TOOL_NAMES } from './tools.js';
+import { AGENT_TOOL_NAMES } from '../tools.js';
 import { WorkspaceAdapter } from './workspace.js';
 
 import type { Agent, Skill } from '../catalog.js';
@@ -18,7 +18,7 @@ export class Catalog {
         if (!file.endsWith('.md')) continue;
         const text = readFileSync(path.join(folder!, file), 'utf8').replaceAll('\r\n', '\n');
         const index = text.indexOf('\n---\n');
-        const tools = index < 0 ? [] : lines(text.slice(0, index)).filter(line => line.split(':')[0]!.trim() === 'tools').flatMap(line => line.slice(line.indexOf(':') + 1).split(',').map(name => name.trim()).filter(name => TOOL_NAMES.includes(name)));
+        const tools = index < 0 ? [] : lines(text.slice(0, index)).filter(line => line.split(':')[0]!.trim() === 'tools').flatMap(line => line.slice(line.indexOf(':') + 1).split(',').map(name => name.trim()).filter(name => AGENT_TOOL_NAMES.includes(name)));
         result[path.basename(file, '.md')] = { prompt: (index < 0 ? text : text.slice(index + 5)).trim(), tools, source: source! };
       }
     }

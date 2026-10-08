@@ -1,14 +1,66 @@
 # myharness
 
-**See what happens between your message and an LLM's answer.**
+MyHarness is a learning tool for seeing what a harness adds to an LLM: memory,
+instructions, tools, skills, approvals and context management. Inspect the actual
+requests and tool results while experimenting with those behaviors.
 
-myharness is a local educational harness with a browser interface. It makes
-memory, instructions, tools, skills, approvals and context management visible:
-inspect the requests sent to the model, the responses it returns, and every tool
-call in between. The goal is to understand what a harness adds to a model.
+## Learning guides and demos
 
-The TypeScript backend runs independently of the UI, either inside a browser
-Worker or in Node. Both reuse the same harness and approval policy.
+- [Interactive learning guide — English](docs/myharness-learning-guide.html)
+- [Guide interactif — Français](docs/myharness-learning-guide.fr.html)
+- [Markdown learning guide](docs/myharness-learning-guide.md)
+
+The HTML guides offer twelve steps, a glossary, progress tracking and interactive
+illustrations of memory, approvals and context. Open the HTML files in a browser
+after cloning the repository; a GitHub file link shows the source. The guides
+work offline and make no model calls or file changes. Their exercises explain
+what to try in the running harness. Progress is saved in browser storage, and
+**Reset progress** clears the guide checklist. The lessons remain readable
+without JavaScript; illustrations and progress tracking require it.
+
+## Goals and subagents
+
+Describe your task in chat. The master can use `get_orchestration` to inspect host
+permissions and ceilings, then `configure_goal` to choose an objective, completion
+criteria, deadline, round limit and shared request budget. It can choose child tasks,
+permitted tools, connected model routes and timeouts through its delegation tools.
+The current chat turn becomes the first goal round; backend continuation never
+replays the initial task. Request usage starts with the first model request and
+settings changes cannot reset it or extend a running deadline.
+
+**Under the hood** opens a read-only inspector, hidden by default. It shows the
+chosen goal settings, each child's task/model/status, elapsed time, deadline,
+partial output, results and attempt history. A running-child count stays visible.
+Users can stop one child or the entire run; the master manages restarts and follow-ups.
+Approvals have a visible indicator even with the inspector closed. Closing the
+inspector does not stop work. Completion is the model's claim: inspect its evidence.
+
+Subagents are **disabled by default**. Hosts configure delegation through
+`MYHARNESS_ALLOW_SUBAGENTS=true` or `false`, or the callable settings interface.
+Child tool grants and model routes remain host permissions, outside session authority;
+the master cannot expand them. Read-only child tools are the default. Granted effects
+inherit the master's approval policy; unanswered approvals deny effects. Children
+inherit the master model, including cloud providers. Alternative routes require
+host authorization and available credentials; keys remain ephemeral. Children have
+isolated conversation memory and cannot delegate further children.
+
+Default ceilings: 5 minutes per child attempt, 30 minutes per master goal, three
+concurrent children, ten goal rounds and 200 shared model requests. Deadlines include
+tools, approvals and child waits. The ordinary per-turn tool-loop limit remains twenty.
+Set `MYHARNESS_ORCHESTRATION_LIMITS` to a JSON object with any of `masterTimeoutMs`,
+`childTimeoutMs`, `maxRounds`, `maxRequests`, `maxConcurrentChildren` to override host
+ceilings. Callable Node and browser backends accept the same `orchestrationLimits`
+option. These are host settings, not editable fields in the inspector.
+
+Restoring a session preserves history without restarting pending work. A new user
+turn can authorize further work; the master cannot resume cancelled work by itself.
+Imports do not grant child permissions.
+
+Headless usage: `npm run headless:ts -- "Inspect the project and verify its README"`.
+The CLI waits for master-configured continuation and denies approvals unless
+`--approve` is supplied. Existing explicit `--goal` and callable goal/child interfaces
+remain supported. Observers never advance execution; Node and browser reuse the
+shared backend.
 
 ## What you can explore
 
@@ -23,7 +75,14 @@ Worker or in Node. Both reuse the same harness and approval policy.
 | Context | Measured input tokens, estimated pressure, trimmed tool output and visible summary requests. |
 | Sessions | Saved transcript, retained memory and instruction snapshots; reset memory while keeping the transcript visible. |
 
-The bottom **Explore → tokenization of a saved request** view can inspect individual model calls. It shows token pieces and IDs where a configured/provider tokenizer exposes them, and explicitly explains count-only or unavailable results. See [TOKENIZATION.md](TOKENIZATION.md) for Ollama tokenizer setup, remote Gemini configuration, and exactness limits.
+The bottom **Explore → tokenization of a saved request** view can inspect individual
+model calls, including tool follow-ups and compaction requests. Choose a call and
+click **Inspect selected request**. Where a configured/provider tokenizer exposes
+pieces, click one to see its position, ID and bytes. The view labels its source,
+coverage and limitations, including count-only or unavailable results. Reopening
+a saved inspection makes no new model call; fresh inspection can load a local
+model or use provider quota. See [TOKENIZATION.md](TOKENIZATION.md) for Ollama
+tokenizer setup, remote Gemini configuration, and exactness limits.
 
 The **Chat** pane shows answers and actions. **Internals** shows the API exchange
 and tool effects. **Explore** shows the pieces used to build a request, the model's
@@ -41,7 +100,7 @@ npm run start:browser
 
 Open **http://localhost:5001**. This server serves static files only: the full
 harness backend runs in a Worker on your browser's machine. Choose a real model
-provider and click **Start new session with this model**. Local Ollama is selected
+provider and click **New Session**. Local Ollama is selected
 by default. Cloud providers show an API-key field; Ollama shows its server URL. The model
 picker lists installed Ollama models or loads account models after you enter a
 cloud API key. Changing the provider, URL or API key refreshes the choices.
@@ -66,13 +125,40 @@ context (HTTPS or localhost) and a user gesture. Chrome and Edge support the
 [File System Access API](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access).
 Permissions can expire: open the folder again when prompted.
 
-**Import folder copy** and **Import JSON project** create virtual text projects
+**Import folder copy** creates a virtual text project
 in browser storage. Changes to these copies do not modify the original folder;
-use **Export project** to save their files and sessions. Folder copies skip binary/non-UTF8
-files. Direct access reads UTF8 text up to 10 MiB per file and skips dependency
-directories; exporting a local project requires its included files to be text.
-The browser does not run Bash; `run_command` is visibly unavailable. Use the Node
-edition below when you need shell commands.
+use **Export session** to save a conversation with its project workspace path.
+Folder copies skip binary/non-UTF8 files. Direct access reads UTF8 text up to
+10 MiB per file and skips dependency directories.
+A browser page cannot start programs, so the browser edition does not offer
+`run_command`, and it does not offer `web_search` (DuckDuckGo refuses requests from web
+pages). Tools a runtime cannot run are left out of the tool list rather than shown
+disabled. When you open a local folder that contains a `.git` directory, the git tools
+below work in the browser too, through [isomorphic-git](https://isomorphic-git.org). Use
+the Node edition when you need shell commands.
+
+### Files, plans and git
+
+Besides reading, searching and writing files, the model has these tools. Everything that
+changes something asks for approval first and shows what will happen:
+
+- **`delete_file`** and **`move_file`** act on one file (never a folder). A deletion shows
+  the removed lines; a move shows `from -> to`.
+- **`update_plan`** lets the model write its steps down and tick them off. It changes
+  nothing; the plan appears as a checklist in the chat.
+- **`git_status`**, **`git_diff`** and **`git_log`** only read, so they do not ask.
+- **`git_branch`** lists branches, or creates one when given a name. **`git_checkout`**
+  switches to an existing branch and fails rather than overwrite uncommitted work.
+  **`git_commit`** stages the given paths (default: every change) and commits what is
+  staged; its approval shows the message, the files and the diff first.
+
+There is no push, pull or clone. In the Node edition git is the real `git` program, run
+without a shell in the project folder: repositories above the folder are ignored, hooks do
+not run, and nothing can prompt for a password. In the browser edition isomorphic-git reads
+the same repository without a git program. It reads only the repository's own
+`.git/config`, so set `user.name` and `user.email` there before the model commits; it
+is stricter than git about switching branches with uncommitted changes, and it compares
+file contents on every status, so it is slower on large repositories.
 
 ### Connect a real model
 
@@ -89,11 +175,10 @@ Accept any browser local-network permission prompt for your Ollama server.
 Sessions, virtual projects and granted directory handles are saved in IndexedDB,
 scoped to this site's origin and browser profile. Changing the host or port uses
 different storage. Clearing site data removes these saves. **Export session**
-saves the full conversation transcript, current model memory and frozen instructions.
-**Export project** saves text files and all sessions belonging to the current
-project, including the active session. **Import JSON project** restores these
-conversations and selects the exported active session. Memory reset and compaction
-do not erase the saved transcript. Older files-only project exports still import.
+saves the full conversation transcript, current model memory, frozen instructions
+and project workspace path (`workspace`). Use **Import Session** in the Session section
+to restore an exported session. Memory reset and compaction do not erase the saved
+transcript.
 
 ## Run the Node backend locally
 
@@ -140,6 +225,57 @@ network configuration.
 Tools are requests from the model; the harness executes them. A model may fail
 to request the intended tool. The internals make that difference visible.
 
+## Sessions, instructions and skills
+
+Use the Session controls to create, rename, resume, delete, export or import a
+conversation. Startup restores the latest session when its model configuration
+can be resumed. Replaying a saved transcript displays recorded events without
+rerunning model calls, tools or approvals. If its project folder is missing,
+choose a replacement before continuing.
+
+With memory enabled, the first turn freezes the selected system prompt, agent
+and skill contents for that session. **Reset memory** clears retained messages
+and releases those snapshots while preserving the transcript. Project `AGENTS.md`
+instructions refresh when resuming, successfully compacting or changing projects.
+Inspect Explore to see which instructions are actually in the request.
+
+Skills are `skills/<name>/SKILL.md` files in the harness or project folder.
+Enabling `use_skill` offers their names and short descriptions; the model can
+load the full instructions on demand. Typing `/` offers slash autocomplete, and
+`/write-readme your request` loads that skill directly. Recognized skill names
+appear blue in the input. Green highlighting in Explore indicates skill text
+present in the current harness context; it clears as that text leaves memory.
+
+## Approvals, cancellation and repeated calls
+
+Proposed file changes, commands, git changes and MCP tool calls show an approval
+request while approvals are enabled. Each request settles as **`allowed-once`**,
+**`rejected`**, **`cancelled`** or **`unavailable`**. Only `allowed-once` executes
+the action. The model receives the result or specific denial, and the UI
+distinguishes refusal, cancellation and a missing answer.
+
+**Stop** aborts model requests, cancels pending approvals and, in the Node
+edition, terminates running shell command process groups. Resuming an interrupted
+session repairs incomplete tool exchanges without rerunning their actions.
+
+When a model makes the same consecutive tool call with identical arguments,
+the backend adds visible reminders after the third, fifth and eighth calls.
+Denied calls count too. These reminders advise the model to inspect results and
+change approach; they do not block execution or grant approval. Each new turn
+starts a fresh repeat count.
+
+## Context management
+
+With Harness memory enabled, the backend trims older tool outputs at 75% context
+pressure and attempts to summarize older memory at 90%. It retains the last four
+messages and complete tool batches, and shows the trimming and compaction events
+in the UI. Compaction can
+also be requested manually. Failed, empty, interrupted or ineffective summaries
+leave memory unchanged. The saved transcript remains available after trimming,
+compaction or memory reset.
+If the input and output reserve still exceed the working context budget, the
+backend stops and asks you to compact or reset memory.
+
 ## Use the backend without the UI
 
 The browser distribution includes `headless.html`, which starts a backend Worker
@@ -165,6 +301,34 @@ Configuration uses `MYHARNESS_MODEL`, `OLLAMA_URL`, `MYHARNESS_WORKSPACE`,
 `MYHARNESS_PORT`. Defaults are `qwen3:8b`, `http://localhost:11434`, the saved
 project or `workspace/`, `sessions/`, `settings.json`, `mcp.json`, the current
 directory and port 5001.
+
+## Web search
+
+The `web_search` tool searches the web with DuckDuckGo and returns the top five
+results (title, URL, snippet) to the model. It is free and needs no account or key.
+DuckDuckGo has no official search API, so the harness reads its plain HTML results page
+(ads skipped): a layout change or a bot check makes the tool answer with an error rather
+than guess. Only the query leaves your computer. Like `read_file`, a search does not ask
+for approval, and the query and results are visible in the chat. It is Node-only; the
+browser edition reports it unsupported.
+
+Exa search is also included through the root `mcp.json`, using its free hosted
+MCP endpoint without an account or API key. Its tool appears as
+`mcp__exa__web_search_exa` in the **MCP exa** tool group. Select it to offer it to
+the model. Calls use the backend's MCP approval policy, and Stop cancels requests.
+Results are external, untrusted content. Anonymous usage is rate limited by
+public IP, so users of a hosted backend share the allowance; this is suitable for
+experiments rather than an unlimited public search service.
+
+On an already running Node service, choose **Explore → MCP servers → Reload MCP
+servers**, then select the Exa tool. Startup also loads it automatically. If
+`MYHARNESS_MCP` points to another file, add the `exa` entry there instead. For the
+browser edition, import `mcp.json` to connect through its HTTP MCP adapter.
+
+To use your own Exa account quota in Node, add
+`"headers": { "x-api-key": "${EXA_API_KEY}" }` to the `exa` entry and set
+`EXA_API_KEY` in the server environment. Keep literal keys out of the configuration
+file. See [Exa's MCP documentation](https://exa.ai/mcp) for access and limits.
 
 ## Connect MCP servers
 
@@ -208,15 +372,34 @@ prompts, warnings, recent stderr and the JSON-RPC wire log. Internals shows each
 call's request and response. Static `headers` cover token authentication; OAuth
 sign-in, sampling, elicitation, roots and change subscriptions are not supported.
 
-**Explore → MCP servers → Find MCP servers…** searches the official
-[MCP Registry](https://registry.modelcontextprotocol.io). The registry lists servers,
+**Explore → MCP servers → Find MCP servers…** searches an MCP registry, chosen in the
+dialog: [GitHub's registry](https://api.mcp.github.com) (the one VS Code uses; curated,
+most-starred first, the default) or the official
+[MCP Registry](https://registry.modelcontextprotocol.io). A registry lists servers,
 not tools: a server's tools are only known once the harness connects to it.
 **Preview tools** connects once to a remote server, lists its tools, prompts and
 resources and disconnects, without calling anything. Packages (npm, PyPI, Docker,
-NuGet) are never run for a preview. **Show configuration** gives the `mcpServers`
+NuGet) are never run for a preview. If the server requires authentication, enter
+the full value (for example, `Bearer <token>`) in **Authorization header (optional)**.
+The field is cleared after sending and the value is used only for that preview;
+OAuth sign-in is not supported. Configure headers separately to use the server
+in conversations. **Show configuration** gives the `mcpServers`
 entry to paste into your configuration file, with `${NAME}` placeholders and notes
 for the keys or arguments it needs. Registry entries are published by their
 authors and not reviewed: check what a command runs before adding it.
+
+After **Show configuration**, edit the configuration fields as needed, then choose
+**Add to harness** to add the entry to the harness config, replacing any same-named server entry, then reload servers.
+The **Authorization header to save** field accepts the full header value if a token
+is needed. Node stores it in the configured MCP file; browser headers stay in memory.
+Adding a package starts its command.
+
+**Explore → MCP servers → MCP configuration JSON** shows the active configuration
+source and its editable JSON. This view works independently of the model provider.
+In the browser edition, the source is browser storage, rather than a filesystem
+`mcp.json`. With the local `npm run start:browser` server, edits, additions and
+imports also print the browser storage location and current JSON (including
+in-memory authentication headers) in that server's terminal.
 
 In the browser edition, **Import MCP config** loads the same file. The Worker can
 reach HTTP servers that allow the page origin and the MCP headers (CORS); stdio

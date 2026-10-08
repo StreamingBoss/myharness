@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>myharness — Guide & Setup preview</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b111d;
+    --panel: #111d2e;
+    --border: #304259;
+    --text: #e8edf6;
+    --muted: #aab8cb;
+    --accent: #7bd9bb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.55 system-ui, sans-serif;
+  }
+  main { max-width: 1140px; margin: auto; padding: 28px; }
+  nav, .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  nav { margin-bottom: 42px; }
+  nav strong { font-size: 22px; }
+  .badge {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  h1 { font-size: clamp(28px, 4vw, 42px); line-height: 1.2; }
+  h2 { font-size: 22px; margin-top: 0; }
+  h3 { font-size: 17px; margin-bottom: 8px; }
+  p { color: var(--muted); }
+  .boundary {
+    background: #18283b;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 22px;
+    margin: 28px 0;
+  }
+  .boundary strong { color: var(--accent); }
+  .boundary p { margin: 8px 0 0; }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+  }
+  details {
+    background: #172438;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 12px;
+  }
+  details[open] { border-color: #488d80; background: #1b3040; }
+  summary { cursor: pointer; font-weight: 650; }
+  details p { font-size: 14px; }
+  .hint { font-size: 14px; }
+  .section + .section {
+    border-top: 1px solid var(--border);
+    margin-top: 22px;
+    padding-top: 16px;
+  }
+  label { display: block; margin: 10px 0; }
+  input, select, button {
+    font: inherit;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+  }
+  input:not([type="checkbox"]), select {
+    display: block;
+    width: 100%;
+    color: var(--text);
+    background: #0c1523;
+    margin-top: 6px;
+  }
+  input[type="checkbox"] { accent-color: var(--accent); }
+  button {
+    background: #243a50;
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  .primary {
+    background: var(--accent);
+    color: #112b23;
+    font-weight: 700;
+  }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .launch {
+    margin-top: 24px;
+    background: #18293a;
+  }
+  .launch p { margin-bottom: 0; max-width: 650px; }
+  .status { color: var(--accent); font-size: 14px; min-height: 22px; }
+  footer { color: var(--muted); font-size: 13px; margin: 24px 0; }
+  [hidden] { display: none !important; }
+  @media (max-width: 800px) {
+    .grid { grid-template-columns: 1fr; }
+    main { padding: 18px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <nav>
+    <strong>myharness</strong>
+    <span class="badge">Guide & Setup · Design preview</span>
+  </nav>
+
+  <h1>Understand what makes an agent work.</h1>
+  <p>
+    Start with guided experiments. Then connect your own model
+    and explore your own tasks.
+  </p>
+
+  <div class="boundary">
+    <strong>
+      The LLM proposes. The harness supplies context,
+      controls tools, and manages the loop.
+    </strong>
+    <p>
+      Learn where those responsibilities meet.
+      Experiments use the existing harness.
+    </p>
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>1. Learn through experiments</h2>
+      <p class="hint">Follow a lesson, then observe the harness.</p>
+
+      <details open>
+        <summary>The model and the harness</summary>
+        <p>
+          Ask the model to describe a file. First disable file tools,
+          then enable them and repeat the task.
+        </p>
+        <p>
+          Observe which information came from the model and which
+          arrived through a tool supplied by the harness.
+        </p>
+        <p>
+          Try: <code>Read src/greeting.py and explain what it does.</code>
+        </p>
+        <p>
+          Follow this manually in the existing harness.
+          Your model’s answer may vary.
+        </p>
+      </details>
+
+      <details>
+        <summary>Tools and where they run</summary>
+        <p>
+          Compare a browser workspace, a local workspace through
+          a bridge, and a remote MCP connection such as GitHub.
+        </p>
+        <p>
+          A model connection supplies inference.
+          A tool connection supplies another capability.
+        </p>
+      </details>
+
+      <details>
+        <summary>Instructions and memory</summary>
+        <p>
+          Change an instruction and repeat a task.
+          Then compare a follow-up with memory enabled and disabled.
+        </p>
+        <p>
+          Inspect what the harness includes in each model request.
+        </p>
+      </details>
+
+      <details>
+        <summary>Approvals and the agent loop</summary>
+        <p>
+          Ask for a file change. Reject it once, then approve
+          a new proposal. Observe the proposal, decision,
+          execution result, and next model response.
+        </p>
+      </details>
+
+      <h3>Then try your own task</h3>
+      <p class="hint">
+        Use your files, a browser workspace, or the existing MCP
+        connections. Keep the guide nearby as you experiment.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>2. Set up your experiment</h2>
+
+      <div class="section">
+        <h3>Model connection</h3>
+        <label>
+          Provider
+          <select id="provider">
+            <option value="ollama">Local Ollama</option>
+            <option value="gemini">Gemini</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </label>
+
+        <div id="ollama">
+          <label>
+            Ollama address
+            <input value="http://localhost:11434">
+          </label>
+          <p class="hint">
+            Ollama supplies the model. Local files and Bash
+            require a separate capability connection.
+          </p>
+        </div>
+
+        <div id="api" hidden>
+          <label>
+            API key
+            <input type="password" autocomplete="off"
+                   placeholder="Enter your provider key">
+          </label>
+          <p class="hint">
+            Use for this session, or explicitly choose encrypted saving.
+          </p>
+        </div>
+
+        <button type="button" data-preview="Connection check">
+          Check connection
+        </button>
+      </div>
+
+      <div class="section">
+        <h3>Privacy on this device</h3>
+        <label>
+          Device mode
+          <select id="privacy">
+            <option value="shared">Shared computer</option>
+            <option value="personal">Personal device</option>
+          </select>
+        </label>
+
+        <div id="shared">
+          <p class="hint">
+            Credentials, conversations, and browser workspace copies
+            are temporary. Saving is off.
+          </p>
+          <p class="hint">
+            End session clears temporary browser data.
+            Changes already made to local files or GitHub remain.
+          </p>
+        </div>
+
+        <div id="personal" hidden>
+          <label>
+            <input id="remember" type="checkbox">
+            Save selected credentials encrypted on this device
+          </label>
+
+          <div id="vault" hidden>
+            <label>
+              Vault passphrase
+              <input type="password" autocomplete="off"
+                     placeholder="Choose or enter your passphrase">
+            </label>
+            <p class="hint">
+              Unlock again after inactivity, reload, or closing
+              the session.
+            </p>
+          </div>
+
+          <div class="actions">
+            <button type="button" data-preview="Unlock credentials">
+              Unlock
+            </button>
+            <button type="button" data-preview="Lock credentials">
+              Lock
+            </button>
+            <button type="button" data-preview="Forget saved credentials">
+              Forget saved credentials
+            </button>
+          </div>
+          <p class="hint">
+            Conversations and workspace persistence are managed
+            separately from credential saving.
+          </p>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="row">
+          <h3>Local bridge</h3>
+          <span class="badge">Optional</span>
+        </div>
+        <p class="hint">
+          Connect a bridge running on your computer to access
+          a local project, Bash, and web tools.
+        </p>
+        <button type="button" data-preview="Connect local bridge">
+          Connect local bridge
+        </button>
+        <p class="hint">Not connected</p>
+      </div>
+
+      <div class="section">
+        <h3>GitHub and other MCP services</h3>
+        <p class="hint">
+          Use the harness’s existing MCP support.
+          No replacement connection system is needed.
+        </p>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel launch">
+    <div class="row">
+      <div>
+        <h2>Ready to explore?</h2>
+        <p>
+          Open the current harness in its own tab.
+          Its layout and displays stay unchanged.
+        </p>
+      </div>
+      <div class="actions">
+        <button class="primary" type="button"
+                data-preview="Open existing harness">
+          Open harness ↗
+        </button>
+        <button type="button" data-preview="End session">
+          End session
+        </button>
+      </div>
+    </div>
+    <p class="hint">
+      Return here to manage connections, lock credentials,
+      or end your session.
+    </p>
+    <p id="status" class="status" role="status"></p>
+  </section>
+
+  <footer>
+    Design preview only. Controls demonstrate the proposed layout.
+    No connections, credential storage, or file operations occur.
+    Do not enter real credentials.
+  </footer>
+</main>
+
+<script>
+  const byId = id => document.getElementById(id);
+
+  byId('provider').addEventListener('change', event => {
+    const local = event.target.value === 'ollama';
+    byId('ollama').hidden = !local;
+    byId('api').hidden = local;
+  });
+
+  byId('privacy').addEventListener('change', event => {
+    const shared = event.target.value === 'shared';
+    byId('shared').hidden = !shared;
+    byId('personal').hidden = shared;
+  });
+
+  byId('remember').addEventListener('change', event => {
+    byId('vault').hidden = !event.target.checked;
+  });
+
+  document.querySelectorAll('[data-preview]').forEach(button => {
+    button.addEventListener('click', () => {
+      byId('status').textContent =
+        button.dataset.preview + ' — preview only; no action performed.';
+    });
+  });
+</script>
+</body>
+</html>

@@ -12,8 +12,8 @@ export async function loadHarness(env: NodeJS.ProcessEnv = process.env): Promise
   const settingsFile = path.resolve(env.MYHARNESS_SETTINGS ?? path.join(root, 'settings.json'));
   let workspace = env.MYHARNESS_WORKSPACE ?? path.join(root, 'workspace');
   if (!env.MYHARNESS_WORKSPACE && existsSync(settingsFile)) {
-    const saved = JSON.parse(readFileSync(settingsFile, 'utf8')) as { project: string };
-    if (existsSync(saved.project) && statSync(saved.project).isDirectory()) workspace = saved.project;
+    const saved = JSON.parse(readFileSync(settingsFile, 'utf8')) as { project?: string; allowSubagents?: boolean };
+    if (saved.project && existsSync(saved.project) && statSync(saved.project).isDirectory()) workspace = saved.project;
   }
   const provider = providerName(env.MYHARNESS_PROVIDER ?? 'ollama');
   const model = configuredModel(provider, env.MYHARNESS_MODEL);
@@ -25,7 +25,13 @@ export async function loadHarness(env: NodeJS.ProcessEnv = process.env): Promise
   if (!Number.isInteger(contextLength) || contextLength <= 0) throw new Error('MYHARNESS_CONTEXT_LENGTH must be a positive integer');
   const maxOutput = env.MYHARNESS_MAX_OUTPUT_TOKENS === undefined ? (['gemini', 'openai', 'anthropic'].includes(provider) ? 2048 : undefined) : Number(env.MYHARNESS_MAX_OUTPUT_TOKENS);
   if (maxOutput !== undefined && (!Number.isInteger(maxOutput) || maxOutput <= 0 || maxOutput >= contextLength)) throw new Error('MYHARNESS_MAX_OUTPUT_TOKENS must be positive and smaller than context length');
-  const harness = new NodeHarness({ workspace, model, contextLength, modelAdapter: router,
+  const savedSettings = existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, 'utf8')) : {};
+  const savedAllow = savedSettings.allowSubagents === true;
+  const configuredAllow = env.MYHARNESS_ALLOW_SUBAGENTS === undefined ? savedAllow : env.MYHARNESS_ALLOW_SUBAGENTS === 'true';
+  if (env.MYHARNESS_ALLOW_SUBAGENTS !== undefined && !['true', 'false'].includes(env.MYHARNESS_ALLOW_SUBAGENTS)) throw new Error('MYHARNESS_ALLOW_SUBAGENTS must be true or false');
+  const harness = new NodeHarness({ workspace, model, contextLength, modelAdapter: router, allowSubagents: configuredAllow,
+    ...(env.MYHARNESS_ORCHESTRATION_LIMITS === undefined ? {} : { orchestrationLimits: JSON.parse(env.MYHARNESS_ORCHESTRATION_LIMITS) }),
+    settingsLocked: env.MYHARNESS_ALLOW_SUBAGENTS !== undefined, childTools: savedSettings.childTools ?? [], childRoutes: savedSettings.childRoutes ?? [],
     ...(provider !== 'ollama' ? { provider } : {}), ...(maxOutput === undefined ? {} : { maxOutputTokens: maxOutput }),
     projectRoot: root, settingsFile, mcpConfigFile: path.resolve(env.MYHARNESS_MCP ?? path.join(root, 'mcp.json')), sessions: new SessionStore(env.MYHARNESS_SESSIONS ?? path.join(root, 'sessions')) });
   await harness.initialize();

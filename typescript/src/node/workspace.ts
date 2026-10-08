@@ -1,4 +1,4 @@
-import { readdir, readFile, stat, writeFile, mkdir } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile, mkdir, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import { existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { minimatch } from 'minimatch';
@@ -22,6 +22,12 @@ export class WorkspaceAdapter {
   readText(file: string): Promise<string> { return readText(file); }
   async writeText(file: string, text: string): Promise<void> {
     await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text, 'utf8');
+  }
+
+  async remove(file: string): Promise<void> { await unlink(file); }
+  async move(from: string, to: string): Promise<void> {
+    if (existsSync(to)) throw new Error(`'${this.relative(to)}' already exists`);
+    await mkdir(path.dirname(to), { recursive: true }); await rename(from, to);
   }
 
   pathFor(input: string): string {

@@ -16,7 +16,7 @@ class Model {
 
 test("Node HTTP adapter exposes bootstrap, NDJSON chat, reset, stop, and 404", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "myharness-http-"));
-  const harness = new NodeHarness({ workspace: root, model: "scripted", contextLength: 100, ollama: new Model() });
+  const harness = new NodeHarness({ workspace: root, model: "scripted", contextLength: 4000, ollama: new Model() });
   const server = createHarnessServer(harness);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   context.after(() => server.close());

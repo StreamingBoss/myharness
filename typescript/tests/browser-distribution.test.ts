@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, writeFile, mkdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import { chromium, type Page } from 'playwright';
 import { DemoModel } from '../src/browser/demo.js';
 import type { ModelRequest } from '../src/core.js';
 import { FixtureServer } from './mcp-fixture.js';
+import { real, repository } from './git-helpers.js';
 
 async function staticServer(t: { after(callback: () => unknown): void }) {
   const child = spawn(process.execPath, ['scripts/serve-browser.mjs'], { env: { ...process.env, MYHARNESS_PORT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -22,7 +25,38 @@ async function send(page: Page, message: string) {
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
   await page.locator('#input').fill(message); await page.locator('#send').click();
 }
-async function ready(page: Page) { await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 10); }
+async function ready(page: Page) { await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 12); }
+
+test('browser MCP edits and imports print their storage location and saved content in the static server terminal', async t => {
+  const { base, child } = await staticServer(t);
+  let output = '';
+  child.stdout.on('data', chunk => { output += String(chunk); });
+  const browser = await chromium.launch({ headless: true }); t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(base + '/?database=mcp-terminal-debug');
+  await ready(page);
+  await page.locator('#explore-view').selectOption('mcp');
+  await page.waitForFunction(() => (document.querySelector('#mcp-config-text') as HTMLTextAreaElement).value.includes('mcpServers'));
+  const config = { mcpServers: { github: { disabled: true, url: 'https://example.test/mcp', headers: { Authorization: 'Bearer terminal-debug' } } } };
+  await page.locator('#mcp-config-text').fill(JSON.stringify(config));
+  await page.locator('#mcp-config-save').click();
+  await page.waitForFunction(() => !(document.querySelector('#mcp-config-save') as HTMLButtonElement).disabled);
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('No saved MCP config was printed: ' + output)), 5000);
+    const check = () => { if (output.includes('Bearer terminal-debug')) { clearTimeout(timer); resolve(); } };
+    child.stdout.on('data', check); check();
+  });
+  assert.match(output, /IndexedDB mcp-terminal-debug \/ settings \/ mcp-config/);
+  assert.match(output, /MCP configuration content:/);
+  const imported = { mcpServers: { github: { disabled: true, headers: { Authorization: 'Bearer imported-debug' } } } };
+  await page.locator('#browser-mcp-config').setInputFiles({ name: 'mcp.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(imported)) });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('No imported MCP config was printed: ' + output)), 5000);
+    const check = () => { if (output.includes('Bearer imported-debug')) { clearTimeout(timer); resolve(); } };
+    child.stdout.on('data', check); check();
+  });
+  assert.match(await page.locator('#mcp-config-source').innerText(), /browser storage/);
+});
 
 test('static browser distribution runs the backend in a Worker, saves sessions/files and works after the server stops', async t => {
   const { base, child } = await staticServer(t);
@@ -90,13 +124,23 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   await page.locator('#browser-ollama-url').fill(modelURL); await page.locator('#browser-ollama-url').press('Tab');
   await page.waitForFunction(() => document.querySelector('#browser-model option[value="small:4b"]'));
   await page.locator('#browser-model').selectOption('small:4b');
-  await page.locator('#browser-connect').click();
+  assert.equal(await page.getByRole('button', { name: 'New Session', exact: true }).count(), 1);
+  assert.equal(await page.locator('#session-bar #new-session').isVisible(), true);
+  assert.equal(await page.locator('#browser-runtime #new-session').count(), 0);
+  await page.locator('#new-session').click();
   await page.waitForFunction(() => document.getElementById('browser-runtime-status')!.textContent === '');
+  const configuredSession = await page.locator('#session-select').inputValue();
+  const sessionCount = await page.locator('#session-select option').count();
+  await page.getByRole('button', { name: 'New Session', exact: true }).click();
+  await page.waitForFunction(id => (document.getElementById('session-select') as HTMLSelectElement).value !== id, configuredSession);
+  assert.equal(await page.locator('#session-select option').count(), sessionCount + 1);
+  assert.equal(await page.locator('#session-select option').evaluateAll((options, id) => options.some(option => (option as HTMLOptionElement).value === id), configuredSession), true);
   await page.reload(); await ready(page);
   await page.waitForFunction(() => !(document.querySelector('#browser-model') as HTMLSelectElement).disabled);
   assert.equal(await page.locator('#browser-model').inputValue(), 'small:4b');
   assert.equal(page.workers().length, 1); assert.match(await page.locator('#browser-mode-label').innerText(), /ollama/i);
-  const command = page.locator('.tool-checkbox[data-supported="false"]'); assert.equal(await command.count(), 1); assert.equal(await command.isDisabled(), true);
+  const offered = await page.locator('.tool-checkbox').evaluateAll(boxes => boxes.map(box => (box as HTMLInputElement).value));
+  assert.equal(offered.length, 12); for (const hidden of ['run_command', 'web_search', 'git_status', 'git_commit']) assert.equal(offered.includes(hidden), false); assert.ok(offered.includes('delete_file'));
   // MCP from the Worker: a CORS-enabled Streamable HTTP server; stdio is reported unsupported.
   const fixture = new FixtureServer({ instructions: 'Browser MCP hints.' });
   const mcp = createServer(async (request, response) => {
@@ -115,8 +159,9 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   await page.waitForFunction(() => document.querySelector('.tool-checkbox[value="mcp__web__echo"]'));
   assert.equal(await page.locator('.mcp-group').innerText(), 'MCP web:');
   await page.locator('#explore-view').selectOption('mcp');
+  await page.locator('#mcp-server-details').evaluate(node => (node as HTMLDetailsElement).open = true);
   await page.getByText('== local — unsupported', { exact: false }).waitFor();
-  assert.match(await page.locator('#explore').innerText(), /== web — connected \(http\)[\s\S]*Browser MCP hints\./);
+  assert.match(await page.locator('#mcp-server-status').innerText(), /== web — connected \(http\)[\s\S]*Browser MCP hints\./);
   await page.locator('#explore-view').selectOption('memory');
   // The imported configuration persists (without header values); clear it so later steps see the ten harness tools.
   await page.evaluate(() => (window as unknown as { harness: { call(action: string, payload: unknown): Promise<unknown> } }).harness.call('configureMcp', { mcpServers: {} }));
@@ -135,14 +180,24 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
     const client = (window as unknown as { harness: { call(action: string): Promise<{ files: Record<string, string> }> } }).harness;
     return (await client.call('exportProject')).files['browser.txt'];
   }), 'persisted\n');
-  const download = page.waitForEvent('download'); await page.locator('#export-session').click(); assert.match(await readFile((await (await download).path())!, 'utf8'), /Remember 42/);
-  assert.match((await page.locator('#browser-export-project').getAttribute('title'))!, /Full conversation history is included/);
-  const projectDownload = page.waitForEvent('download'); await page.locator('#browser-export-project').click();
-  const projectJSON = await readFile((await (await projectDownload).path())!, 'utf8');
-  const project = JSON.parse(projectJSON);
-  const originalEvents = project.sessions.find((session: { id: string }) => session.id === project.active_session_id).events;
-  const restoredPage = await browser.newPage(); await restoredPage.goto(base + '/?database=restored-project'); await ready(restoredPage);
-  await restoredPage.locator('#browser-project-json').setInputFiles({ name: 'project.json', mimeType: 'application/json', buffer: Buffer.from(projectJSON) });
+  assert.equal(await page.locator('#browser-export-project').count(), 0);
+  assert.equal(await page.locator('#browser-project-json-picker, #browser-project-json').count(), 0);
+  const download = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export session', exact: true }).click();
+  const sessionJSON = await readFile((await (await download).path())!, 'utf8');
+  assert.match(sessionJSON, /Remember 42/);
+  assert.equal(JSON.parse(sessionJSON).workspace, '/workspace');
+  const originalEvents = JSON.parse(sessionJSON).events;
+  const restoredPage = await browser.newPage(); await restoredPage.goto(base + '/?database=restored-session'); await ready(restoredPage);
+  const chooser = restoredPage.waitForEvent('filechooser');
+  await restoredPage.getByRole('button', { name: 'Import Session', exact: true }).click();
+  await (await chooser).setFiles({ name: 'session.json', mimeType: 'application/json', buffer: Buffer.from(sessionJSON) });
+  await restoredPage.waitForFunction(() => document.getElementById('session-status')!.textContent === 'imported');
+  const importedId = await restoredPage.evaluate(async name => {
+    const client = (window as unknown as { harness: { call(action: string): Promise<{ sessions: { id: string; name: string }[] }> } }).harness;
+    return (await client.call('sessions')).sessions.find(session => session.name === `${name} (imported)`)!.id;
+  }, JSON.parse(sessionJSON).name);
+  await restoredPage.locator('#session-select').selectOption(importedId);
+  await restoredPage.locator('#load-session').click();
   await restoredPage.waitForEvent('load'); await ready(restoredPage);
   await restoredPage.getByText('Remember 42', { exact: true }).last().waitFor();
   assert.deepEqual(await restoredPage.evaluate(async () => {
@@ -200,7 +255,7 @@ test('browser Worker connects to Ollama and reads/edits native filesystem handle
   await page.locator('#browser-model-mode').selectOption('ollama'); await page.locator('#browser-ollama-url').fill('http://127.0.0.1:' + address.port);
   await page.locator('#browser-ollama-url').press('Tab');
   await page.waitForFunction(() => !(document.querySelector('#browser-model') as HTMLSelectElement).disabled);
-  await page.locator('#browser-connect').click(); await page.waitForFunction(() => document.querySelector('#browser-mode-label')?.textContent?.includes('Real model')); await ready(page);
+  await page.locator('#new-session').click(); await page.waitForFunction(() => document.querySelector('#browser-mode-label')?.textContent?.includes('Real model')); await ready(page);
   assert.match(await page.locator('#browser-mode-label').innerText(), /Real model/);
   await send(page, 'Edit my local code'); await page.getByRole('button', { name: 'Approve', exact: true }).waitFor();
   const disk = () => page.evaluate(async () => { const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle('local-code'); return (await (await folder.getFileHandle('main.py')).getFile()).text(); });
@@ -210,5 +265,72 @@ test('browser Worker connects to Ollama and reads/edits native filesystem handle
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled); await page.reload(); await ready(page);
   assert.match(await page.locator('#browser-mode-label').innerText(), /Real model.*direct disk access/); assert.equal(await disk(), 'print("updated")\n');
   assert.equal(await page.locator('#browser-ollama-url').inputValue(), 'http://127.0.0.1:' + address.port);
+  assert.deepEqual(errors, []);
+});
+
+test('the packaged browser Worker commits to a real repository in a native folder, and real git reads the result', async t => {
+  const { base } = await staticServer(t), repo = await repository(t); real(repo, 'config', 'user.name', 'Packaged'); real(repo, 'config', 'user.email', 'p@example.org');
+  await writeFile(path.join(repo, 'a.txt'), 'edited in the folder\n');
+  const files: Record<string, string> = {};
+  const walk = async (dir: string, prefix = ''): Promise<void> => { for (const entry of await readdir(dir, { withFileTypes: true })) { const name = prefix + entry.name; if (entry.isDirectory()) await walk(path.join(dir, entry.name), name + '/'); else files[name] = (await readFile(path.join(dir, entry.name))).toString('base64'); } };
+  await walk(repo);
+  const ollama = createServer(async (request, response) => {
+    response.setHeader('access-control-allow-origin', base); response.setHeader('access-control-allow-headers', 'content-type');
+    if (request.method === 'OPTIONS') { response.writeHead(204); response.end(); return; }
+    if (request.url === '/api/tags') { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ models: [{ name: 'qwen3:8b' }] })); return; }
+    let text = ''; for await (const chunk of request) text += String(chunk);
+    const data = JSON.parse(text); response.setHeader('content-type', 'application/json');
+    if (request.url === '/api/show') { response.end(JSON.stringify({ model_info: { 'general.architecture': 'qwen3', 'qwen3.context_length': 32768 } })); return; }
+    const names = (data.tools ?? []).map((tool: { function: { name: string } }) => tool.function.name);
+    const message = data.messages.at(-1)?.role === 'tool' ? { content: `Committed. git tools offered: ${names.includes('git_commit')}, run_command offered: ${names.includes('run_command')}` } : { tool_calls: [{ function: { name: 'git_commit', arguments: { message: 'packaged commit' } } }] };
+    response.end(JSON.stringify({ message, done: true, prompt_eval_count: 100, eval_count: 10 }) + '\n');
+  });
+  await new Promise<void>(resolve => ollama.listen(0, '127.0.0.1', resolve)); t.after(() => ollama.close());
+  const address = ollama.address(); assert.ok(address && typeof address !== 'string');
+  const browser = await chromium.launch({ channel: 'chromium', headless: true, args: ['--no-sandbox'], ...(process.env.MYHARNESS_CHROMIUM_EXECUTABLE ? { executablePath: process.env.MYHARNESS_CHROMIUM_EXECUTABLE } : {}) }); t.after(() => browser.close());
+  const context = await browser.newContext({ permissions: ['local-network-access'] });
+  await context.route('http://localhost:11434/api/tags', route => route.fulfill({ json: { models: [{ name: 'qwen3:8b' }] } }));
+  const page = await context.newPage(), errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  // The repository made by real git is copied into browser storage, which the picker then hands to the page.
+  await page.goto(base + '/?database=git'); await page.evaluate(async (copy: Record<string, string>) => {
+    const root = await navigator.storage.getDirectory(), folder = await root.getDirectoryHandle('git-code', { create: true });
+    for (const [name, data] of Object.entries(copy)) {
+      let dir = folder; const parts = name.split('/');
+      for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part, { create: true });
+      const stream = await (await dir.getFileHandle(parts.at(-1)!, { create: true })).createWritable(); await stream.write(Uint8Array.from(atob(data), char => char.charCodeAt(0))); await stream.close();
+    }
+  }, files);
+  await page.addInitScript(() => { (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('git-code'); });
+  await page.reload(); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
+  await Promise.all([page.waitForEvent('load'), page.locator('#browser-local-folder').click()]);
+  await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
+  assert.match(await page.locator('#browser-mode-label').innerText(), /direct disk access/);
+  const offered = await page.locator('.tool-checkbox').evaluateAll(boxes => boxes.map(box => (box as HTMLInputElement).value));
+  assert.ok(offered.includes('git_commit') && offered.includes('delete_file')); assert.equal(offered.includes('run_command'), false); assert.equal(offered.includes('web_search'), false);
+  await page.locator('#browser-model-mode').selectOption('ollama'); await page.locator('#browser-ollama-url').fill('http://127.0.0.1:' + address.port); await page.locator('#browser-ollama-url').press('Tab');
+  await page.waitForFunction(() => !(document.querySelector('#browser-model') as HTMLSelectElement).disabled);
+  await page.locator('#new-session').click(); await page.waitForFunction(() => document.querySelector('#browser-mode-label')?.textContent?.includes('Real model'));
+  await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
+  await send(page, 'Commit my work');
+  await page.locator('.change-title', { hasText: /git_commit wants to commit on main/ }).waitFor();
+  assert.match(await page.locator('.change').last().innerText(), /Message: packaged commit[\s\S]*\+edited in the folder/);
+  await page.getByRole('button', { name: 'Approve', exact: true }).click();
+  await page.getByText('Committed. git tools offered: true, run_command offered: false', { exact: true }).first().waitFor();
+  // Copy the folder back out and let real git judge what the browser wrote.
+  const copy = await page.evaluate(async () => {
+    const out: Record<string, string> = {};
+    const walkHandle = async (dir: FileSystemDirectoryHandle, prefix: string): Promise<void> => {
+      for await (const [name, entry] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+        if (entry.kind === 'directory') await walkHandle(entry as FileSystemDirectoryHandle, prefix + name + '/');
+        else { const bytes = new Uint8Array(await (await (entry as FileSystemFileHandle).getFile()).arrayBuffer()); let text = ''; for (const byte of bytes) text += String.fromCharCode(byte); out[prefix + name] = btoa(text); }
+      }
+    };
+    await walkHandle(await (await navigator.storage.getDirectory()).getDirectoryHandle('git-code'), ''); return out;
+  });
+  const result = await mkdtemp(path.join(tmpdir(), 'myharness-packaged-git-')); t.after(() => rm(result, { recursive: true, force: true }));
+  for (const [name, data] of Object.entries(copy)) { await mkdir(path.dirname(path.join(result, name)), { recursive: true }); await writeFile(path.join(result, name), Buffer.from(data, 'base64')); }
+  assert.equal(real(result, 'log', '-1', '--format=%an|%s').trim(), 'Packaged|packaged commit'); assert.equal(real(result, 'show', 'HEAD:a.txt'), 'edited in the folder\n');
+  assert.equal(real(result, 'status', '--porcelain'), ''); assert.equal(real(result, 'fsck', '--strict').trim(), '');
   assert.deepEqual(errors, []);
 });
