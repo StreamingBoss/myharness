@@ -132,3 +132,41 @@ Live authenticated browser/headless access remains unverified for Gemini, OpenAI
 and Anthropic. Optional checks, using supplied credentials and a scratch
 workspace, should answer, read a file, propose/approve an edit, follow up from
 memory, compact and cancel. Use ephemeral ports or 5001, never 5000.
+
+## Guide and bridge verification
+
+`guide-bridge`, `guide-managed`, `guide-vault`, `guide-ui`, `guide-http` and
+`guide-browser` test the new independent backend, lifecycle, private handoff,
+credential races, native effects and setup controls. The browser test hosts an
+HTTPS fixture with a temporary OpenSSL certificate, grants Chromium local-network
+permission, and pairs an actual loopback bridge; it does not disable browser
+security. Install OpenSSL alongside the existing Playwright dependencies.
+
+`guide-folders` checks native directory browsing and selection, workspace-scoped
+files/Git/commands, approval denial and execution, unchanged grants, cancellation
+of folder selection, Worker routing and unpair restoration without a UI. The
+Chromium guide test chooses a second repository through the actual folder chooser
+and verifies that an approved command writes only in the selected repository.
+
+`npm run coverage:ts` includes all backend modules and the new guide controllers/
+bootstraps, and enforces 100% lines, branches, functions and statements per file.
+Test processes use concurrency 2 to avoid competing browser fixtures exhausting
+short execution deadlines. Tests require no live API keys or owner port-5000 access.
+
+`bridge-tokenization.test.ts` checks real HTTP pairing and saved-request inspection
+from a headless BrowserHarness, exact model/endpoint restrictions, byte preservation,
+missing rendering, sanitized failures, cancellation and CLI environment configuration.
+All upstream model/tokenizer responses are fixtures; no owner services are contacted.
+
+`managed-tokenizer.test.ts` exercises real fixture child processes and loopback
+servers: automatic model discovery, explicit remote mappings, reuse/replacement,
+missing binaries, permissions, invalid GGUF, startup exit/timeout/cancellation,
+readiness checks, removal of inherited llama tool settings, unpair cleanup and
+manual-binding precedence. A headless BrowserHarness requests automatic inspection
+through real paired HTTP with no Bash grant. No live model or owner service is used.
+
+`token-progress.test.ts` verifies stage callbacks, safe rendering/tokenizer
+failures, progress during headless Node inspection and HTTP requests, real paired
+bridge stage forwarding, advisory-status failures, cleanup and immediate Worker
+progress while a managed inspection is pending. Token viewer smoke tests check
+visible stage changes and reject delayed progress after final token pieces appear.

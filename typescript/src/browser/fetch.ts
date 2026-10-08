@@ -1,9 +1,11 @@
+import { failureDetails } from '../failure.js';
 import { BackendError } from '../harness.js';
 import { WorkerClient } from './client.js';
 import { agentRoute, agentQuery } from '../transport.js';
 
 /** Logs browser MCP storage through the local static server when served on localhost. */
 export async function reportBrowserMcpConfig(client: WorkerClient): Promise<void> {
+  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('managed') === '1') return;
   if (typeof location === 'undefined' || !['localhost', '127.0.0.1'].includes(location.hostname)) return;
   try {
     const configuration = await client.call('mcpConfiguration') as { config: unknown };
@@ -41,10 +43,11 @@ export function browserFetch(client: WorkerClient) {
         else if (method === 'PATCH' && !session[2]) action = 'patchSession';
         else if (method === 'POST' && session[2] === 'activate') action = 'activateSession';
       } else if (method === 'GET') {
-        if (route === '/bootstrap' || route === '/sessions' || route === '/mcp') action = route.slice(1);
+        if (route === '/tokenize/progress') action = 'tokenizationProgress';
+        else if (route === '/bootstrap' || route === '/sessions' || route === '/mcp') action = route.slice(1);
         else if (route === '/mcp/config') action = 'mcpConfiguration';
         else if (route === '/mcp/registry') { action = 'mcpRegistry'; payload = Object.fromEntries(url.searchParams); }
-        else if (route === '/browse') { action = 'browse'; const path = url.searchParams.get('path'); payload = path ? { path } : {}; }
+        else if (route === '/browse') { action = 'browse'; const path = url.searchParams.get('path'); payload = path ? { path } : {}; if (url.searchParams.get('bridge') === '1') payload.bridge = true; }
       } else if (method === 'POST') {
         if (route === '/sessions') action = 'newSession';
         else if (route === '/sessions/import') { action = 'importSession'; status = 201; }
@@ -57,6 +60,6 @@ export function browserFetch(client: WorkerClient) {
       const result = await client.call(action, payload);
       if (action === 'addMcp' || action === 'configureMcp') await reportBrowserMcpConfig(client);
       return Response.json(result, { status });
-    } catch (error) { return Response.json({ error: String(error instanceof Error ? error.message : error) }, { status: error instanceof BackendError ? error.status : 400 }); }
+    } catch (error) { return Response.json({ error: String(error instanceof Error ? error.message : error), failure: failureDetails(error) }, { status: error instanceof BackendError ? error.status : 400 }); }
   };
 }

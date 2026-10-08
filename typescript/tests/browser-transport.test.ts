@@ -1,3 +1,4 @@
+import { failureDetails } from '../src/failure.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { WorkerClient, type WorkerPort } from '../src/browser/client.js';
@@ -95,7 +96,7 @@ test('Worker client reports send failures, streamed failures, crashes and cancel
 
 test('Worker host surfaces loading and model errors, including non-Error exceptions', async t => {
   const messages: RpcMessage[] = [], broken = new WorkerHost(async () => { throw 'load failed'; }, message => messages.push(message));
-  await broken.handle({ id: '1', action: 'bootstrap', payload: {} }); assert.deepEqual(messages[0], { id: '1', type: 'error', message: 'load failed', status: 400 });
+  await broken.handle({ id: '1', action: 'bootstrap', payload: {} }); assert.deepEqual(messages[0], { id: '1', type: 'error', message: 'load failed', status: 400, failure: failureDetails('load failed') });
   const { backend } = await fixture(t, { async *streamChat() { throw new Error('model failed'); } });
   const host = new WorkerHost(async () => backend, message => messages.push(message)); await host.handle({ id: '2', action: 'chat', payload: turn }); assert.match(JSON.stringify(messages), /model failed/); assert.equal(messages.at(-1)!.type, 'done');
 });

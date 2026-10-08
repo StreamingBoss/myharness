@@ -16,10 +16,21 @@ export interface TokenInspection {
   count?: number;
   measuredCount?: number;
 }
+export const TOKENIZATION_PROGRESS = {
+  inspecting: 'Inspecting saved request…',
+  locating: 'Locating the matching Ollama model file…',
+  loading: 'Loading the tokenizer model in llama.cpp… First startup can take time.',
+  reusing: 'Reusing the running tokenizer…',
+  rendering: 'Rendering the saved prompt with Ollama…',
+  tokenizing: 'Tokenizing the rendered prompt with llama.cpp…',
+};
+export type TokenizationStage = keyof typeof TOKENIZATION_PROGRESS;
+export type InspectionProgress = (stage: TokenizationStage) => void;
+export interface TokenizationProgress { sessionId: string; eventIndex: number; stage: TokenizationStage; message: string }
 export interface InspectionPort {
   readonly provider?: string;
   requestMetadata?(payload: ModelRequest): Record<string, unknown>;
-  inspectTokens?(payload: ModelRequest, signal?: AbortSignal): Promise<TokenInspection>;
+  inspectTokens?(payload: ModelRequest, signal?: AbortSignal, progress?: InspectionProgress): Promise<TokenInspection>;
 }
 export function unavailable(model: string, provider: string, explanation: string): TokenInspection {
   return { model, provider, source: 'No token sequence available', fidelity: 'unavailable', explanation,

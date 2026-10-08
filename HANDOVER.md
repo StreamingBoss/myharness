@@ -163,3 +163,72 @@ bodies or headers. Native cloud count/token inspection is unavailable rather tha
 fabricated; generation usage is separate. The PR1 legacy Gemini/Vertex adapters
 and Ollama injection remain supported. Authenticated cloud checks are optional
 and currently unverified: no credentials were supplied for this change.
+
+## Guide, vault and bridge
+
+The new separate entrypoint is `web/guide.html`; `ui/guide.ts` forwards setup actions
+to `ManagedSession` through `managed-worker.js`. Shared mode uses MemoryStorage,
+personal vaults use Web Crypto/IndexedDB, and ChannelWorker/SessionRelay link the
+existing harness page. End session and locking handle simultaneous tab cleanup and
+in-flight configuration. Missed page heartbeats do not end a session. Shared-computer
+bridge pairings have a 15-second lease; private-computer pairings remain valid
+until explicit release or bridge process exit. Only shared mode locks after ten
+minutes without user interaction. A private-mode bridge heartbeat failure does
+not clear unrelated model credentials; bridge requests report their own failures.
+Reloading the linked harness tab replaces its private port without clearing the
+managed session or bridge credentials. Page unload detaches the client; closing
+the tab is detected by the guide. Backend requests register resumed activity.
+Project-folder changes fetch fresh backend state so tool availability and browser
+workspace status update immediately without a page reload or bridge re-pairing.
+Guide setup changes notify only its linked harness tab. That view fetches backend
+state so bridge tools appear after pairing and disappear after credential locking.
+Guide's Unpair bridge calls backend `detachBridge`: it restores the pre-bridge
+runtime/workspace, keeps model credentials and conversation, and cancels pending
+pairing. The linked view refreshes its tools after unpairing too.
+Requests against an ended managed session return 410 with Guide recovery
+instructions; they do not replace this lifecycle failure with the generic
+credential/vault error. Safe errors carry structured `failure` details: source,
+component, reason and recovery. Worker and HTTP adapters preserve those details;
+the harness renders them for live errors and replay. Provider response bodies and
+credentials must never be copied into diagnostics.
+Paired folder selection uses the bridge's native directory browser rather than
+browser directory handles, which expose no absolute native path. `selectProject`
+registers each selected native root in the authenticated bridge connection. Tools
+carry that root explicitly, so switching repositories cannot redirect an older
+workspace's operations. `--workspace` is the initial directory; grants and approval
+policy remain unchanged when selecting another repository. `browseProject` and
+`selectBridgeProject` are callable backend actions with Worker adapters.
+
+`npm run bridge:ts` starts an independent capability-only Node process on loopback.
+Writes, Bash and Git mutations require explicit startup flags. Pairing codes are
+single use; bridge tokens are not persisted. Ordinary browser mode still cannot
+start processes without a bridge. Keep owner services/settings untouched.
+
+The existing preview/proposal remain intact. Delivery details and the remaining
+Copilot prerequisites are in `docs/browser-guide-implementation.md` and
+`docs/copilot-feasibility.md`. All new TS modules and guide controllers participate
+in the per-file 100% coverage gate.
+
+Bridge token inspection uses operator-owned `MYHARNESS_TOKENIZERS` bindings and
+`OLLAMA_URL`. The browser backend routes saved Ollama requests through the paired
+bridge when bindings are advertised. The bridge renders the prompt and calls
+llama.cpp; it accepts no browser-selected upstream URLs. Setup is in TOKENIZATION.md.
+
+`--allow-tokenizer` grants dedicated on-demand llama.cpp startup independently of
+Bash. `node/managed-tokenizer.ts` discovers local Ollama GGUF paths, supports
+operator `MYHARNESS_TOKENIZER_MODELS` mappings and `MYHARNESS_LLAMA_SERVER`, reuses
+one owned process, and kills it on replacement, release, expiry or shutdown.
+Manual `MYHARNESS_TOKENIZERS` bindings take precedence. No installers run in the bridge.
+
+Windows Ollama `FROM` drive paths are translated to standard WSL `/mnt/<drive>`
+paths before GGUF validation. Existing POSIX paths stay unchanged; UNC/relative
+paths require explicit model mappings. Scratch mounted-drive tests cover discovery
+and actual child launch without touching the owner's Ollama or model files.
+
+Token viewer progress now comes from `tokenizationProgress` (Worker) or
+`GET /tokenize/progress` (HTTP). Ollama and ManagedTokenizer report stages; bridge
+state is connection-scoped and cleared after inspection. BrowserHarness forwards
+that status without a backend timer. The viewer polls with stale-result guards.
+Renderer/tokenizer failures preserve safe stage-specific explanations; diagnostic
+bridge failures also survive the shared inspection boundary. Inspection requests
+have a 260-second bridge transport deadline matching their component budgets.

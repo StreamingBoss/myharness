@@ -101,7 +101,7 @@ export class CloudAdapter implements ModelAdapter {
     else { headers['x-api-key'] = this.apiKey; headers['anthropic-version'] = '2023-06-01'; headers['anthropic-dangerous-direct-browser-access'] = 'true'; }
     const fetch_ = this.fetch_;
     let response: FetchResponse;
-    try { response = await fetch_(url, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs) }); }
+    try { response = await fetch_(url, { method, headers, redirect: 'error', ...(body ? { body: JSON.stringify(body) } : {}), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs) }); }
     catch { if (signal?.aborted) throw new Error('stopped by the user'); throw new Error(`Could not connect to ${this.provider}. Check browser access and your network connection.`); }
     if (!response.ok) {
       const reason = response.status === 401 || response.status === 403 ? 'Check your API key and account access.' : response.status === 404 ? 'Check the model ID and its availability on your account.' : response.status === 429 ? 'Quota or rate limit reached. Wait before retrying or check your provider account.' : 'Check provider availability and request limits.';

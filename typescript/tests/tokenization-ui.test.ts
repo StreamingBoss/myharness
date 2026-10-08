@@ -74,3 +74,37 @@ test('viewer distinguishes count-only, configured-tokenizer, unavailable and fai
   await page.evaluate(() => { const s = globalThis as unknown as { mode: string; viewer: { refresh(id: string): Promise<void> } }; s.mode = 'success'; return s.viewer.refresh('current'); });
   await page.evaluate(() => (globalThis as unknown as { resolve(response: Response): void }).resolve(Response.json({ events: [] }))); assert.equal(await page.locator('#token-request option').count(), 2);
 });
+
+test('viewer shows backend loading, rendering and tokenizing stages and ignores late progress', async t => {
+  const browser = await launch(); t.after(() => browser.close()); const page = await browser.newPage();
+  await page.setContent('<div id="root"></div>'); await page.addScriptTag({ path: 'web/static/tokenization.js' });
+  await page.evaluate(async () => {
+    const state = globalThis as unknown as { TokenViewer: new (...args: unknown[]) => { refresh(id: string): Promise<void> }; stage: string; resolveResult(value: Response): void; resolveProgress?: (value: Response) => void; deferProgress: boolean };
+    state.stage = 'Loading the tokenizer model in llama.cpp… First startup can take time.';
+    const viewer = new state.TokenViewer(document.getElementById('root'), async (url: string) => {
+      if (url.startsWith('/sessions/')) return Response.json({ events: [{ type: 'request', provider: 'ollama', model_request: { model: 'qwen3:8b' } }] });
+      if (url === '/tokenize/progress') {
+        if (state.deferProgress) return new Promise<Response>(resolve => { state.resolveProgress = resolve; });
+        return Response.json({ sessionId: 'current', eventIndex: 0, message: state.stage });
+      }
+      return new Promise<Response>(resolve => { state.resolveResult = resolve; });
+    }, () => {});
+    await viewer.refresh('current');
+  });
+  await page.locator('#token-inspect').click();
+  await page.getByText('Loading the tokenizer model in llama.cpp… First startup can take time.', { exact: true }).waitFor();
+  for (const stage of ['Rendering the saved prompt with Ollama…', 'Tokenizing the rendered prompt with llama.cpp…']) {
+    await page.evaluate(value => { (globalThis as unknown as { stage: string }).stage = value; }, stage);
+    await page.getByText(stage, { exact: true }).waitFor();
+  }
+  await page.evaluate(() => { (globalThis as unknown as { deferProgress: boolean }).deferProgress = true; });
+  await page.waitForFunction(() => !!(globalThis as unknown as { resolveProgress?: unknown }).resolveProgress);
+  await page.evaluate(() => {
+    const state = globalThis as unknown as { resolveResult(value: Response): void };
+    state.resolveResult(Response.json({ model: 'qwen3:8b', provider: 'ollama', source: 'fixture', fidelity: 'configured-tokenizer', explanation: 'fixture', coverage: 'fixture', limitations: [], groups: [{ label: 'Prompt', tokens: [{ id: '42', bytes: [104] }] }] }));
+  });
+  await page.locator('.token-chip').waitFor();
+  await page.evaluate(() => { (globalThis as unknown as { resolveProgress(value: Response): void }).resolveProgress(Response.json({ sessionId: 'current', eventIndex: 0, message: 'STALE loading' })); });
+  assert.match(await page.locator('#token-summary').innerText(), /Configured tokenizer/);
+  assert.ok(!(await page.locator('#token-summary').innerText()).includes('STALE'));
+});

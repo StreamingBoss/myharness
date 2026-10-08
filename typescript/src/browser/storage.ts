@@ -1,5 +1,25 @@
+export interface StoragePort {
+  get<T>(store: string, key: string): Promise<T | undefined>;
+  all<T>(store: string): Promise<T[]>;
+  put(store: string, key: string, value: unknown): Promise<void>;
+  close(): void;
+}
+
+/** Session-only storage: never opens IndexedDB, including during initialization. */
+export class MemoryStorage implements StoragePort {
+  private readonly stores = new Map<string, Map<string, unknown>>();
+  async get<T>(store: string, key: string): Promise<T | undefined> { return structuredClone(this.stores.get(store)?.get(key)) as T | undefined; }
+  async all<T>(store: string): Promise<T[]> { return structuredClone([...this.stores.get(store)?.values() ?? []]) as T[]; }
+  async put(store: string, key: string, value: unknown): Promise<void> {
+    let target = this.stores.get(store);
+    if (!target) { target = new Map(); this.stores.set(store, target); }
+    target.set(key, structuredClone(value));
+  }
+  close(): void { this.stores.clear(); }
+}
+
 /** IndexedDB lives in the backend Worker, independently of page components. */
-export class BrowserStorage {
+export class BrowserStorage implements StoragePort {
   private constructor(private readonly database: IDBDatabase) {}
 
   static async open(name = 'myharness-browser-v1', factory = indexedDB): Promise<BrowserStorage> {

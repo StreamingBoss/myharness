@@ -169,7 +169,7 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
   await page.locator('#explore-view').selectOption('tokens'); await page.waitForFunction(() => !(document.querySelector('#token-inspect') as HTMLButtonElement).disabled);
   await page.locator('#token-inspect').click(); await page.getByText('Token sequence unavailable', { exact: true }).waitFor();
-  assert.match(await page.locator('#token-summary').innerText(), /No token pieces or IDs are shown/);
+  assert.match(await page.locator('#token-summary').innerText(), /No token pieces to show for this request/);
   assert.equal(await page.locator('.token-chip').count(), 0);
   await page.reload(); await ready(page); await send(page, 'What do you remember?'); await page.getByText('Remember 42', { exact: true }).last().waitFor();
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);

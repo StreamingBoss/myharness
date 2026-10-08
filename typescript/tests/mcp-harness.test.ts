@@ -102,7 +102,7 @@ test('Node: an MCP tool call is described, approved, executed over stdio and sho
   const { harness } = await nodeFixture(t, model);
   const boot = await harness.bootstrap();
   const tool = (boot.tools as Record<string, unknown>[]).find(item => item.name === 'mcp__files__echo')!;
-  assert.deepEqual(tool, { name: 'mcp__files__echo', description: '[MCP server files] Echo the text back', supported: true, source: 'mcp', server: 'files' });
+  assert.deepEqual(tool, { name: 'mcp__files__echo', description: '[MCP server files] Echo the text back', supported: true, source: 'mcp', server: 'files', tokens: 55, tokens_estimated: true });
   const status = boot.mcp as { servers: Record<string, unknown>[] };
   assert.equal(status.servers[0]!.status, 'connected'); assert.equal(status.servers[0]!.transport, 'stdio');
 

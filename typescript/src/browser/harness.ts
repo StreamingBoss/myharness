@@ -1,3 +1,5 @@
+import type { ModelRequest } from '../core.js';
+import { unavailable, type TokenInspection, type TokenizationProgress, type TokenizationStage, type InspectionProgress, TOKENIZATION_PROGRESS } from '../tokenization.js';
 import type { OrchestrationLimits } from '../orchestration-limits.js';
 import { CloudAdapter } from '../cloud.js';
 import type { ModelOption } from '../model.js';
@@ -6,7 +8,9 @@ import { DemoModel } from './demo.js';
 import { Harness, BackendError, type ModelPort } from '../harness.js';
 import { GIT_TOOLS, TOOL_NAMES } from '../tools.js';
 import { BrowserGit } from './git.js';
-import { BrowserStorage } from './storage.js';
+import { BridgeClient, BridgeWorkspace } from './bridge.js';
+import type { RuntimePort } from '../runtime.js';
+import type { StoragePort } from './storage.js';
 import { BrowserSessions } from './sessions.js';
 import { BrowserWorkspace, absolutePath, projectFromFiles, type Project } from './workspace.js';
 import { BrowserCatalog, type Library } from './catalog.js';
@@ -18,11 +22,12 @@ import { parseConfig } from '../mcp/manager.js';
 import { isObject } from '../mcp/protocol.js';
 
 export interface BrowserOptions {
-  storage: BrowserStorage; library: Library; seed: Record<string, string>;
+  storage: StoragePort; library: Library; seed: Record<string, string>;
   modelPort?: ModelPort; model?: string; contextLength?: number; approvalTimeoutMs?: number;
   mcpTimeouts?: { connectTimeoutMs?: number; probeTimeoutMs?: number };
   allowSubagents?: boolean;
   orchestrationLimits?: Partial<OrchestrationLimits>;
+  runtime?: Partial<RuntimePort>;
   childTools?: string[];
   childRoutes?: { provider: import('../model.js').Provider; model: string }[];
 }
@@ -32,10 +37,14 @@ type ResolvedBrowserOptions = BrowserOptions & Required<Pick<BrowserOptions, 'al
 
 /** Complete browser backend. It runs directly or in a Worker, without a page. */
 export class BrowserHarness extends Harness {
+  private runtime!: RuntimePort;
+  private bridge: BridgeClient | undefined;
+  private bridgeInspection = false;
+  private bridgeRestore: { runtime: RuntimePort; workspace: string } | undefined;
+  private bridgeGeneration = 0;
+  private readonly bridgeWorkspaces = new Map<string, BridgeWorkspace>();
   private constructor(private readonly browser: ResolvedBrowserOptions, private readonly projects: Map<string, StoredProject>, workspace: string, private readonly router: ProviderRouter, private readonly mcpConfig: McpConfigHolder = {}) {
-    super({ ...(browser.orchestrationLimits ? { orchestrationLimits: browser.orchestrationLimits } : {}), workspace, model: browser.model ?? 'qwen3:8b', contextLength: browser.contextLength ?? 8192,
-      ...(browser.modelPort ? { ollama: browser.modelPort } : { modelAdapter: router }), sessions: new BrowserSessions(browser.storage),
-      ...(browser.approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs: browser.approvalTimeoutMs }), ...(browser.mcpTimeouts ? { mcpTimeouts: browser.mcpTimeouts } : {}), allowSubagents: browser.allowSubagents, childTools: browser.childTools, childRoutes: browser.childRoutes, saveHarnessSettings: async settings => { await browser.storage.put('settings', 'harness-settings', settings); }, runtime: {
+    const runtime: RuntimePort = {
         name: 'browser', supportedTools: TOOL_NAMES.filter(name => name !== 'run_command' && name !== 'web_search'),
         unavailable: { run_command: 'a browser page cannot start processes', web_search: 'DuckDuckGo does not accept requests from web pages',
           ...Object.fromEntries(GIT_TOOLS.map(name => [name, 'git tools need a repository: open a local folder that contains a .git directory (virtual projects have none)'])) },
@@ -64,7 +73,12 @@ export class BrowserHarness extends Harness {
             mcpConfig.value = value;
           },
         },
-      } });
+        ...browser.runtime,
+      };
+    super({ ...(browser.orchestrationLimits ? { orchestrationLimits: browser.orchestrationLimits } : {}), workspace, model: browser.model ?? 'qwen3:8b', contextLength: browser.contextLength ?? 8192,
+      ...(browser.modelPort ? { ollama: browser.modelPort } : { modelAdapter: router }), sessions: new BrowserSessions(browser.storage),
+      ...(browser.approvalTimeoutMs === undefined ? {} : { approvalTimeoutMs: browser.approvalTimeoutMs }), ...(browser.mcpTimeouts ? { mcpTimeouts: browser.mcpTimeouts } : {}), allowSubagents: browser.allowSubagents, childTools: browser.childTools, childRoutes: browser.childRoutes, saveHarnessSettings: async settings => { await browser.storage.put('settings', 'harness-settings', settings); }, runtime });
+    this.runtime = runtime;
   }
 
   static async open(options: BrowserOptions): Promise<BrowserHarness> {
@@ -80,6 +94,108 @@ export class BrowserHarness extends Harness {
     return harness;
   }
 
+  protected override async inspectModelTokens(payload: ModelRequest, signal: AbortSignal, progress?: InspectionProgress): Promise<TokenInspection> {
+    const bridge = this.bridge;
+    if (this.router.selected !== 'ollama' || payload.provider && payload.provider !== 'ollama' || !bridge?.connected || !(bridge.snapshot().tokenization?.automatic || bridge.snapshot().tokenization?.models.length)) return super.inspectModelTokens(payload, signal, progress);
+    const config = bridge.snapshot().tokenization!;
+    if (!config.automatic && !config.models.includes(payload.model)) return unavailable(payload.model, 'ollama', 'The bridge has no tokenizer configured for this exact Ollama model. Set MYHARNESS_TOKENIZERS on the bridge and pair again.');
+    const endpoint = await this.browser.storage.get<string>('settings', 'ollama-url') ?? 'http://localhost:11434';
+    if (endpoint !== config.ollamaUrl) return unavailable(payload.model, 'ollama', 'The browser and bridge Ollama URLs differ. Connect the same Ollama server in both before inspecting tokens.');
+    this.bridgeInspection = true;
+    try { return await bridge.call<TokenInspection>('inspectTokens', { payload, ollamaUrl: endpoint }, signal); }
+    finally { this.bridgeInspection = false; }
+  }
+
+  override async tokenizationProgress(): Promise<TokenizationProgress | null> {
+    const current = await super.tokenizationProgress();
+    if (!current || !this.bridgeInspection || !this.bridge?.connected) return current;
+    try {
+      const { stage } = await this.bridge.call<{ stage: TokenizationStage | null }>('inspectionProgress');
+      return stage && Object.hasOwn(TOKENIZATION_PROGRESS, stage) ? { ...current, stage, message: TOKENIZATION_PROGRESS[stage] } : current;
+    } catch { return current; }
+  }
+
+  async attachBridge(endpoint: string, code: string, persistent = false): Promise<void> {
+    this.idle('connecting a bridge');
+    if (this.bridge?.connected) throw new BackendError('Lock or end this experiment before pairing a replacement bridge.');
+    const generation = this.bridgeGeneration;
+    const bridge = new BridgeClient(endpoint);
+    await bridge.pair(code, persistent);
+    try {
+      this.idle('connecting a bridge');
+      if (generation !== this.bridgeGeneration) throw new BackendError('Bridge pairing cancelled by unpairing.');
+    } catch (error) { await bridge.close(); throw error; }
+    const workspace = new BridgeWorkspace(bridge), snapshot = bridge.snapshot();
+    this.bridgeRestore ??= { runtime: { ...this.runtime, capabilities: { ...this.runtime.capabilities } }, workspace: this.state.workspace };
+    this.projects.set(workspace.root, workspace.project);
+    this.bridgeWorkspaces.clear(); this.bridgeWorkspaces.set(workspace.root, workspace);
+    const local = this.runtime.workspace, localGit = this.runtime.git!;
+    this.runtime.workspace = folder => this.bridgeWorkspaces.get(folder) ?? local(folder);
+    this.runtime.git = (folder, signal) => folder instanceof BridgeWorkspace ? (bridge.connected && bridge.snapshot(folder.root).git ? bridge.git(signal, folder.root) : undefined) : localGit(folder, signal);
+    this.runtime.executeCommand = (command, folder, signal) => { if (!this.bridgeWorkspaces.has(folder)) throw new BackendError('Select a bridge folder before running commands.'); return bridge.call('command', { command, workspace: folder }, signal); };
+    this.runtime.webSearch = (query, signal) => bridge.call('webSearch', { query }, signal);
+    Object.defineProperty(this.runtime, 'supportedTools', { configurable: true, get: () => TOOL_NAMES.filter(name => name !== 'web_search' && name !== 'run_command' || bridge.connected && (name === 'web_search' || this.bridgeWorkspaces.has(this.state.workspace) && snapshot.grants.commands)) });
+    Object.assign(this.runtime.capabilities, { commands: snapshot.grants.commands, web_search: true, workspace: 'paired local workspace' });
+    this.bridge = bridge;
+    await this.setProject(workspace.root);
+  }
+  bridgeStatus() { return this.bridge?.connected ? { connected: true, workspace: '/bridge-workspace', grants: this.bridge.snapshot().grants } : { connected: false }; }
+  override async setProject(raw: string): Promise<Record<string, unknown>> {
+    const folder = raw.trim();
+    if (this.bridge?.connected && !this.projects.has(folder)) return this.selectBridgeProject(folder);
+    return super.setProject(raw);
+  }
+  async selectBridgeProject(raw: string): Promise<Record<string, unknown>> {
+    if (!this.bridge?.connected) throw new BackendError('Pair a bridge before choosing a native folder.');
+    const folder = raw.trim();
+    this.idle('changing projects');
+    const bridge = this.bridge, generation = this.bridgeGeneration;
+    let snapshot;
+    try { snapshot = await bridge.selectProject(folder); }
+    catch { throw new BackendError(`'${folder}' does not exist or could not be opened through the bridge. Choose an absolute native directory path.`); }
+    this.idle('changing projects');
+    if (generation !== this.bridgeGeneration || !bridge.connected) throw new BackendError('Folder selection cancelled by bridge disconnection.');
+    const workspace = new BridgeWorkspace(bridge, snapshot.project.root);
+    this.bridgeWorkspaces.set(workspace.root, workspace); this.projects.set(workspace.root, workspace.project);
+    return super.setProject(workspace.root);
+  }
+  async browseProject(raw: string, native = false): Promise<{ path: string; parent: string | null; folders: string[] }> {
+    if (native || this.bridgeWorkspaces.has(this.state.workspace)) {
+      if (!this.bridge?.connected) throw new BackendError('Pair a bridge before choosing a native folder.');
+      const path = this.bridgeWorkspaces.has(raw) ? this.bridge.snapshot(raw).workspace ?? '' : native && this.projects.has(raw) ? '' : raw;
+      return this.bridge.call('browse', { path });
+    }
+    return this.browse(raw);
+  }
+  async detachBridge(): Promise<void> {
+    this.idle('unpairing a bridge');
+    this.bridgeGeneration++;
+    if (!this.bridgeRestore) return;
+    const previous = this.bridgeRestore, bridge = this.bridge!;
+    Object.defineProperty(this.runtime, 'supportedTools', { configurable: true, enumerable: true, writable: true, value: previous.runtime.supportedTools });
+    Object.assign(this.runtime, previous.runtime);
+    if (!previous.runtime.webSearch) delete this.runtime.webSearch;
+    this.bridge = undefined; this.bridgeRestore = undefined;
+    const selected = this.bridgeWorkspaces.has(this.state.workspace);
+    for (const root of this.bridgeWorkspaces.keys()) this.projects.delete(root);
+    this.bridgeWorkspaces.clear();
+    try { if (selected) await this.setProject(previous.workspace); }
+    finally { await bridge.close(); }
+  }
+  async bridgeHeartbeat(): Promise<void> { await this.bridge?.heartbeat(); }
+  override async lockCredentials(): Promise<void> {
+    await super.lockCredentials();
+    this.mcpConfig.value = undefined;
+    await this.bridge?.close();
+    this.router.clearKeys();
+  }
+  override async close(): Promise<void> {
+    await this.lockCredentials(); await super.close();
+  }
+
+  /** Managed experiment owns its storage; ordinary SDK callers retain their injected store. */
+  closeStorage(): void { this.browser.storage.close(); }
+
   /** Validates and stores an MCP configuration, then reconnects. Header values are not persisted. */
   override async configureMcp(value: unknown): Promise<Record<string, unknown>> {
     this.idle('configuring MCP servers');
@@ -92,7 +208,7 @@ export class BrowserHarness extends Harness {
   }
 
   override async bootstrap(): Promise<Record<string, unknown>> {
-    return { ...await super.bootstrap(), workspace_kind: this.projects.get(this.state.workspace)?.handle ? 'local folder (direct disk access)' : 'virtual workspace (browser storage)', ollama_url: await this.browser.storage.get<string>('settings', 'ollama-url') ?? 'http://localhost:11434' };
+    return { ...await super.bootstrap(), bridge: this.bridgeStatus(), workspace_kind: this.bridgeWorkspaces.has(this.state.workspace) ? 'paired local workspace' : this.projects.get(this.state.workspace)?.handle ? 'local folder (direct disk access)' : 'virtual workspace (browser storage)', ollama_url: await this.browser.storage.get<string>('settings', 'ollama-url') ?? 'http://localhost:11434' };
   }
 
   async listModels(raw: ModelConfiguration): Promise<ModelOption[]> {
@@ -140,8 +256,8 @@ export class BrowserHarness extends Harness {
     const stored = this.projects.get(this.state.workspace);
     if (!stored) throw new BackendError('Choose a replacement project before exporting.');
     const { handle, ...project } = stored;
-    if (handle) {
-      const workspace = new LocalWorkspace(project, handle); await workspace.refresh();
+    if (handle || this.bridgeWorkspaces.has(project.root)) {
+      const workspace = handle ? new LocalWorkspace(project, handle) : new BridgeWorkspace(this.bridge!, project.root); await workspace.refresh();
       for (const name of Object.keys(project.files)) project.files[name] = await workspace.readText(name);
     }
     const active = this.activeSessionRecord();

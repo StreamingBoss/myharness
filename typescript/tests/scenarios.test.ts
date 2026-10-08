@@ -60,6 +60,8 @@ for (const file of readdirSync('tests/scenarios').filter(name => name.endsWith('
         if (item.type === 'approval') item.id = '<approval>';
         // The TypeScript backend adds the approval `outcome` to result events; the retired Python oracle has only `approved`.
         delete item.outcome;
+        // Structured diagnostics extend the maintained backend; failure.test.ts verifies them.
+        delete item.failure;
         if (item.parts) {
           item.parts = JSON.parse(item.parts.join(''));
           if (item.parts.tools) {

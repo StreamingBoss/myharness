@@ -1,3 +1,4 @@
+import { DiagnosticError, failureDetails } from './failure.js';
 import { legacyEvents, validateToolBatch, type ModelEvent, type ModelResult } from './model.js';
 import { RepeatGuard, type RepeatReminder } from './guard.js';
 /** Transport-free agent loop shared by Node and a future browser host. */
@@ -192,14 +193,17 @@ export class HarnessCore {
         yield this.emit(this.stoppedEvent());
         return 'cancelled';
       }
-      if (!completed) throw new Error('Model stream ended without a completed response; no tools were executed.');
+      if (!completed) throw new DiagnosticError(failureDetails('Model stream ended without a completed response; no tools were executed.', 'model', this.host.model(), 'Check the provider connection and retry; no tools were executed.'));
       const assistant = completed.message, toolCalls = assistant.tool_calls ?? [];
       if (completed.status !== 'completed') {
         if (assistant.content) turn.conversation.push({ role: 'assistant', content: assistant.content });
-        yield this.emit({ type: 'stopped', reason: `Model response ${completed.status}; no tools were executed.`, memory: this.host.memoryText() });
+        yield this.emit({ type: 'stopped', reason: `Model response ${completed.status}; no tools were executed.`, failure: failureDetails(`Model response ${completed.status}; no tools were executed.`, 'model', this.host.model(), 'Check the provider response and output limit, then retry.'), memory: this.host.memoryText() });
         return completed.status === 'length' ? 'output-limit' : 'error';
       }
-      if (payload.provider && !['demo', 'ollama', 'vertex'].includes(payload.provider)) validateToolBatch(toolCalls, turn.selectedTools);
+      if (payload.provider && !['demo', 'ollama', 'vertex'].includes(payload.provider)) {
+        try { validateToolBatch(toolCalls, turn.selectedTools); }
+        catch (error) { throw new DiagnosticError(failureDetails(error, 'model', `${payload.provider} / ${this.host.model()}`, 'Retry the request. The model returned an invalid tool proposal; no tools were executed.')); }
+      }
       turn.conversation.push(assistant);
       const received = { ...assistant, ...(completed.thinking ? { thinking: completed.thinking } : {}) };
       const tokensIn = completed.usage.input, tokensOut = completed.usage.output;
@@ -211,7 +215,7 @@ export class HarnessCore {
         tokens_in: tokensIn, ...(payload.provider ? { usage: completed.usage } : {}), context_length: this.host.contextLength(), memory: this.host.memoryText(), content: assistant.content,
       });
       if (!toolCalls.length) {
-        if (!assistant.content) yield this.emit({ type: 'stopped', reason: 'The model returned an empty reply. Send another message to try again.', memory: this.host.memoryText() });
+        if (!assistant.content) yield this.emit({ type: 'stopped', reason: 'The model returned an empty reply. Send another message to try again.', failure: failureDetails('The model returned an empty reply.', 'model', this.host.model(), 'Send another message to try again.'), memory: this.host.memoryText() });
         return assistant.content ? 'completed' : 'error';
       }
 

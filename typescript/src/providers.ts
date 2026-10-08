@@ -3,7 +3,7 @@ import type { ModelPort } from './harness.js';
 import type { FetchLike } from './ollama.js';
 import { LegacyModelAdapter, PROVIDERS, type ModelAdapter, type ModelDescription, type ModelEvent, type ModelResult, type Provider } from './model.js';
 import { CloudAdapter, type CloudProvider } from './cloud.js';
-import { unavailable, type TokenInspection } from './tokenization.js';
+import { unavailable, type TokenInspection, type InspectionProgress } from './tokenization.js';
 
 export interface ModelConfiguration { provider?: string; mode?: string; model?: string; url?: string; apiKey?: string; contextLength?: number; maxOutputTokens?: number }
 export function modelConfiguration(value: Record<string, unknown>): ModelConfiguration {
@@ -31,6 +31,7 @@ export class ProviderRouter implements ModelAdapter {
     for (const [provider, key] of Object.entries(keys)) this.keys.set(provider, key);
   }
   setKey(provider: Provider, key: string): void { this.keys.set(provider, key); }
+  clearKeys(): void { this.keys.clear(); }
   forget(provider: Provider): void { this.keys.delete(provider); }
   setLegacy(provider: Provider, port: ModelPort): void { this.ports[provider] = port; }
   adapter(provider: string = this.selected, key?: string): ModelAdapter {
@@ -49,9 +50,9 @@ export class ProviderRouter implements ModelAdapter {
     if (adapter instanceof LegacyModelAdapter) return adapter.port.requestMetadata?.(input) ?? {};
     return { provider: name, wire_request: adapter.prepare(input) };
   }
-  inspectTokens(input: ModelRequest, signal?: AbortSignal): Promise<TokenInspection> {
+  inspectTokens(input: ModelRequest, signal?: AbortSignal, progress?: InspectionProgress): Promise<TokenInspection> {
     const adapter = this.adapter(input.provider);
-    if (adapter instanceof LegacyModelAdapter && adapter.port.inspectTokens) return adapter.port.inspectTokens(input, signal);
+    if (adapter instanceof LegacyModelAdapter && adapter.port.inspectTokens) return adapter.port.inspectTokens(input, signal, progress);
     return Promise.resolve(unavailable(input.model, input.provider ?? this.selected, this.selected === 'demo' ? 'The scripted demo is not an LLM and has no model tokenizer.' : 'Individual input token IDs are not available through this adapter.'));
   }
 }

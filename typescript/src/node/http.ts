@@ -1,3 +1,4 @@
+import { failureDetails } from '../failure.js';
 import { modelConfiguration } from '../providers.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFile, readdir } from 'node:fs/promises';
@@ -52,6 +53,13 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
         if (!existsSync(file)) throw new BackendError('Not found', 404);
         response.writeHead(200, { 'content-type': route === '/' ? 'text/html; charset=utf-8' : 'application/javascript' }); response.end(await readFile(file)); return;
       }
+      const browserAssets: Record<string, string> = { '/guide.html': 'text/html; charset=utf-8', '/index.html': 'text/html; charset=utf-8', '/guide-ui.js': 'application/javascript', '/managed-worker.js': 'application/javascript', '/library.json': 'application/json', '/browser-ui.js': 'application/javascript', '/backend-worker.js': 'application/javascript', '/browser-backend.js': 'application/javascript' };
+      if (request.method === 'GET' && browserAssets[route]) {
+        const file = path.join(root, 'dist/browser', route.slice(1));
+        if (!existsSync(file)) throw new BackendError('Build the browser distribution before opening Guide & Setup.', 404);
+        response.writeHead(200, { 'content-type': browserAssets[route] }); response.end(await readFile(file)); return;
+      }
+      if (request.method === 'GET' && route === '/tokenize/progress') { send(response, 200, await harness.tokenizationProgress()); return; }
       if (request.method === 'GET' && route === '/bootstrap') { send(response, 200, await harness.bootstrap()); return; }
       const agent = agentRoute(request.method!, route);
       if (agent) {
@@ -116,8 +124,8 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
       }
       send(response, 404, { error: 'Not found' });
     } catch (error) {
-      if (response.headersSent) { response.end(JSON.stringify({ type: 'stopped', reason: `Turn failed: ${(error as Error).message}` }) + '\n'); }
-      else send(response, error instanceof BackendError ? error.status : 400, { error: (error as Error).message });
+      if (response.headersSent) { response.end(JSON.stringify({ type: 'stopped', reason: `Turn failed: ${(error as Error).message}`, failure: failureDetails(error) }) + '\n'); }
+      else send(response, error instanceof BackendError ? error.status : 400, { error: (error as Error).message, failure: failureDetails(error) });
     }
   });
 }

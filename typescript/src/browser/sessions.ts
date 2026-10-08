@@ -1,10 +1,10 @@
 import { SessionStore, type SessionRecord } from '../sessions.js';
-import { BrowserStorage } from './storage.js';
+import type { StoragePort } from './storage.js';
 
 export class BrowserSessions extends SessionStore {
   private pending: Promise<void> = Promise.resolve();
   private lastSavedAt = 0;
-  constructor(private readonly storage: BrowserStorage) { super(); }
+  constructor(private readonly storage: StoragePort) { super(); }
   override async save(record: SessionRecord): Promise<void> {
     // Startup selects the latest session; saves in one millisecond must stay ordered.
     this.lastSavedAt = Math.max(Date.now(), this.lastSavedAt + 1);

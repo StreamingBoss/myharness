@@ -1,6 +1,6 @@
 import type { ModelOption } from "./model.js";
 import type { ModelRequest } from "./core.js";
-import { unavailable, type TokenInspection } from './tokenization.js';
+import { unavailable, type TokenInspection, type InspectionProgress } from './tokenization.js';
 import { tokenizeWithLlama, type TokenizerBinding } from './llama-tokenizer.js';
 
 export interface FetchResponse {
@@ -11,7 +11,7 @@ export interface FetchResponse {
   json(): Promise<unknown>;
 }
 
-export type FetchLike = (input: string, init: { method: "GET" | "POST"; headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<FetchResponse>;
+export type FetchLike = (input: string, init: { method: "GET" | "POST"; headers?: Record<string, string>; body?: string; signal?: AbortSignal; redirect?: RequestRedirect }) => Promise<FetchResponse>;
 
 /** Fetch adapter usable in Node and browser Workers for Ollama's newline-delimited `/api/chat` stream. */
 export class OllamaAdapter {
@@ -19,9 +19,16 @@ export class OllamaAdapter {
   constructor(private readonly fetch_: FetchLike, private readonly baseUrl: string, private readonly tokenizers: Record<string, TokenizerBinding> = {}) {}
   requestMetadata(): Record<string, unknown> { return { provider: this.provider }; }
 
-  async inspectTokens(payload: ModelRequest, signal?: AbortSignal): Promise<TokenInspection> {
+  async inspectTokens(payload: ModelRequest, signal?: AbortSignal, progress?: InspectionProgress): Promise<TokenInspection> {
     const result = unavailable(payload.model, this.provider, 'Ollama does not expose input token IDs through its normal chat API.');
-    const data = await this.request('chat', { ...payload, stream: false, _debug_render_only: true, options: { ...payload.options, num_predict: 1 } }, signal);
+    progress?.('rendering');
+    let data: Record<string, unknown>;
+    try { data = await this.request('chat', { ...payload, stream: false, _debug_render_only: true, options: { ...payload.options, num_predict: 1 } }, signal); }
+    catch (error) {
+      const reason = error instanceof Error && /^Ollama request failed with HTTP \d+$/.test(error.message) ? error.message : 'Ollama did not return a valid rendering response (connection failure, timeout or cancellation).';
+      result.explanation = `Ollama prompt rendering failed: ${reason} Check the Ollama server and its support for _debug_render_only. No tokenizer request was sent.`;
+      return result;
+    }
     const prompt = (data._debug_info as { rendered_template?: unknown } | undefined)?.rendered_template;
     if (typeof prompt !== 'string') {
       result.explanation = 'This Ollama version did not return a rendered prompt. Token inspection needs support for _debug_render_only.';
@@ -36,7 +43,14 @@ export class OllamaAdapter {
       result.explanation = 'Ollama returned its rendered prompt, but no matching tokenizer service is configured for this exact model. The text below is not a token sequence.';
       return result;
     }
-    const group = await tokenizeWithLlama(this.fetch_, binding, prompt, signal);
+    progress?.('tokenizing');
+    let group;
+    try { group = await tokenizeWithLlama(this.fetch_, binding, prompt, signal); }
+    catch (error) {
+      const reason = error instanceof Error && /^(Tokenizer model lookup failed \(HTTP \d+\)|Tokenizer request failed \(HTTP \d+\)|Configured tokenizer model alias does not match the running tokenizer service|Tokenizer did not return token pieces|Tokenizer returned an invalid token ID|Tokenizer returned invalid token bytes)$/.test(error.message) ? error.message : 'The tokenizer service is unavailable or returned an invalid response.';
+      result.explanation = `llama.cpp tokenization failed: ${reason} Check the running tokenizer, matching GGUF and model alias, then retry.`;
+      return result;
+    }
     return { ...result, source: `llama.cpp tokenizer: ${binding.identity}`, fidelity: 'configured-tokenizer',
       explanation: 'Each coloured piece is a token returned by the configured tokenizer for the Ollama-rendered prompt. Click a piece for its ID and raw bytes.',
       limitations: ['Tokenization was performed separately, not captured during inference.', 'The configured model identity is supplied by the operator; matching model aliases do not prove matching vocabularies.', 'Automatic BOS/EOS insertion is disabled. Special markers in the prompt are parsed. Runner-specific additions or later truncation may differ.', 'Rendering now may differ from the original request if the Ollama model or server changed.'],

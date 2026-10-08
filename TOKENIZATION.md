@@ -19,6 +19,15 @@ says so first and gives the reason. Displayed token counts are separate from the
 count reported during the original generation. Equal counts do not establish
 identical token sequences.
 
+During inspection, the viewer displays backend progress: locating the model,
+loading or reusing llama.cpp, rendering the saved prompt with Ollama, and
+requesting token pieces. Progress is read-only and never advances the agent loop.
+A failed Ollama rendering request or llama.cpp tokenization request identifies
+that service and gives recovery steps; raw provider responses are not displayed.
+The bridge inspection transport allows up to 260 seconds to cover the existing
+30-second startup, 180-second rendering and 30-second tokenization limits.
+Stop still cancels inspection. Unavailable results remain retryable.
+
 ## What "exact" means here
 
 This implementation does **not** claim to capture the full inference token
@@ -69,6 +78,79 @@ of reusing the previous tokenizer. llama.cpp `/tokenize` is called with
 `with_pieces=true`, `parse_special=true`, `add_special=false`: automatic BOS/EOS
 insertion is deliberately not guessed. Ollama runner additions or later
 truncation can differ from this separately rendered/tokenized prompt.
+
+## Browser harness through the local bridge
+
+The paired bridge can render Ollama prompts and call the matching llama.cpp
+server on behalf of the browser. The browser needs access to the bridge, but
+llama.cpp does not need browser CORS settings or a public listening address.
+The browser still connects directly to Ollama for ordinary chat.
+
+Install llama.cpp once using the [official build instructions](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md).
+On Ubuntu, the CPU build is:
+
+```bash
+sudo apt update
+sudo apt install -y git cmake build-essential
+git clone https://github.com/ggml-org/llama.cpp.git "$HOME/llama.cpp"
+cmake -S "$HOME/llama.cpp" -B "$HOME/llama.cpp/build" -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=OFF
+cmake --build "$HOME/llama.cpp/build" --config Release --target llama-server -j4
+export MYHARNESS_LLAMA_SERVER="$HOME/llama.cpp/build/bin/llama-server"
+```
+
+Run the export in the bridge terminal. If `llama-server` is already on PATH, it
+is discovered automatically. Then **start only the bridge**:
+
+```bash
+npm run bridge:ts -- --workspace "$(pwd)" --origin http://localhost:5001 --port 5002 --allow-tokenizer
+```
+
+Use your page's exact origin. Add the existing writes, commands or Git-write flags
+only for those capabilities; token inspection does not need general Bash grants.
+Hard-refresh Guide & Setup and pair using the new code. Connect Ollama with the
+same URL as the bridge's `OLLAMA_URL` (default `http://localhost:11434`), select the
+exact model ID, and send a message in the linked harness. Open **Explore →
+tokenization of a saved request → Inspect selected request**.
+
+On the first inspection the bridge asks local Ollama for its model file, verifies
+the GGUF header, starts llama-server on an unused loopback port, and waits for its
+model alias to appear. Subsequent inspections reuse that owned process. Switching
+models or changing the file replaces it; unpairing, ending the session, lease
+expiry or bridge shutdown stops it. Startup cancellation also stops the process.
+The bridge never runs an installation shell or downloads models. It strips
+`LLAMA_ARG_*` defaults so they cannot enable llama.cpp agent tools or alter the
+fixed launch arguments. Startup has a 30-second deadline. The managed server uses
+CPU, one slot and a small context, but still loads the model weights separately.
+
+Windows Ollama drive paths are automatically translated to standard WSL mounts:
+`D:\Users\...` becomes `/mnt/d/Users/...`. If the file is readable there, no
+manual mapping is needed. Custom drive mounts, Docker or remote Ollama may still
+return paths inaccessible from the bridge. Supply an exact model-to-local-file mapping in the bridge terminal:
+
+```bash
+export OLLAMA_URL=http://your-ollama-host:11434
+export MYHARNESS_TOKENIZER_MODELS='{"qwen3:8b":"/absolute/path/to/matching-model.gguf"}'
+```
+
+Remote hosts require this explicit mapping. Verify the same vocabulary and model
+revision; automatic local discovery records the Ollama-reported file identity,
+while overrides are labelled operator-configured. Neither is an inference trace.
+Inspection reports missing executables, inaccessible models and startup failures
+without exposing process output. Ollama must support `_debug_render_only`.
+
+If you prefer an already running tokenizer, configure `MYHARNESS_TOKENIZERS` as
+shown above. Those exact model bindings take precedence and do not require
+`--allow-tokenizer`. Previously saved successful inspections replay their saved
+evidence without launching a process.
+
+The bridge advertises explicit model bindings and its automatic-start grant, validates saved-request structure,
+and only calls its own configured Ollama and tokenizer endpoints. A browser
+cannot supply a tokenizer URL or use this operation as a general network proxy.
+Pairing, origin checks, cancellation and connection leases apply to inspection.
+The bridge holds no conversation or agent loop, and never executes agent tools
+as part of inspection. Ollama must support `_debug_render_only`; otherwise the
+viewer explains why no pieces are available. Model matching remains the
+operator's responsibility, and the evidence is labelled separate tokenization.
 
 ## Remote Gemini in the Node runtime
 

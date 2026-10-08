@@ -9,7 +9,7 @@ export interface McpFetchResponse {
   readonly body: ReadableStream<Uint8Array> | null;
   text(): Promise<string>;
 }
-export type McpFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<McpFetchResponse>;
+export type McpFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal; redirect?: RequestRedirect }) => Promise<McpFetchResponse>;
 
 const ACCEPT = 'application/json, text/event-stream';
 const NAMED = ['tools/call', 'resources/read', 'prompts/get'];
@@ -56,7 +56,7 @@ export class StreamableHttpChannel implements McpChannel {
   }
   private post(message: RpcRequest | RpcNotification | RpcResponse, signal?: AbortSignal, extra?: Record<string, string>): Promise<McpFetchResponse> {
     const fetch_ = this.fetch_;
-    return fetch_(this.url, { method: 'POST', headers: this.headersFor(message, extra), body: JSON.stringify(message), ...(signal ? { signal } : {}) });
+    return fetch_(this.url, { method: 'POST', redirect: 'error', headers: this.headersFor(message, extra), body: JSON.stringify(message), ...(signal ? { signal } : {}) });
   }
 
   async request(message: RpcRequest, options: { signal: AbortSignal; headers?: Record<string, string> }): Promise<RpcResponse> {
@@ -85,7 +85,7 @@ export class StreamableHttpChannel implements McpChannel {
     if (!this.session) return;
     const fetch_ = this.fetch_, headers = this.headersFor({ jsonrpc: '2.0', method: 'close' });
     this.session = undefined;
-    await fetch_(this.url, { method: 'DELETE', headers }).catch(() => undefined);
+    await fetch_(this.url, { method: 'DELETE', redirect: 'error', signal: AbortSignal.timeout(1000), headers }).catch(() => undefined);
   }
 }
 
@@ -104,7 +104,7 @@ export class LegacySseChannel implements McpChannel {
       const fetch_ = this.fetch_;
       void (async () => {
         try {
-          const response = await fetch_(this.url, { method: 'GET', headers: { ...this.headers, accept: 'text/event-stream' }, signal: this.stream.signal });
+          const response = await fetch_(this.url, { method: 'GET', redirect: 'error', headers: { ...this.headers, accept: 'text/event-stream' }, signal: this.stream.signal });
           if (!response.ok) throw new HttpStatusError(response.status, await response.text());
           for await (const event of sseEvents(response)) {
             if (event.event === 'endpoint') {
@@ -127,7 +127,7 @@ export class LegacySseChannel implements McpChannel {
   }
   private async post(message: RpcRequest | RpcNotification | RpcResponse, signal?: AbortSignal): Promise<void> {
     const fetch_ = this.fetch_;
-    const response = await fetch_(await this.open(), { method: 'POST', headers: { ...this.headers, 'content-type': 'application/json' }, body: JSON.stringify(message), ...(signal ? { signal } : {}) });
+    const response = await fetch_(await this.open(), { method: 'POST', redirect: 'error', headers: { ...this.headers, 'content-type': 'application/json' }, body: JSON.stringify(message), ...(signal ? { signal } : {}) });
     if (!response.ok) throw new HttpStatusError(response.status, await response.text());
   }
   async request(message: RpcRequest, options: { signal: AbortSignal }): Promise<RpcResponse> {

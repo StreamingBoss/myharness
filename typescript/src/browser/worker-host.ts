@@ -1,3 +1,4 @@
+import { failureDetails, type FailureDetails } from '../failure.js';
 import { modelConfiguration } from '../providers.js';
 import { BackendError } from '../harness.js';
 import type { CoreEvent } from '../core.js';
@@ -11,7 +12,7 @@ export type RpcMessage =
   | { id: string; type: 'result'; value: unknown }
   | { id: string; type: 'event'; event: CoreEvent }
   | { id: string; type: 'done' }
-  | { id: string; type: 'error'; message: string; status: number };
+  | { id: string; type: 'error'; message: string; status: number; failure?: FailureDetails };
 
 /** Worker transport only. All harness decisions live in the shared backend. */
 export class WorkerHost {
@@ -51,8 +52,9 @@ export class WorkerHost {
           if (typeof payload.approved !== 'boolean') throw new BackendError('approved must be a JSON boolean');
           if (typeof payload.id !== 'string' || !backend.approve(payload.id, payload.approved)) throw new BackendError('this change is no longer waiting for an answer', 404);
           value = { ok: true }; break;
-        case 'project': if (typeof payload.path !== 'string') throw new BackendError('path must be a string'); value = await backend.setProject(payload.path); break;
-        case 'browse': value = backend.browse(typeof payload.path === 'string' ? payload.path : backend.state.workspace); break;
+        case 'project': if (typeof payload.path !== 'string') throw new BackendError('path must be a string'); value = payload.bridge === true ? await backend.selectBridgeProject(payload.path) : await backend.setProject(payload.path); break;
+        case 'browse': value = await backend.browseProject(typeof payload.path === 'string' ? payload.path : backend.state.workspace, payload.bridge === true); break;
+        case 'tokenizationProgress': value = await backend.tokenizationProgress(); break;
         case 'tokenize': value = await backend.tokenize(payload.event_index as number, typeof payload.session_id === 'string' ? payload.session_id : undefined); break;
         case 'explore': value = await backend.explore(turnAction(payload, false)); break;
         case 'importProject': value = await backend.importProject(payload); break;
@@ -72,6 +74,6 @@ export class WorkerHost {
         default: throw new BackendError('Unknown backend action', 404);
       }
       this.send({ id, type: 'result', value });
-    } catch (error) { this.send({ id, type: 'error', message: String(error instanceof Error ? error.message : error), status: error instanceof BackendError ? error.status : 400 }); }
+    } catch (error) { this.send({ id, type: 'error', message: String(error instanceof Error ? error.message : error), status: error instanceof BackendError ? error.status : 400, failure: failureDetails(error) }); }
   }
 }

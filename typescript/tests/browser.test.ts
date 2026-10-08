@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -28,6 +28,15 @@ test('browser hydrates the existing UI, streams a terminal reply, and restores s
   });
   assert.match(await page.locator('#terminal .sent b').last().innerText(), /Gemini user input/);
   assert.equal(await page.locator('#terminal .sent b').last().evaluate(element => getComputedStyle(element).color), 'rgb(255, 92, 92)');
+  const nextProject = path.join(root, 'next-project'); await mkdir(nextProject);
+  await page.locator('#project').fill(nextProject); await page.locator('#set-project').click();
+  await page.waitForFunction(folder => document.getElementById('session-select')!.textContent!.includes(folder), nextProject);
+  assert.equal(harness.state.workspace, nextProject);
+  assert.equal(await page.locator('#project-error').innerText(), '');
+  assert.match(await page.locator('#messages').innerText(), /Hello from TypeScript/);
+  await page.locator('#input').fill('hello from the next project'); await page.locator('#send').click();
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  assert.equal(harness.activeSessionRecord().workspace, nextProject);
   await page.reload(); await page.getByText('Hello from TypeScript', { exact: true }).first().waitFor();
   assert.deepEqual(errors, []);
 });

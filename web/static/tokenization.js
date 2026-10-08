@@ -68,6 +68,17 @@
     async run() {
       const epoch = this.epoch, sessionId = this.sessionId, index = this.select.value;
       this.clear(); this.summary.textContent = 'Inspecting saved request…'; this.inspect.disabled = true; this.select.disabled = true; this.busy(true);
+      let finished = false, polling = false;
+      const timer = setInterval(async () => {
+        if (polling || finished || epoch !== this.epoch) return;
+        polling = true;
+        try {
+          const response = await this.fetchBackend('/tokenize/progress');
+          const progress = await response.json();
+          if (!finished && epoch === this.epoch && response.ok && progress?.sessionId === sessionId && progress.eventIndex === Number(index)) this.summary.textContent = progress.message;
+        } catch { /* Inspection result owns failure reporting; progress is advisory. */ }
+        finally { polling = false; }
+      }, 300);
       try {
         const response = await this.fetchBackend('/tokenize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sessionId, event_index: Number(index) }) });
         const data = await response.json();
@@ -77,7 +88,7 @@
         if (data.fidelity !== 'unavailable') this.cache.set(index, data);
         this.render(data); this.inspect.disabled = this.cache.has(index);
       } catch { if (epoch === this.epoch) { this.summary.textContent = 'Inspection failed. Check the connection and retry. No token sequence is shown.'; this.inspect.disabled = false; } }
-      finally { this.select.disabled = false; this.busy(false); }
+      finally { finished = true; clearInterval(timer); this.select.disabled = false; this.busy(false); }
     }
     render(data) {
       this.clear();

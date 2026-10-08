@@ -1,6 +1,6 @@
 import type { ChatMessage, ModelChunk, ModelRequest, ToolCall, ToolDefinition } from './core.js';
 import type { ModelPort } from './harness.js';
-import { unavailable, type TokenInspection, type InspectionPort } from './tokenization.js';
+import { unavailable, type TokenInspection, type InspectionPort, type InspectionProgress } from './tokenization.js';
 
 export type Provider = 'demo' | 'ollama' | 'gemini' | 'openai' | 'anthropic' | 'vertex';
 export const PROVIDERS: readonly Provider[] = ['demo', 'ollama', 'gemini', 'openai', 'anthropic', 'vertex'];
@@ -54,7 +54,7 @@ export class LegacyModelAdapter implements ModelAdapter {
   constructor(readonly port: ModelPort) {}
   ready(): boolean { return true; }
   requestMetadata(input: ModelRequest): Record<string, unknown> { return this.port.requestMetadata?.(input) ?? {}; }
-  inspectTokens(input: ModelRequest, signal?: AbortSignal): Promise<TokenInspection> { return this.port.inspectTokens?.(input, signal) ?? Promise.resolve(unavailable(input.model, this.port.provider ?? 'ollama', 'This model adapter does not support token inspection.')); }
+  inspectTokens(input: ModelRequest, signal?: AbortSignal, progress?: InspectionProgress): Promise<TokenInspection> { return this.port.inspectTokens?.(input, signal, progress) ?? Promise.resolve(unavailable(input.model, this.port.provider ?? 'ollama', 'This model adapter does not support token inspection.')); }
   prepare(input: ModelRequest): Record<string, unknown> { return this.port.requestMetadata?.(input).wire_request as Record<string, unknown> ?? input as unknown as Record<string, unknown>; }
   async describe(model: string, signal?: AbortSignal): Promise<ModelDescription> {
     if (!this.port.request) throw new Error('Model adapter does not support inspection or compaction');

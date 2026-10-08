@@ -298,3 +298,55 @@ reconnection. Node startup supplies environment keys to the same adapters; its
 HTTP model endpoint rejects client credentials. Model switches validate metadata
 without generating text and commit selection only after success. The backend
 requires idle configuration and starts a new session for changed selections.
+
+## Managed guide and native capability bridge
+
+The static `guide.html` owns a dedicated managed Worker. A private MessageChannel
+connects its explicitly opened harness tab to the existing WorkerClient contract.
+`ManagedSession` owns storage/vault policy, lifecycle and bridge heartbeats; the guide
+only forwards actions and renders results. Protected connection operations cannot
+restore credentials after asynchronous locking. Shared mode injects MemoryStorage
+before initialization; personal vault records live separately from ordinary sessions.
+
+`BrowserHarness` accepts runtime capabilities and can attach a BridgeWorkspace,
+remote Git/command adapters and native web search. NativeBridge hosts capabilities
+on authenticated, origin-bound loopback HTTP; it owns no conversation or agent loop.
+The core remains independent of pages, Worker APIs and transport. Standard SDK
+callers retain ownership of injected storage; managed End session disposes it.
+See [implementation details](docs/browser-guide-implementation.md).
+
+Native folder selection stays in runtime adapters. `BrowserHarness.selectBridgeProject`
+and `browseProject` use the authenticated bridge's directory capabilities; Worker
+and page controls forward these actions. Each explicitly selected repository has
+its own bridge workspace adapter, and native tool requests carry that workspace
+root. Commands, files and Git therefore use the chosen repository without changing
+grants, approval enforcement or another session's working directory.
+
+Saved-request token inspection remains a shared Harness operation. BrowserHarness
+uses the inspection adapter hook to forward Ollama requests to a paired bridge
+with exact model bindings and matching Ollama endpoint. NativeBridge validates
+requests and uses fixed operator-configured endpoints for rendering and llama.cpp
+tokenization. It exposes no arbitrary HTTP proxy or provider credential transport.
+Structured TokenInspection evidence and cancellation use existing backend events
+and the existing viewer; no tokenization decisions are implemented in the UI.
+
+Structured backend failures carry source, component, reason and recovery through
+Worker/HTTP adapters into live UI and session replay. Model and bridge boundaries
+tag failures where they occur. Private mode preserves connections across browser
+suspension; shared mode keeps inactivity locking and expiring bridge authority.
+
+The optional `--allow-tokenizer` startup grant delegates only llama.cpp lifecycle
+to a Node ManagedTokenizer adapter. It discovers a local Ollama model file or
+uses an operator-owned exact-model path mapping, validates its GGUF header, and
+spawns a fixed executable without a shell. One owned process is reused, with
+startup deadlines/cancellation and cleanup on release, expiry and shutdown.
+Explicit external tokenizer bindings take precedence. The UI cannot choose
+executables, paths or launch arguments; no general command grant is required.
+
+Token inspection exposes ephemeral structured progress through
+`Harness.tokenizationProgress()`, Worker action `tokenizationProgress`, and
+`GET /tokenize/progress`. Model/tokenizer adapters own stage callbacks. For paired
+inspection, the browser backend reads the authenticated bridge's per-connection
+`inspectionProgress`; no source paths or prompt text enter progress. The existing
+viewer polls and renders this state with request/session guards. Polling is not
+needed for backend execution, and completion/failure/cancellation clears progress.

@@ -504,3 +504,37 @@ unchanged minimal `harness.py` example. The retired full backend lives under
 `tests/python_reference/`; it is no longer a supported application runtime.
 The browser edition runs both UI and backend on the learner's machine. The Node
 edition remains available for shell tools, the HTTP API and the terminal runner.
+
+## Guide & Setup and local bridge
+
+Open the separate setup page with `npm run start:browser`, then visit
+`http://localhost:5001/guide.html`. Shared-computer mode keeps experiments in memory;
+personal mode offers explicitly saved, passphrase-encrypted model and MCP credentials.
+Connect Ollama or Gemini/OpenAI/Anthropic and open the existing harness in a linked tab.
+
+For native scripts and files, pair an independent loopback bridge:
+
+```bash
+npm run bridge:ts -- --workspace /path/to/scratch --origin https://your-site.example --port 5001 --allow-writes --allow-commands --allow-git-writes
+```
+
+The startup workspace is the initial folder. Once paired, use **Choose bridge
+folder…** in the harness to browse to any local repository, or enter its absolute
+native path in **Project folder** and click **Set**. Files, Git and approved commands
+use that selected directory without restarting or re-pairing the bridge. On WSL,
+use Linux paths such as `/home/you/repo` or `/mnt/c/Users/you/repo`.
+The bridge's startup grants still apply; changing folders does not grant commands
+unless it was started with `--allow-commands`. Unpair restores the previous browser
+workspace and removes the bridge tools while keeping the model and conversation.
+
+For Ollama token pieces, install llama.cpp once and start the bridge with
+`--allow-tokenizer`. It manages the matching tokenizer process automatically;
+`OLLAMA_URL`, `MYHARNESS_LLAMA_SERVER` and optional `MYHARNESS_TOKENIZER_MODELS`
+configure host access. Existing `MYHARNESS_TOKENIZERS` services also work. Follow the
+[browser token inspection setup](TOKENIZATION.md#browser-harness-through-the-local-bridge).
+The browser does not need direct access to llama.cpp.
+
+Use another unused bridge port when the static site already uses 5001. The browser
+backend still owns approvals and the agent loop. Commands run with account permissions.
+See [setup, privacy and lifecycle details](docs/browser-guide-implementation.md) and
+[Copilot feasibility](docs/copilot-feasibility.md). Copilot is not yet a provider.

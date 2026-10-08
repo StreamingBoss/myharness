@@ -1,3 +1,4 @@
+import { DiagnosticError, failureDetails, type FailureDetails } from './failure.js';
 import { LegacyModelAdapter, type ModelAdapter, type ModelEvent, type Provider } from './model.js';
 import { ProviderRouter, providerName, configuredModel, modelConfiguration, type ModelConfiguration } from './providers.js';
 import { OllamaAdapter } from './ollama.js';
@@ -12,7 +13,7 @@ import { createSession, sessionSummary, sessionTitle, type ChildSummary, type Go
 import { GOAL_TOOLS, GIT_TOOLS, ORCHESTRATION_TOOLS, TOOLS, TOOL_NAMES } from './tools.js';
 import { branchName, cap, commitPreview, fileDiff, formatBranches, formatLog, formatStatus, type GitPort } from './git.js';
 import { planText } from './plan.js';
-import { unavailable, savedModelRequest, type InspectionPort, type TokenInspection } from './tokenization.js';
+import { unavailable, savedModelRequest, type InspectionPort, type TokenInspection, TOKENIZATION_PROGRESS, type TokenizationProgress, type InspectionProgress } from './tokenization.js';
 import { orchestrationLimits, boundedLimit, type OrchestrationLimits } from './orchestration-limits.js';
 import { McpManager, type McpToolCall } from './mcp/manager.js';
 
@@ -42,7 +43,7 @@ export interface HarnessOptions {
   orchestrationLimits?: Partial<OrchestrationLimits>;
 }
 export class BackendError extends Error {
-  constructor(message: string, readonly status = 400) { super(message); }
+  constructor(message: string, readonly status = 400, readonly failure?: FailureDetails) { super(message); }
 }
 type Change = { path: string; content: string; note?: string; expected?: string | null };
 /** A prepared effect: what to show before approval, and what to run after it. */
@@ -70,6 +71,7 @@ export class Harness implements TurnHost {
   private readonly sessions: SessionPort | undefined;
   private session: SessionRecord;
   private running = false;
+  private inspectionProgress: TokenizationProgress | null = null;
   private controller = new AbortController();
   private readonly approvals = new Map<string, (outcome: ApprovalOutcome) => void>();
   private currentAskApproval = true;
@@ -351,6 +353,12 @@ export class Harness implements TurnHost {
     try { return await this.mcp.preview({ type: value.type, url: value.url, headers: value.headers }); }
     catch (error) { throw new BackendError((error as Error).message); }
   }
+  /** Cancel first, then remove every provider credential, including child routes. */
+  async lockCredentials(): Promise<void> {
+    await this.cancelRun();
+    if (this.adapter instanceof ProviderRouter) this.adapter.clearKeys();
+    await this.mcp.close();
+  }
   /** Ends MCP connections, including stdio server processes. */
   async close(): Promise<void> { this.closed = true; await this.cancelRun(); await this.mcp.close(); }
   async newSession(name = 'New session'): Promise<SessionRecord> {
@@ -447,9 +455,12 @@ export class Harness implements TurnHost {
         endpoint = url.href.replace(/\/$/, '');
         const port = new OllamaAdapter(fetch, endpoint);
         try { const data = await port.request('show', { model }, this.controller.signal); const info = data.model_info as Record<string, unknown>; context = value.contextLength ?? Number(info?.[`${info['general.architecture']}.context_length`]); if (!Number.isInteger(context) || context <= 0) throw new Error('invalid context length'); }
-        catch { throw new BackendError('Could not connect to Ollama. Check the URL, model and OLLAMA_ORIGINS.'); }
+        catch { throw new BackendError('Could not connect to Ollama. Check the URL, model and OLLAMA_ORIGINS.', 400, failureDetails('Could not connect to Ollama. Check the URL, model and OLLAMA_ORIGINS.', 'model', `Ollama / ${model}`, 'Check that Ollama is running, the model is installed, and browser access is allowed.')); }
         candidate = new LegacyModelAdapter(port);
-      } else await candidate.describe(model, this.controller.signal);
+      } else {
+        try { await candidate.describe(model, this.controller.signal); }
+        catch (error) { throw new DiagnosticError(failureDetails(error, 'model', `${provider} / ${model}`, 'Check the model credentials and provider connection in Guide & Setup.')); }
+      }
       const maxOutput = ['demo', 'ollama', 'vertex'].includes(provider) ? value.maxOutputTokens : value.maxOutputTokens ?? 2048;
       if (maxOutput !== undefined && maxOutput >= context) throw new BackendError('Maximum output tokens must be smaller than the working context limit.');
       if (this.stopped()) throw new BackendError('stopped by the user');
@@ -495,8 +506,10 @@ export class Harness implements TurnHost {
   }
   async bootstrap(): Promise<Record<string, unknown>> {
     const available = this.availableTools();
+    // Definition estimates include names, descriptions and parameter schemas; provider framing is extra.
+    const toolTokens = new Map([...TOOLS, ...ORCHESTRATION_TOOLS, ...this.mcp.definitions()].map(tool => [tool.function.name, Math.ceil(characters(json(tool)) / 4)]));
     return { provider: this.modelProvider() ?? (this.state.model === 'scripted-demo' ? 'demo' : 'ollama'), ready: this.adapter.ready(this.state.provider ?? 'ollama'), max_output_tokens: this.state.maxOutputTokens, working_context_limit: this.state.contextLength, model: this.state.model, context_length: this.state.contextLength, last_prompt_tokens: this.state.lastPromptTokens,
-      memory: this.memoryText(), runtime: this.options.runtime.name, capabilities: this.options.runtime.capabilities, harness_settings: this.harnessSettings(), orchestration: this.getOrchestration(), children: this.listAgents(), unavailable_tools: this.unavailableTools(), tools: [...TOOLS.filter(tool => available.includes(tool.function.name)).map(tool => ({ name: tool.function.name, description: tool.function.description })), ...(this.allowSubagents && !this.parentId ? ORCHESTRATION_TOOLS.map(tool => ({ name: tool.function.name, description: tool.function.description, supported: true })) : []), ...this.mcp.toolList()], mcp: this.mcp.status(),
+      memory: this.memoryText(), runtime: this.options.runtime.name, capabilities: this.options.runtime.capabilities, harness_settings: this.harnessSettings(), orchestration: this.getOrchestration(), children: this.listAgents(), unavailable_tools: this.unavailableTools(), tools: [...TOOLS.filter(tool => available.includes(tool.function.name)).map(tool => ({ name: tool.function.name, description: tool.function.description })), ...(this.allowSubagents && !this.parentId ? ORCHESTRATION_TOOLS.map(tool => ({ name: tool.function.name, description: tool.function.description, supported: true })) : []), ...this.mcp.toolList()].map(tool => ({ ...tool, tokens: toolTokens.get(String(tool.name)), tokens_estimated: true })), mcp: this.mcp.status(),
       agents: this.agentList(), prompts: Object.entries(this.catalog.prompts()).map(([name, text]) => ({ name, tokens: Math.floor(characters(text) / 4), fits: Math.floor(characters(text) / 4) < this.state.contextLength })),
       project: this.state.workspace, locked: this.state.memory.length ? this.session.setup : null, session: this.activeSessionRecord(), sessions: (await this.listSessions()).map(sessionSummary) };
   }
@@ -567,7 +580,7 @@ export class Harness implements TurnHost {
         return next.value;
       } finally { await iterator.return('cancelled'); }
     } catch (error) {
-      const event = { type: 'stopped', reason: this.stopped() ? 'stopped by the user' : `Turn failed: ${String(error instanceof Error ? error.message : error)}`, memory: this.memoryText() };
+      const event = { type: 'stopped', reason: this.stopped() ? 'stopped by the user' : `Turn failed: ${String(error instanceof Error ? error.message : error)}`, memory: this.memoryText(), ...(!this.stopped() ? { failure: failureDetails(error) } : {}) };
       this.recordEvent(event); yield event; failureOutcome = this.stopped() ? 'cancelled' : 'error';
     } finally {
       this.controller.abort();
@@ -1063,7 +1076,14 @@ export class Harness implements TurnHost {
   prepareModel(payload: ModelRequest): Record<string, unknown> | undefined { return (this.state.provider ? this.requestMetadata(payload).wire_request : undefined) as Record<string, unknown> | undefined; }
   async *streamModel(payload: ModelRequest): AsyncGenerator<ModelEvent> {
     try { yield* this.adapter.stream(payload, this.controller.signal); }
-    catch (error) { if (!this.stopped()) throw error; }
+    catch (error) { if (!this.stopped()) throw new DiagnosticError(failureDetails(error, 'model', `${this.state.provider ?? 'ollama'} / ${this.state.model}`, 'Check the model connection, credentials and provider availability, then retry.')); }
+  }
+
+  /** Runtime adapters may route inspection through their capability transport. */
+  async tokenizationProgress(): Promise<TokenizationProgress | null> { return structuredClone(this.inspectionProgress); }
+
+  protected inspectModelTokens(payload: ModelRequest, signal: AbortSignal, progress?: InspectionProgress): Promise<TokenInspection> {
+    return this.adapter.inspectTokens!(payload, signal, progress);
   }
 
   /** Explicit, on-demand inspection of a saved request. No tools or agent loop run. */
@@ -1078,14 +1098,19 @@ export class Harness implements TurnHost {
     try { payload = savedModelRequest(event.type === 'request' ? event.model_request ?? JSON.parse((event.parts as string[]).join('')) : event.payload); }
     catch { throw new BackendError('Saved model request is invalid'); }
     this.running = true; this.state.stopped = false; this.controller = new AbortController();
+    const progress: TokenizationProgress = { sessionId: this.session.id, eventIndex, stage: 'inspecting', message: TOKENIZATION_PROGRESS.inspecting };
+    this.inspectionProgress = progress;
     try {
       const provider = String(event.provider ?? 'ollama');
       let inspection = unavailable(payload.model, provider, 'This model adapter does not support token inspection.');
       const currentProvider = this.state.provider ?? this.modelPort.provider ?? this.requestMetadata(payload).provider;
       if (currentProvider && provider !== currentProvider) inspection = unavailable(payload.model, provider, 'This request belongs to another provider. Reconnect its provider to inspect it; no request was sent.');
       else if (this.adapter.inspectTokens || this.modelPort.inspectTokens) {
-        try { inspection = await this.adapter.inspectTokens!(structuredClone(payload), this.controller.signal); }
-        catch { return unavailable(payload.model, provider, 'Token inspection failed. Check the configured tokenizer, provider credentials, model support and connection. Chat and saved requests are unchanged.'); }
+        try { inspection = await this.inspectModelTokens(structuredClone(payload), this.controller.signal, stage => { progress.stage = stage; progress.message = TOKENIZATION_PROGRESS[stage]; }); }
+        catch (error) {
+          if (error instanceof DiagnosticError) return unavailable(payload.model, provider, `${error.failure.component}: ${error.failure.reason} ${error.failure.recovery}`);
+          return unavailable(payload.model, provider, 'Token inspection failed. Check the configured tokenizer, provider credentials, model support and connection. Chat and saved requests are unchanged.');
+        }
       }
       const next = this.session.events.slice(eventIndex + 1).find(item => item.type === 'response' || item.type === 'request' || (item.type === 'context' && (item.action === 'compact_request' || item.action === 'compact_response')));
       const measured = next?.type === 'response' ? next.tokens_in : (next?.response as { prompt_eval_count?: number } | undefined)?.prompt_eval_count;
@@ -1095,7 +1120,7 @@ export class Harness implements TurnHost {
         await this.saveSession();
       }
       return structuredClone(inspection);
-    } finally { this.running = false; this.controller.abort(); }
+    } finally { this.inspectionProgress = null; this.running = false; this.controller.abort(); }
   }
 
   async *streamChat(payload: ModelRequest): AsyncGenerator<string> {
@@ -1143,18 +1168,18 @@ export class Harness implements TurnHost {
     yield { ...this.requestMetadata(payload as unknown as ModelRequest), type: 'context', action: 'compact_request', payload };
     try {
       await this.beforeModelRequest();
-      const completion = await this.adapter.complete(payload, this.controller.signal);
+      const completion = await this.adapter.complete(payload, this.controller.signal).catch(error => { throw new DiagnosticError(failureDetails(error, 'model', this.model(), 'Check the model connection and retry compaction; memory is unchanged.')); });
       const data = completion.raw;
       yield { type: 'context', action: 'compact_response', response: data };
       const summary = completion.message.content;
-      if (typeof summary !== 'string') throw new Error('the model returned invalid summary text');
+      if (typeof summary !== 'string') throw new DiagnosticError(failureDetails('the model returned invalid summary text', 'model', this.model(), 'Retry compaction; memory is unchanged.'));
       if (this.stopped()) throw new Error('stopped by the user');
-      if (!summary.trim() || completion.status !== 'completed') throw new Error('the model returned an empty or incomplete summary');
+      if (!summary.trim() || completion.status !== 'completed') throw new DiagnosticError(failureDetails('the model returned an empty or incomplete summary', 'model', this.model(), 'Retry compaction; memory is unchanged.'));
       const replacement: ChatMessage[] = [{ role: 'user', content: `[Summary of earlier conversation]\n${summary.trim()}` }];
       if (estimateTokens([], replacement, []) >= estimateTokens([], older, [])) throw new Error('the summary did not reduce the context');
       conversation.splice(0, boundary, ...replacement); this.setLastPromptTokens(0); this.session.project_instructions = this.catalog.projectInstructions();
       yield { type: 'context', action: 'compact', reason: `— compacted ${boundary} earlier messages —`, summary: summary.trim(), memory: this.memoryText() };
-    } catch (error) { yield { type: 'context', action: 'error', reason: `Compaction failed; memory unchanged: ${(error as Error).message}`, memory: this.memoryText() }; }
+    } catch (error) { yield { type: 'context', action: 'error', reason: `Compaction failed; memory unchanged: ${(error as Error).message}`, ...(!this.stopped() ? { failure: failureDetails(error) } : {}), memory: this.memoryText() }; }
   }
   async explore(action: Omit<TurnAction, 'message' | 'askApproval'>): Promise<Record<string, unknown>> {
     await this.workspace.refresh();

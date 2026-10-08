@@ -585,9 +585,9 @@ async function saveSessionSettings() {
     ask_approval: askApprovalCheckbox.checked};
   try {
     const response = await backendFetch(api("/sessions/" + session.id), {method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({settings})});
-    if (!response.ok) throw new Error((await response.json()).error);
+    if (!response.ok) throw responseError(await response.json());
     session = await response.json(); sessionStatus.textContent = "saved";
-  } catch (error) { sessionStatus.textContent = "save failed"; }
+  } catch (error) { sessionStatus.textContent = "Save failed: " + displayError(error); }
 }
 
 function fillSessionSelect(items, selected) {
@@ -613,8 +613,8 @@ function handleContextEvent(event) {
   } else if (event.action === "compact_response") {
     printBlock("RECEIVED from model — compaction", JSON.stringify(event.response, null, 2), "received");
   } else {
-    addDivider(event.reason);
-    printBlock("CONTEXT — " + event.action, event.reason + (event.summary ? "\n\n" + event.summary : ""));
+    addDivider(formatFailure(event.failure, event.reason));
+    printBlock("CONTEXT — " + event.action, formatFailure(event.failure, event.reason) + (event.summary ? "\n\n" + event.summary : ""));
     if (event.summary) renderChatBubble("assistant", "[Summary of earlier conversation]\n" + event.summary);
   }
   if (event.memory !== undefined) memoryEl.textContent = event.memory;
@@ -628,7 +628,7 @@ compactBtn.addEventListener("click", async () => {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({use_memory: memoryCheckbox.checked, session_id: session.id}),
     });
-    if (!response.ok) throw new Error((await response.json()).error);
+    if (!response.ok) throw responseError(await response.json());
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -644,7 +644,7 @@ compactBtn.addEventListener("click", async () => {
       if (done) break;
     }
   } catch (error) {
-    handleContextEvent({action: "error", reason: "Compaction failed: " + error.message});
+    handleContextEvent({action: "error", reason: "Compaction failed:\n" + displayError(error)});
   } finally {
     setControlsDisabled(false);
     activeSkillContext = null;
@@ -733,7 +733,7 @@ function replaySessionEvent(event) {
   else if (event.type === "project_instructions") addDivider("— project instructions refreshed" + (event.changed ? " (changed)" : "") + " —");
   else if (event.type === "reset") addDivider("— memory reset —");
   else if (event.type === "guard") renderGuardEvent(event);
-  else if (event.type === "stopped") { printBlock("STOPPED", event.reason); addDivider(event.reason); }
+  else if (event.type === "stopped") { printBlock("STOPPED", formatFailure(event.failure, event.reason)); addDivider(formatFailure(event.failure, event.reason)); }
 }
 
 // A loop-hygiene guard fired in the backend: the reminder it added to the conversation is shown verbatim.
@@ -788,6 +788,21 @@ function completeReply(event, bubble, text) {
   return [bubble, text];
 }
 
+// Backend diagnostics survive transport and session replay; text is rendered safely.
+function formatFailure(failure, fallback) {
+  if (!failure) return fallback;
+  return "Source: " + failure.source + " — " + failure.component + "\n" +
+    "Reason: " + failure.reason + "\n" + "Next: " + failure.recovery;
+}
+function responseError(data) {
+  const error = new Error(data.error || "Request failed.");
+  error.failure = data.failure;
+  return error;
+}
+function displayError(error) {
+  return formatFailure(error.failure, "Source: unavailable (browser or backend connection)\nReason: " + error.message + "\nNext: Check the connection and retry.");
+}
+
 async function sendMessage() {
   const text = input.value.trim();
   if (!text) return;
@@ -817,7 +832,7 @@ async function sendMessage() {
       }),
     });
 
-    if (!resp.ok) throw new Error((await resp.json()).error);
+    if (!resp.ok) throw responseError(await resp.json());
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -926,16 +941,16 @@ async function sendMessage() {
           renderGuardEvent(event);
           memoryEl.textContent = event.memory;
         } else if (event.type === "stopped") {
-          printBlock("STOPPED", event.reason);
-          addDivider(event.reason);
+          printBlock("STOPPED", formatFailure(event.failure, event.reason));
+          addDivider(formatFailure(event.failure, event.reason));
           if (event.memory) memoryEl.textContent = event.memory;
         }
       }
     }
 
   } catch (error) {
-    printBlock("STOPPED", "Chat request failed: " + error.message);
-    addDivider("Chat request failed: " + error.message);
+    printBlock("STOPPED", "Chat request failed:\n" + displayError(error));
+    addDivider("Chat request failed:\n" + displayError(error));
   } finally {
     setControlsDisabled(false);
     activeSkillContext = null;
@@ -1005,10 +1020,10 @@ document.getElementById("mcp-config-save").addEventListener("click", async () =>
     const config = JSON.parse(mcpConfigText.value);
     const response = await backendFetch(api("/mcp/config"), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error);
+    if (!response.ok) throw responseError(data);
     message.textContent = "Saved and reconnected.";
     const boot = await backendFetch(api("/bootstrap")); initialize(await boot.json());
-  } catch (error) { message.textContent = "Save failed: " + error.message; }
+  } catch (error) { message.textContent = "Save failed: " + displayError(error); }
 });
 const mcpFindBtn = document.getElementById("mcp-find");
 const registryDialog = document.getElementById("mcp-registry");
@@ -1148,9 +1163,9 @@ function renderRegistryOption(option) {
         auth.value = "";
         const response = await backendFetch(api("/mcp/preview"), { method: "POST", headers: { "Content-Type": "application/json" }, body });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
+        if (!response.ok) throw responseError(data);
         output.textContent = mcpServerLines(data).join("\n");
-      } catch (error) { output.textContent = "Preview failed: " + error.message; }
+      } catch (error) { output.textContent = "Preview failed: " + displayError(error); }
       finally { auth.value = ""; preview.disabled = false; }
     });
     row.append(preview);
@@ -1191,12 +1206,12 @@ function renderRegistryOption(option) {
       token.value = "";
       const response = await backendFetch(api("/mcp/add"), { method: "POST", headers: { "Content-Type": "application/json" }, body });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
+      if (!response.ok) throw responseError(data);
       output.textContent = "Saved to " + data.source + "\n\n" + mcpText(data);
       const boot = await backendFetch(api("/bootstrap"));
       initialize(await boot.json());
       add.textContent = "Added";
-    } catch (error) { output.textContent = "Could not add MCP server: " + error.message; add.disabled = false; }
+    } catch (error) { output.textContent = "Could not add MCP server: " + displayError(error); add.disabled = false; }
   });
   row.append(config, copy, output, editor, saveNote, tokenLabel, add);
   return row;
@@ -1219,23 +1234,23 @@ async function searchRegistry(more) {
   try {
     const response = await backendFetch(api("/mcp/registry?" + query));
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error);
+    if (!response.ok) throw responseError(data);
     if (!more) results.replaceChildren();
     for (const server of data.servers) results.append(renderRegistryServer(server));
     if (!results.children.length) results.append(element("div", "No servers found."));
     registryCursor = data.nextCursor; moreBtn.hidden = !registryCursor;
-  } catch (error) { results.replaceChildren(element("div", "Registry search failed: " + error.message)); }
+  } catch (error) { results.replaceChildren(element("div", "Registry search failed: " + displayError(error))); }
 }
 
 async function reloadMcp() {
   mcpReloadBtn.disabled = true;
   try {
     const response = await backendFetch(api("/mcp/reload"), { method: "POST" });
-    if (!response.ok) throw new Error((await response.json()).error);
+    if (!response.ok) throw responseError(await response.json());
     const boot = await backendFetch(api("/bootstrap"));
     initialize(await boot.json());
   } catch (error) {
-    exploreNote.textContent = "Reload failed: " + error.message;
+    exploreNote.textContent = "Reload failed: " + displayError(error);
   } finally { mcpReloadBtn.disabled = false; }
 }
 
@@ -1270,20 +1285,20 @@ async function refreshExplorer() {
         try {
           const response = await backendFetch(api("/mcp"));
           const status = await response.json();
-          if (!response.ok) throw new Error(status.error);
+          if (!response.ok) throw responseError(status);
           mcpServerStatus.textContent = mcpText(status);
-        } catch (error) { mcpServerStatus.textContent = "Could not read MCP server status: " + error.message; }
+        } catch (error) { mcpServerStatus.textContent = "Could not read MCP server status: " + displayError(error); }
       })(),
       (async () => {
         try {
           const response = await backendFetch(api("/mcp/config"));
           const configuration = await response.json();
-          if (!response.ok) throw new Error(configuration.error);
+          if (!response.ok) throw responseError(configuration);
           document.getElementById("mcp-config-source").textContent = "Editable source: " + configuration.source;
           mcpConfigText.value = JSON.stringify(configuration.config, null, 2);
           document.getElementById("mcp-config-save").disabled = !configuration.editable;
           document.getElementById("mcp-config-message").textContent = configuration.editable ? "" : "This runtime does not support editing MCP configuration.";
-        } catch (error) { document.getElementById("mcp-config-source").textContent = "Could not read configuration: " + error.message; }
+        } catch (error) { document.getElementById("mcp-config-source").textContent = "Could not read configuration: " + displayError(error); }
       })(),
     ]);
     return;
@@ -1507,11 +1522,11 @@ agentSelect.addEventListener("change", () => {
   addDivider("— agent: " + agentSelect.selectedOptions[0].textContent + " —");
 });
 
-async function setProject() {
+async function setProject(native = false) {
   const resp = await backendFetch(api("/project"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: projectInput.value }),
+    body: JSON.stringify({ path: projectInput.value, ...(native ? { bridge: true } : {}) }),
   });
   const result = await resp.json();
   if (!resp.ok) {
@@ -1519,11 +1534,13 @@ async function setProject() {
     return;
   }
   projectError.textContent = "";
-  projectInput.value = result.path;
+  const stateResponse = await backendFetch(api("/bootstrap"));
+  if (!stateResponse.ok) {
+    projectError.textContent = "Project changed, but its state could not be refreshed. Refresh the page to reconnect.";
+    return;
+  }
+  window.dispatchEvent(new CustomEvent("myharness:state", {detail: await stateResponse.json()}));
   addDivider("— project folder: " + result.path + " —");
-  agents = result.agents;
-  fillAgentSelect();
-  refreshExplorer();
 }
 
 const browseBtn = document.getElementById("browse");
@@ -1531,6 +1548,7 @@ const browserEl = document.getElementById("browser");
 const browserPath = document.getElementById("browser-path");
 const browserList = document.getElementById("browser-list");
 let browsedPath = "";
+let browsedBridge = false;
 
 function browserEntry(label, onClick, className = "") {
   const div = document.createElement("div");
@@ -1540,8 +1558,8 @@ function browserEntry(label, onClick, className = "") {
   browserList.appendChild(div);
 }
 
-async function browse(path) {
-  const resp = await backendFetch(api("/browse?path=" + encodeURIComponent(path)));
+async function browse(path, bridge = false) {
+  const resp = await backendFetch(api("/browse?path=" + encodeURIComponent(path) + (bridge ? "&bridge=1" : "")));
   const result = await resp.json();
   if (!resp.ok) {
     projectError.textContent = result.error;
@@ -1549,11 +1567,12 @@ async function browse(path) {
   }
   projectError.textContent = "";
   browsedPath = result.path;
+  browsedBridge = bridge;
   browserPath.textContent = result.path;
   browserList.replaceChildren();
-  if (result.parent) browserEntry("..", () => browse(result.parent));
+  if (result.parent) browserEntry("..", () => browse(result.parent, bridge));
   for (const name of result.folders) {
-    browserEntry(name + "/", () => browse(result.path.replace(/\/$/, "") + "/" + name));
+    browserEntry(name + "/", () => browse(result.path.replace(/\/$/, "") + "/" + name, bridge));
   }
   if (!result.folders.length) browserEntry("(no sub-folders)", null, "empty");
   browserEl.hidden = false;
@@ -1564,16 +1583,17 @@ browseBtn.addEventListener("click", async () => {
   await browse(projectInput.value);
   if (browserEl.hidden) browse("");
 });
+window.addEventListener("myharness:browse-bridge", () => { void browse("", true); });
 document.getElementById("browser-cancel").addEventListener("click", () => {
   browserEl.hidden = true;
 });
 document.getElementById("browser-select").addEventListener("click", () => {
   browserEl.hidden = true;
   projectInput.value = browsedPath;
-  setProject();
+  setProject(browsedBridge);
 });
 
-setProjectBtn.addEventListener("click", setProject);
+setProjectBtn.addEventListener("click", () => { void setProject(); });
 projectInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") setProject();
 });
@@ -1639,6 +1659,9 @@ function renderTools(tools) {
       groupName.textContent = family;
       const groupLabel = document.createElement("label");
       groupLabel.append(groupBox, groupName);
+      const cost = document.createElement("span");
+      cost.className = "tool-group-cost";
+      cost.title = "Estimated context tokens added on every request: selected tools / all tools in this group. Uses about four characters per token. Excludes call arguments and results; model-specific framing is extra. Turning Tools off adds none.";
       heading.append(groupLabel);
       if (tool.source === "mcp") {
         heading.className = "mcp-group";
@@ -1646,17 +1669,18 @@ function renderTools(tools) {
           ? "Tools reported by the MCP server '" + tool.server + "'. The harness forwards calls to the server and asks for approval. See Explore → MCP servers."
           : "Harness tools for reading MCP resources. Reads are not approved; the content enters the conversation.";
       }
-      column.append(heading); groups.set(family, column);
+      column.append(heading, cost); groups.set(family, column);
     }
     const label = document.createElement("label");
     label.className = "toggle tool";
-    label.title = "What the model is told: \"" + tool.description + "\"\n\nWhen Tools is enabled and this tool is checked, its description is sent with every request and costs input tokens.";
+    label.title = "What the model is told: \"" + tool.description + "\"\n\nWhen Tools is enabled and this tool is checked, its definition is added to the context on every request and costs ≈" + tool.tokens + " tokens.\nEstimated context cost, using about four characters per token. Excludes call arguments and results; model-specific framing is extra.";
     if (tool.source === "mcp") label.title += "\nMCP tools are off in new sessions: tick them to offer them to the model.";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.title = label.title;
     checkbox.className = "tool-checkbox";
     checkbox.value = tool.name;
+    checkbox.dataset.tokens = tool.tokens;
     checkbox.checked = true;
     checkbox.addEventListener("change", saveSessionSettings);
     checkbox.addEventListener("change", syncToolGroups);
@@ -1695,6 +1719,9 @@ function syncToolGroups() {
     groupBox.checked = ticked === boxes.length;
     groupBox.indeterminate = ticked > 0 && ticked < boxes.length;
     groupBox.disabled = boxes.length > 0 && boxes[0].disabled;
+    const totalTokens = boxes.reduce((sum, box) => sum + Number(box.dataset.tokens), 0);
+    const selectedTokens = boxes.filter(box => toolsCheckbox.checked && box.checked).reduce((sum, box) => sum + Number(box.dataset.tokens), 0);
+    column.querySelector(".tool-group-cost").textContent = "≈" + selectedTokens + " / ≈" + totalTokens + " tokens";
     const summary = column.querySelector("summary");
     if (summary) summary.textContent = ticked + " of " + boxes.length + " tools ticked";
   }
@@ -1749,7 +1776,7 @@ function initialize(data) {
 window.addEventListener("myharness:state", event => initialize(event.detail));
 
 backendFetch(api("/bootstrap")).then(response => response.ok ? response.json() : Promise.reject(new Error("Could not load backend state."))).then(initialize).catch(error => {
-  terminalEl.textContent = initialTerminal + "\nBackend unavailable: " + error.message;
+  terminalEl.textContent = initialTerminal + "\nBackend unavailable: " + displayError(error);
 });
 
 document.getElementById("hide-thinking").addEventListener("change", (e) => {
@@ -1769,10 +1796,10 @@ async function loadSelectedSession() {
   try {
     const response = await backendFetch(api("/sessions/" + sessionSelect.value + "/activate"), {method: "POST"});
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Could not load this session.");
+    if (!response.ok) throw responseError(result);
     location.reload();
   } catch (error) {
-    sessionStatus.textContent = error.message || "Could not load this session.";
+    sessionStatus.textContent = displayError(error) || "Could not load this session.";
     sessionSelect.value = session.id;
   }
 }
@@ -1786,7 +1813,7 @@ document.getElementById("new-session").addEventListener("click", async () => {
 document.getElementById("rename-session").addEventListener("click", async () => {
   const name = prompt("Session name:", session.name); if (!name || !name.trim()) return;
   const response = await backendFetch(api("/sessions/" + session.id), {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name})});
-  if (!response.ok) { sessionStatus.textContent = "save failed"; return; }
+  if (!response.ok) { sessionStatus.textContent = "Save failed: " + displayError(error); return; }
   session = await response.json();
   const listing = await (await backendFetch(api("/sessions"))).json(); fillSessionSelect(listing.sessions, session.id);
 });
@@ -1796,9 +1823,9 @@ document.getElementById("import-session").addEventListener("change", async (e) =
   const file = e.target.files[0]; if (!file) return;
   try {
     const response = await backendFetch(api("/sessions/import"), {method:"POST", headers:{"Content-Type":"application/json"}, body:await file.text()});
-    const result = await response.json(); if (!response.ok) throw new Error(result.error);
+    const result = await response.json(); if (!response.ok) throw responseError(result);
     fillSessionSelect(result.sessions, session.id); sessionStatus.textContent = "imported";
-  } catch (error) { sessionStatus.textContent = error.message; }
+  } catch (error) { sessionStatus.textContent = displayError(error); }
   e.target.value = "";
 });
 

@@ -7,10 +7,11 @@
     "build:browser": "npm run build:ts && node scripts/build-browser.mjs",
     "start:browser": "npm run build:browser && node scripts/serve-browser.mjs",
     "package:browser": "npm run build:browser && node scripts/package-browser.mjs",
-    "test:ts": "npm run build:browser && node --test dist/typescript/tests/*.test.js",
+    "test:ts": "npm run build:browser && node --test --test-concurrency=2 dist/typescript/tests/*.test.js",
     "start:ts": "npm run build:ts && node dist/typescript/src/node/server.js",
     "headless:ts": "npm run build:ts && node dist/typescript/src/node/headless.js",
-    "coverage:ts": "npm run build:browser && c8 --all --src dist/typescript/src --include '**/src/**' --exclude '**/node_modules/**' --check-coverage --lines 100 --branches 100 --functions 100 --statements 100 node --test dist/typescript/tests/*.test.js"
+    "coverage:ts": "npm run build:browser && c8 --all --src dist/typescript/src --src dist/typescript/ui --include '**/src/**' --include '**/ui/guide*.js' --include '**/ui/managed-worker.js' --exclude '**/node_modules/**' --check-coverage --per-file --lines 100 --branches 100 --functions 100 --statements 100 node --test --test-concurrency=2 dist/typescript/tests/*.test.js",
+    "bridge:ts": "npm run build:ts && node dist/typescript/src/node/bridge-cli.js"
   },
   "devDependencies": {
     "@types/diff": "^7.0.2",
