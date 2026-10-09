@@ -64,7 +64,8 @@
   #orchestration .child-agent { padding: 8px 0; border-top: 1px solid #444; }
   #session-status { color: #8acb88; min-width: 52px; }
   #settings-bar :disabled { opacity: 0.5; cursor: default; }
-  #project-error { color: #ff6b6b; }
+  #project-error { color: #ff6b6b; max-width: 300px; min-width: 0; max-height: 64px; overflow: auto; }
+  #project-error:not(:empty) { min-width: 200px; }
   #lock-note { color: #e0b050; cursor: help; }
   #lock-note[hidden] { display: none; }
   #browser {
@@ -479,7 +480,7 @@
 <div id="splitter" title="Drag to resize the chat and Internals panes"></div>
 
 <div id="internals-pane">
-  <div class="pane-header" title="Model API exchanges. SENT (orange): the full request, rebuilt every time; your new message is in red. RECEIVED (green): the model's response with its statistics; the model's message is in blue. TOKENS: input + output tokens out of the context window. TOOL and FILE CHANGE: what the harness ran for the model.">Internals</div>
+  <div class="pane-header" title="Model API exchanges. SENT (orange): the full request, rebuilt every time; your new message is in red. RECEIVED (green): the model's response with its statistics; the model's message is in blue. TOKENS: input + output tokens out of the context window. PREFIX REUSE: how much of this request is identical to the previous one; a provider prompt cache or Ollama's KV cache can reuse that part, while trimming, compaction and system-prompt changes break it. TIMING: prefill reads the whole prompt in parallel (compute-bound, repeated every round), decode writes one token at a time (memory-bandwidth-bound); an Ollama prefill that looks implausibly fast reused its KV cache. TURN TIMELINE: every round of a tool-using turn sends the whole conversation again. TOOL and FILE CHANGE: what the harness ran for the model.">Internals</div>
   <pre id="terminal">----------------------------------------
 MODEL
 ----------------------------------------
@@ -541,6 +542,7 @@ Model: loading…
   <button id="mcp-registry-more" type="button" hidden title="Fetch the next page of matching servers from the selected registry.">More results</button>
 </dialog>
 
+<script src="/error-messages.js"></script>
 <script src="/static/tokenization.js"></script>
 <script src="/static/orchestration.js"></script>
 <script>
@@ -706,6 +708,7 @@ function printBlock(title, body, className = "") {
 function printModelRequest(event, saved) {
   if (event.wire_request) printBlock('SENT to ' + event.provider + (saved ? ' (saved)' : ''), nativeRequestParts(event.wire_request), 'sent');
   else printBlock('SENT to model' + (saved ? ' (saved)' : ''), event.parts, 'sent');
+  if (event.prefix_text) printBlock('PREFIX REUSE', event.prefix_text);
 }
 
 function replaySessionEvent(event) {
@@ -715,11 +718,13 @@ function replaySessionEvent(event) {
   else if (event.type === "response") {
     printBlock("RECEIVED from model (saved)", event.parts, "received");
     if (event.tokens) printBlock("TOKENS", event.tokens);
+    if (event.timing_text) printBlock("TIMING", event.timing_text);
     if (event.tokens_in !== undefined) updateContextMeter(event.tokens_in, event.context_length);
-  } else if (event.type === "thinking") renderChatBubble("thinking", event.content || "");
+  } else if (event.type === "turn_timing") printBlock("TURN TIMELINE", event.timeline_text);
+  else if (event.type === "thinking") renderChatBubble("thinking", event.content || "");
   else if (event.type === "chunk") { if (event.content) renderChatBubble("assistant", event.content); }
   else if (event.type === "tool") {
-    printBlock("TOOL — the harness ran " + event.name, "arguments: " + event.arguments + "\nresult:    " + event.result);
+    printBlock("TOOL — the harness ran " + event.name, "arguments: " + event.arguments + "\nresult:    " + (/^(error:|unsupported:|unavailable:)/.test(event.result) ? formatFailure(event.failure, event.result) : event.result));
     addDivider("used tool " + event.name);
     renderPlan(event);
   } else if (event.type === "command") {
@@ -790,6 +795,7 @@ function completeReply(event, bubble, text) {
 
 // Backend diagnostics survive transport and session replay; text is rendered safely.
 function formatFailure(failure, fallback) {
+  if (globalThis.MyHarnessErrors) return globalThis.MyHarnessErrors.presentFailure(failure, fallback);
   if (!failure) return fallback;
   return "Source: " + failure.source + " — " + failure.component + "\n" +
     "Reason: " + failure.reason + "\n" + "Next: " + failure.recovery;
@@ -800,7 +806,7 @@ function responseError(data) {
   return error;
 }
 function displayError(error) {
-  return formatFailure(error.failure, "Source: unavailable (browser or backend connection)\nReason: " + error.message + "\nNext: Check the connection and retry.");
+  return formatFailure(error.failure, "The request could not be completed. Check the connection and try again.\n\nTechnical details: " + error.message);
 }
 
 async function sendMessage() {
@@ -883,10 +889,13 @@ async function sendMessage() {
           updateContextMeter(event.tokens_in, event.context_length);
           printBlock("RECEIVED from model", event.parts, "received");
           printBlock("TOKENS", event.tokens);
+          if (event.timing_text) printBlock("TIMING", event.timing_text);
           memoryEl.textContent = event.memory;
+        } else if (event.type === "turn_timing") {
+          printBlock("TURN TIMELINE", event.timeline_text);
         } else if (event.type === "tool") {
           printBlock("TOOL — the harness ran " + event.name,
-                     "arguments: " + event.arguments + "\nresult:    " + event.result);
+                     "arguments: " + event.arguments + "\nresult:    " + (/^(error:|unsupported:|unavailable:)/.test(event.result) ? formatFailure(event.failure, event.result) : event.result));
           memoryEl.textContent = event.memory;
           addDivider("used tool " + event.name);
           renderPlan(event);
@@ -1041,7 +1050,7 @@ const EXPLORE_NOTES = {
   mcp: "MCP servers from the backend's configuration file. The harness connects to each, detects its protocol era (modern 2026-07-28 or a legacy initialize handshake), and turns what it reports into tools, instructions, resources and prompts. Use a prompt by typing /mcp__server__prompt followed by its arguments. The wire log shows the JSON-RPC messages.",
   tools: "The checked tools, exactly as the harness sends them: a separate 'tools' field of the request, next to 'messages'. The model's template then turns them into text inside the system part; see 'final prompt'.",
   skills: "Green = text present in the harness context: names/descriptions in the system message, instruction lines in retained messages or the active turn. Updates as skills load via use_skill, /name or read_file; clears when that text leaves memory. Ollama may truncate overflowing requests without reporting which text remains. Skills are skills/<name>/SKILL.md files, in myharness or in the project folder.",
-  template: "Comes with the model, from Ollama (/api/show). The template is the program that turns the system message, the tools and the conversation into the single text the model reads. The parameters are the model's default settings.",
+  template: "Comes with the model, from Ollama (/api/show). The template is the program that turns the system message, the tools and the conversation into the single text the model reads. The parameters are the model's default settings. The KV cache estimate shows how much memory the harness's working context reserves for this model.",
   final: "An illustrative Qwen prompt reconstruction for the next request, including project instructions, tools and conversation. This is generated locally, not captured from Ollama; a different model template or Ollama version may render different text. SENT shows the actual API payload. Highlighted: special tokens and structural tags.",
 };
 
@@ -1112,7 +1121,7 @@ function renderSkills(data, context) {
 function mcpText(mcp) {
   if (!mcp.supported) return "MCP is unavailable: " + mcp.reason;
   const lines = ["Configuration: " + mcp.source];
-  if (mcp.error) lines.push("Configuration error: " + mcp.error);
+  if (mcp.error) lines.push("Configuration error: " + formatFailure(undefined, mcp.error));
   if (!mcp.servers.length) lines.push("", "(no MCP servers configured)");
   for (const server of mcp.servers) lines.push("", ...mcpServerLines(server));
   return lines.join("\n");
@@ -1120,7 +1129,7 @@ function mcpText(mcp) {
 
 function mcpServerLines(server) {
   const lines = ["== " + server.name + " — " + server.status + (server.transport ? " (" + server.transport + ")" : "")];
-  if (server.error) lines.push("error: " + server.error);
+  if (server.error) lines.push("error: " + formatFailure(undefined, server.error));
   if (server.era) lines.push("protocol: " + server.protocol_version + " (" + server.era + (server.era === "modern" ? ": server/discover, metadata on every request" : ": initialize handshake") + ")");
   if (server.server_info) lines.push("server: " + JSON.stringify(server.server_info) + " (self-reported)");
   if (server.instructions) lines.push("instructions (added to the system message when its tools are checked):", "  " + server.instructions.replaceAll("\n", "\n  "));
@@ -1303,18 +1312,31 @@ async function refreshExplorer() {
     ]);
     return;
   }
-  const resp = await backendFetch(api("/explore"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      use_memory: memoryCheckbox.checked,
-      agent: agentSelect.value,
-      prompt: promptSelect.value,
-      tools: currentTools(),
-    }),
-  });
-  const data = await resp.json();
+  let data;
+  try {
+    const resp = await backendFetch(api("/explore"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        use_memory: memoryCheckbox.checked,
+        agent: agentSelect.value,
+        prompt: promptSelect.value,
+        tools: currentTools(),
+        describe_model: view === "template",
+      }),
+    });
+    data = await resp.json();
+    if (!resp.ok) throw responseError(data);
+  } catch (error) {
+    if (exploreView.value === view) {
+      exploreEl.textContent = "Could not load this explorer view. " + displayError(error);
+      exploreNote.textContent = note;
+    }
+    return;
+  }
   if (exploreView.value !== view) return;  // the user switched views meanwhile
+  const warnings = (data.warnings || []).map(reason => formatFailure(undefined, reason)).join(" ");
+  note += " " + warnings;
   let text;
   if (view === "system") {
     text = data.prompt_name ? data.system_prompt : "(no system prompt selected)";
@@ -1332,9 +1354,11 @@ async function refreshExplorer() {
   } else if (view === "skills") {
     skillsExplorerData = data;
     renderSkills(data, activeSkillContext || data.skill_context);
+    exploreNote.textContent += " " + warnings;
     return;
   } else if (view === "template") {
-    text = "TEMPLATE\n\n" + data.template + "\n\nPARAMETERS\n\n" + data.parameters;
+    text = "TEMPLATE\n\n" + data.template + "\n\nPARAMETERS\n\n" + data.parameters +
+      (data.kv_text ? "\n\nKV CACHE (estimate)\n\n" + data.kv_text : "");
   } else {
     text = data.final;
   }
@@ -1379,7 +1403,7 @@ function renderMcpEvent(event, live) {
   }
   const wire = event.request ? "\n\nJSON-RPC request:\n" + JSON.stringify(event.request, null, 2) + "\n\nJSON-RPC response:\n" + JSON.stringify(event.response, null, 2) : "";
   printBlock("MCP — " + label + (event.approved ? " over " + event.transport + ", protocol " + event.protocol_version : " (" + denialLabel(event) + ")"),
-             "arguments: " + event.arguments + (event.approved ? "\nresult:    " + event.result + wire : ""));
+             "arguments: " + event.arguments + (event.approved ? "\nresult:    " + (/^(error:|unsupported:|unavailable:)/.test(event.result) ? formatFailure(event.failure, event.result) : event.result) + wire : ""));
 }
 
 function renderChangeBox(title, diff, note) {
@@ -1435,7 +1459,7 @@ function addApprovalButtons(box, id) {
 
 // Why an action did not run: the backend reports how the approval ended; the UI only words it.
 function denialLabel(event) {
-  return event.outcome === "unavailable" ? "no answer" : event.outcome === "cancelled" ? "cancelled" : "refused";
+  return event.outcome === "unavailable" ? (event.approval_timeout_ms === undefined ? "no answer" : "Not run: no approval within " + (globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.timeoutDuration(event.approval_timeout_ms) : event.approval_timeout_ms / 1000 + " seconds")) : event.outcome === "cancelled" ? "cancelled" : "refused";
 }
 
 function setChangeStatus(box, approved, doneLabel, denial = "refused") {
@@ -1530,7 +1554,7 @@ async function setProject(native = false) {
   });
   const result = await resp.json();
   if (!resp.ok) {
-    projectError.textContent = result.error;
+    projectError.textContent = formatFailure(result.failure, result.error);
     return;
   }
   projectError.textContent = "";
@@ -1562,7 +1586,7 @@ async function browse(path, bridge = false) {
   const resp = await backendFetch(api("/browse?path=" + encodeURIComponent(path) + (bridge ? "&bridge=1" : "")));
   const result = await resp.json();
   if (!resp.ok) {
-    projectError.textContent = result.error;
+    projectError.textContent = formatFailure(result.failure, result.error);
     return;
   }
   projectError.textContent = "";
@@ -1601,7 +1625,15 @@ projectInput.addEventListener("keydown", (e) => {
 function addDivider(text) {
   const divider = document.createElement("div");
   divider.className = "reset-divider";
-  divider.textContent = text;
+  const marker = "\n\nTechnical details: ";
+  const split = text.indexOf(marker);
+  divider.textContent = split < 0 ? text : text.slice(0, split);
+  if (split >= 0) {
+    const details = document.createElement("details"), summary = document.createElement("summary"), diagnostic = document.createElement("pre");
+    summary.textContent = "Technical details";
+    diagnostic.textContent = text.slice(split + marker.length);
+    details.append(summary, diagnostic); divider.append(details);
+  }
   messagesEl.appendChild(divider);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -1807,7 +1839,7 @@ document.getElementById("load-session").addEventListener("click", loadSelectedSe
 document.getElementById("new-session").addEventListener("click", async () => {
   if (window.MYHARNESS_NEW_SESSION) { await window.MYHARNESS_NEW_SESSION(); return; }
   const response = await backendFetch(api("/sessions"), {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
-  if (!response.ok) { sessionStatus.textContent = (await response.json()).error; return; }
+  if (!response.ok) { const data = await response.json(); sessionStatus.textContent = formatFailure(data.failure, data.error); return; }
   location.reload();
 });
 document.getElementById("rename-session").addEventListener("click", async () => {

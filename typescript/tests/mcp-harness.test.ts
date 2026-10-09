@@ -107,9 +107,9 @@ test('Node: an MCP tool call is described, approved, executed over stdio and sho
   assert.equal(status.servers[0]!.status, 'connected'); assert.equal(status.servers[0]!.transport, 'stdio');
 
   const events = await run(harness, turn('repeat hello', ['read_file', 'mcp__files__echo']), true);
-  assert.deepEqual(events.map(event => event.type), ['request', 'response', 'approval', 'mcp', 'tool', 'request', 'response']);
+  assert.deepEqual(events.map(event => event.type), ['request', 'response', 'approval', 'mcp', 'tool', 'request', 'response', 'turn_timing']);
   const approval = events.find(event => event.type === 'approval')!;
-  assert.deepEqual({ ...approval, id: undefined }, { type: 'approval', id: undefined, name: 'mcp__files__echo', server: 'files', tool: 'echo', arguments: '{\n  "text": "hello"\n}', annotations: { readOnlyHint: true } });
+  assert.deepEqual({ ...approval, id: undefined }, { type: 'approval', id: undefined, timeout_ms: 600_000, name: 'mcp__files__echo', server: 'files', tool: 'echo', arguments: '{\n  "text": "hello"\n}', annotations: { readOnlyHint: true } });
   const mcp = events.find(event => event.type === 'mcp')!;
   assert.equal(mcp.approved, true); assert.equal(mcp.result, 'echo: hello'); assert.equal(mcp.is_error, false);
   assert.equal(mcp.protocol_version, '2026-07-28'); assert.equal(mcp.transport, 'stdio');
@@ -131,7 +131,7 @@ test('Node: approvals off, Stop during a call, timeouts, disabled tools and disc
   const model = new ScriptedModel([callTool('mcp__files__echo', { text: 'auto' }), done, callTool('mcp__files__echo', { text: 'x' }), done, callTool('mcp__files__echo', { text: 'y' }), callTool('mcp__files__echo', { text: 'z' }), done]);
   const { harness } = await nodeFixture(t, model, {}, { approvalTimeoutMs: 30 });
   const automatic = await run(harness, turn('auto', ['mcp__files__echo'], false));
-  assert.deepEqual(automatic.map(event => event.type), ['request', 'response', 'mcp', 'tool', 'request', 'response']);
+  assert.deepEqual(automatic.map(event => event.type), ['request', 'response', 'mcp', 'tool', 'request', 'response', 'turn_timing']);
   const timedOut = await run(harness, turn('wait', ['mcp__files__echo']));
   assert.equal(timedOut.find(event => event.type === 'mcp')!.approved, false);
   const stopped = await run(harness, turn('stop', ['mcp__files__echo']), 'stop');

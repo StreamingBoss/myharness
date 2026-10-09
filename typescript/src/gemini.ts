@@ -7,7 +7,7 @@ interface Content { role: string; parts: Part[] }
 export type GeminiConnection = { kind: 'developer'; apiKey: string } | { kind: 'vertex'; project: string; location: string; accessToken: string };
 interface GeminiResponse {
   candidates?: { content?: { parts?: Part[] }; finishReason?: string }[];
-  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
+  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number; cachedContentTokenCount?: number };
   modelVersion?: string;
 }
 
@@ -49,6 +49,8 @@ function normalized(data: GeminiResponse): Record<string, unknown> {
     done_reason: candidate?.finishReason === 'MAX_TOKENS' ? 'length' : 'stop',
     prompt_eval_count: data.usageMetadata?.promptTokenCount ?? 0,
     eval_count: (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
+    ...(data.usageMetadata?.cachedContentTokenCount !== undefined ? { cached_count: data.usageMetadata.cachedContentTokenCount } : {}),
+    ...(data.usageMetadata?.thoughtsTokenCount !== undefined ? { reasoning_count: data.usageMetadata.thoughtsTokenCount } : {}),
     provider: 'gemini', model_version: data.modelVersion };
 }
 

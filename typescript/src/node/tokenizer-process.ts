@@ -1,3 +1,5 @@
+import { DiagnosticError, failureDetails } from '../failure.js';
+import { timeoutDuration } from '../error-messages.js';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
 /** Private, bounded NDJSON channel. An interrupted exchange invalidates the process. */
@@ -17,7 +19,7 @@ export class TokenizerProcess {
   }
   get failed(): boolean { return this.failure !== undefined; }
   close(): void { this.child.kill('SIGKILL'); }
-  async exchange(signal: AbortSignal, content?: string): Promise<unknown> {
+  async exchange(signal: AbortSignal, content?: string, timeoutMs = 30_000): Promise<unknown> {
     signal.throwIfAborted();
     if (this.failure) throw new Error(this.failure);
     if (this.busy) throw new Error('Tokenizer helper is busy. Retry after the current inspection.');
@@ -32,10 +34,10 @@ export class TokenizerProcess {
           this.child.stdout.off('data', data); this.child.off('error', failed); this.child.off('exit', exited);
           this.child.stdin.off('error', failed); signal.removeEventListener('abort', aborted);
         };
-        const fail = (message: string) => { cleanup(); this.failure = message; this.close(); reject(new Error(message)); };
+        const fail = (message: string) => { cleanup(); this.failure = message; this.close(); reject(new DiagnosticError(failureDetails(message, 'harness', 'Token inspection', 'You can keep chatting. Retry token inspection after checking its setup.', timeoutMs))); };
         const failed = () => fail(this.failure!);
         const exited = () => fail('Tokenizer helper exited before responding. Check GGUF compatibility and retry inspection.');
-        const aborted = () => fail('Tokenizer operation was cancelled or timed out. Retry inspection.');
+        const aborted = () => fail(`Token inspection was cancelled or did not finish in time. Retry inspection. [Time limit: ${timeoutDuration(timeoutMs)}]`);
         const data = (chunk: Buffer) => {
           if (size + chunk.length > 64 * 1024 * 1024) { fail('Tokenizer helper response exceeded 64 MiB.'); return; }
           chunks.push(chunk); size += chunk.length;

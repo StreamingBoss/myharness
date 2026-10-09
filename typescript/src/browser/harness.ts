@@ -108,7 +108,7 @@ export class BrowserHarness extends Harness {
 
   override async tokenizationProgress(): Promise<TokenizationProgress | null> {
     const current = await super.tokenizationProgress();
-    if (!current || !this.bridgeInspection || !this.bridge?.connected) return current;
+    if (!current || !this.bridgeInspection || !this.bridge) return current;
     try {
       const { stage } = await this.bridge.call<{ stage: TokenizationStage | null }>('inspectionProgress');
       return stage && Object.hasOwn(TOKENIZATION_PROGRESS, stage) ? { ...current, stage, message: TOKENIZATION_PROGRESS[stage] } : current;
@@ -183,8 +183,8 @@ export class BrowserHarness extends Harness {
     finally { await bridge.close(); }
   }
   async bridgeHeartbeat(): Promise<void> { await this.bridge?.heartbeat(); }
-  override async lockCredentials(): Promise<void> {
-    await super.lockCredentials();
+  override async lockCredentials(reason?: string): Promise<void> {
+    await super.lockCredentials(reason);
     this.mcpConfig.value = undefined;
     await this.bridge?.close();
     this.router.clearKeys();

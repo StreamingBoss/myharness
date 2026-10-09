@@ -7,7 +7,7 @@ export async function harnessClient(window_: Window, workerUrl: URL): Promise<Wo
   if (!window_.opener) throw new Error('Open this managed experiment from Guide & Setup.');
   const opener = window_.opener as Window;
   const port = await new Promise<MessagePort>((resolve, reject) => {
-    const timer = setTimeout(() => { window_.removeEventListener('message', ready); reject(new Error('Guide connection timed out. Reopen from Guide & Setup.')); }, 10_000);
+    const timer = setTimeout(() => { window_.removeEventListener('message', ready); reject(new Error('Guide connection timed out. [Time limit: 10 seconds] Keep Guide & Setup open and reopen from Guide & Setup.')); }, 10_000);
     const ready = (event: MessageEvent) => {
       if (event.origin !== window_.location.origin || event.source !== opener || event.data?.type !== 'harness-port' || !event.ports[0]) return;
       clearTimeout(timer); window_.removeEventListener('message', ready); resolve(event.ports[0]);

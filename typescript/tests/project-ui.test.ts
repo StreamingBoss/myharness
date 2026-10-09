@@ -11,6 +11,7 @@ test('project controls render refreshed backend state and report rejected projec
     const requests: { url: string; options: RequestInit | undefined }[] = [], events: { type: string; detail: unknown }[] = [], dividers: string[] = [];
     const projectError = { textContent: 'old error' };
     const context = {
+      formatFailure: (_failure: unknown, reason: string) => reason,
       projectInput: { value: '/new-project' }, projectError,
       api: (path: string) => path,
       backendFetch: async (url: string, options?: RequestInit) => {

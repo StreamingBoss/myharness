@@ -1,15 +1,18 @@
 import type { ChatMessage, ModelChunk, ModelRequest, ToolCall, ToolDefinition } from './core.js';
 import type { ModelPort } from './harness.js';
 import { unavailable, type TokenInspection, type InspectionPort, type InspectionProgress } from './tokenization.js';
+import type { ModelTiming } from './timing.js';
 
 export type Provider = 'demo' | 'ollama' | 'gemini' | 'openai' | 'anthropic' | 'vertex';
 export const PROVIDERS: readonly Provider[] = ['demo', 'ollama', 'gemini', 'openai', 'anthropic', 'vertex'];
 export interface ModelOption { id: string; label: string }
-export interface ModelDescription { provider: string; ready: boolean; template: string; parameters: string }
+export interface ModelDescription { provider: string; ready: boolean; template: string; parameters: string; model_info?: Record<string, unknown> }
 export interface ModelUsage { input?: number; output?: number; cached?: number; reasoning?: number }
 export interface ModelResult {
   message: ChatMessage; thinking: string; usage: ModelUsage;
   status: 'completed' | 'length' | 'blocked' | 'failed'; raw: Record<string, unknown>;
+  /** Durations the provider measured itself; absent when it reports none. */
+  timing?: ModelTiming;
 }
 export type ModelEvent = { type: 'delta'; content: string; thinking: string; terminal: boolean } | { type: 'completed'; result: ModelResult };
 /** Transport-free boundary. Prepared bodies contain no authentication material. */
@@ -59,7 +62,8 @@ export class LegacyModelAdapter implements ModelAdapter {
   async describe(model: string, signal?: AbortSignal): Promise<ModelDescription> {
     if (!this.port.request) throw new Error('Model adapter does not support inspection or compaction');
     const data = await this.port.request('show', { model }, signal);
-    return { provider: this.port.provider ?? 'ollama', ready: true, template: String(data.template ?? ''), parameters: String(data.parameters ?? '') };
+    const info = data.model_info;
+    return { provider: this.port.provider ?? 'ollama', ready: true, template: String(data.template ?? ''), parameters: String(data.parameters ?? ''), ...(info && typeof info === 'object' ? { model_info: info as Record<string, unknown> } : {}) };
   }
   async *stream(input: ModelRequest, signal?: AbortSignal): AsyncGenerator<ModelEvent> {
     yield* legacyEvents(this.port.streamChat(input, signal), () => Boolean(signal?.aborted));
@@ -87,5 +91,16 @@ export async function* legacyEvents(stream: AsyncIterable<string>, stopped: () =
   if (!final.done) throw new Error('Model stream ended before completion or returned an empty reply; no tools were executed.');
   validateCalls(calls);
   yield { type: 'completed', result: { message: { role: 'assistant', content: text.join(''), ...(calls.length ? { tool_calls: calls } : {}), ...(parts.length ? { provider_parts: parts } : {}) }, thinking: thinking.join(''),
-    usage: { input: final.prompt_eval_count ?? 0, output: final.eval_count ?? 0 }, status: (final as ModelChunk & { done_reason?: string }).done_reason === 'length' ? 'length' : 'completed', raw: final as unknown as Record<string, unknown> } };
+    usage: { input: final.prompt_eval_count ?? 0, output: final.eval_count ?? 0, ...((final.cached_count ?? final.prompt_eval_cached_count) !== undefined ? { cached: (final.cached_count ?? final.prompt_eval_cached_count)! } : {}), ...(final.reasoning_count !== undefined ? { reasoning: final.reasoning_count } : {}) },
+    status: (final as ModelChunk & { done_reason?: string }).done_reason === 'length' ? 'length' : 'completed', raw: final as unknown as Record<string, unknown>, ...ollamaTiming(final) } };
+}
+
+/** Ollama reports its own load, prefill and decode durations in nanoseconds. */
+function ollamaTiming(chunk: ModelChunk): { timing?: ModelTiming } {
+  const timing: ModelTiming = {};
+  for (const [key, field] of [['load_ms', 'load_duration'], ['prefill_ms', 'prompt_eval_duration'], ['decode_ms', 'eval_duration'], ['total_ms', 'total_duration']] as const) {
+    const value = chunk[field];
+    if (typeof value === 'number' && value >= 0) timing[key] = value / 1e6;
+  }
+  return Object.keys(timing).length ? { timing } : {};
 }

@@ -245,7 +245,7 @@ Expose a versioned HTTP protocol for:
 
 Carry request IDs, structured sanitized errors, and cancellation through the protocol. Stream command settlement over NDJSON; preserve the existing final `{ output, status }` command contract.
 
-Use a 15-second connection lease with heartbeats every five seconds. Explicit cancellation acts immediately; lease expiry cancels any remaining operations.
+Use the shared `BRIDGE_CONNECTION_TIMEOUT_MS` connection lease (currently 120 seconds) with heartbeats every five seconds. Explicit cancellation acts immediately; lease expiry cancels any remaining operations.
 
 ### Effects and approval
 

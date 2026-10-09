@@ -157,3 +157,14 @@ test('formatting, validation and the commit preview are shared by both adapters'
   await assert.rejects(commitPreview({ status: async () => ({ branch: 'main', entries: [] }) } as unknown as GitPort, read, 'msg', ['x']), /no changes in those paths/);
   assert.equal(real(dir, 'status', '--porcelain').includes('pre.txt'), true); // previews change nothing
 });
+
+test('Git timeouts explain the 30-second limit', async t => {
+  const childProcess = await import('node:child_process'); const { syncBuiltinESMExports } = await import('node:module');
+  const original = childProcess.default.execFile;
+  t.mock.method(childProcess.default, 'execFile', (...args: unknown[]) => {
+    const callback = args.at(-1) as (error: Error, out: string, err: string) => void;
+    callback(Object.assign(new Error('command killed'), { killed: true }), '', ''); return {};
+  });
+  syncBuiltinESMExports(); t.after(() => { childProcess.default.execFile = original; syncBuiltinESMExports(); });
+  await assert.rejects(new NodeGit('/scratch').status(), /Time limit: 30 seconds/);
+});

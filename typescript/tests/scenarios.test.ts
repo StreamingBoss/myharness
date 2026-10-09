@@ -38,7 +38,9 @@ for (const file of readdirSync('tests/scenarios').filter(name => name.endsWith('
       }
       if (chunk.done) break;
     }
-    assert.deepEqual(events.map(event => event.type), scenario.expect.event_types);
+    // Timing extends the maintained backend; timing.test.ts and core.test.ts verify it.
+    const compared = events.filter(event => event.type !== 'turn_timing');
+    assert.deepEqual(compared.map(event => event.type), scenario.expect.event_types);
     assert.deepEqual(harness.state.memory.map(message => message.role), scenario.expect.memory_roles);
     for (const [name, text] of Object.entries(scenario.expect.files ?? {})) assert.equal(await readFile(path.join(root, name), 'utf8'), text);
     const python = spawnSync('.venv/bin/python', ['tests/parity_host.py'], { input: JSON.stringify(scenario), encoding: 'utf8' });
@@ -62,6 +64,9 @@ for (const file of readdirSync('tests/scenarios').filter(name => name.endsWith('
         delete item.outcome;
         // Structured diagnostics extend the maintained backend; failure.test.ts verifies them.
         delete item.failure;
+        delete item.approval_timeout_ms;
+        if (item.type === 'approval') delete item.timeout_ms;
+        for (const key of ['prefix', 'prefix_text', 'round', 'timing', 'timing_text']) delete item[key];
         if (item.parts) {
           item.parts = JSON.parse(item.parts.join(''));
           if (item.parts.tools) {
@@ -74,7 +79,7 @@ for (const file of readdirSync('tests/scenarios').filter(name => name.endsWith('
       });
       return data;
     };
-    assert.deepEqual(normalize(events, root), normalize(reference.events, reference.root));
+    assert.deepEqual(normalize(compared, root), normalize(reference.events, reference.root));
     assert.deepEqual(normalize(requests, root), normalize(reference.requests, reference.root));
     assert.deepEqual(normalize(harness.state.memory, root), normalize(reference.memory, reference.root));
   });

@@ -35,15 +35,19 @@
       this.inspect.addEventListener('click', () => this.run());
     }
     async refresh(sessionId) {
-      const epoch = ++this.epoch, previous = this.sessionId === sessionId ? this.select.value : '';
+      const epoch = ++this.epoch, sameSession = this.sessionId === sessionId;
       this.sessionId = sessionId;
-      this.select.replaceChildren(); this.cache.clear(); this.clear(); this.inspect.disabled = true;
+      if (!sameSession) {
+        this.select.replaceChildren(); this.cache.clear(); this.clear(); this.inspect.disabled = true;
+      }
       if (!sessionId) { this.summary.textContent = 'Send a message first; no saved request is available.'; return; }
       try {
         const response = await this.fetchBackend('/sessions/' + encodeURIComponent(sessionId));
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
+        if (!response.ok) throw new Error(globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.presentFailure(data.failure, data.error) : data.error);
         if (epoch !== this.epoch) return;
+        const previous = this.select.value, evidence = JSON.stringify(this.cache.get(previous));
+        this.select.replaceChildren(); this.cache.clear();
         let ordinal = 0;
         (data.events || []).forEach((event, index) => {
           if (event.type === 'request' || (event.type === 'context' && event.action === 'compact_request')) {
@@ -54,7 +58,8 @@
         });
         const options = [...this.select.options];
         this.select.value = options.some(option => option.value === previous) ? previous : (options.at(-1)?.value || '');
-        this.showSelected();
+        // Updating the list must not redraw unchanged evidence or reset token details/scroll.
+        if (!sameSession || this.select.value !== previous || JSON.stringify(this.cache.get(previous)) !== evidence) this.showSelected();
       } catch { if (epoch === this.epoch) this.summary.textContent = 'Could not load saved requests. Choose the active session and try again.'; }
     }
     clear() { this.groups.replaceChildren(); this.summary.replaceChildren(); this.about.replaceChildren(); this.details.textContent = 'Click a token to see its position, ID and bytes.'; this.details.hidden = true; }
@@ -82,7 +87,7 @@
       try {
         const response = await this.fetchBackend('/tokenize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sessionId, event_index: Number(index) }) });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
+        if (!response.ok) throw new Error(globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.presentFailure(data.failure, data.error) : data.error);
         if (epoch !== this.epoch) return;
         // Failed inspections can be retried; the backend does not persist them.
         if (data.fidelity !== 'unavailable') this.cache.set(index, data);
@@ -98,12 +103,12 @@
       // Without pieces the view would otherwise look empty: say so first and give the backend's reason.
       if (!hasPieces) {
         const empty = element('div', undefined, 'token-empty'); empty.id = 'token-empty';
-        empty.append(element('strong', 'No token pieces to show for this request.'), element('p', data.explanation));
+        empty.append(element('strong', 'No token pieces to show for this request.'), element('p', globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.presentFailure(undefined, data.explanation) : data.explanation));
         empty.append(element('p', 'TOKENIZATION.md describes which providers and setups can show token pieces, for example a matching llama.cpp tokenizer for a local Ollama model.'));
         this.summary.append(empty);
       }
       this.about.append(element('p', 'Model: ' + data.model + ' · Provider: ' + data.provider + ' · Source: ' + data.source));
-      if (hasPieces) this.about.append(element('p', data.explanation));
+      if (hasPieces) this.about.append(element('p', globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.presentFailure(undefined, data.explanation) : data.explanation));
       this.about.append(element('p', 'Coverage: ' + data.coverage));
       const limits = element('ul'); (data.limitations || []).forEach(text => limits.append(element('li', text))); this.about.append(limits);
       this.details.hidden = !hasPieces;

@@ -116,9 +116,46 @@ test('shared computer backend never opens a vault and locks pending approvals be
   const session = new ManagedSession(harness, true, Date.now, async () => { opened = true; return new MemoryStorage(); });
   await assert.rejects(session.call('vaultList'), /disabled/); assert.equal(opened, false);
   const stream = harness.submit({ message: 'Write no.txt: no', useMemory: true, tools: ['write_file'], askApproval: true, agent: '', prompt: '' });
-  for await (const event of stream) if (event.type === 'approval') await session.lock();
+  const reasons: unknown[] = [];
+  for await (const event of stream) {
+    if (event.type === 'approval') await session.lock();
+    if (event.type === 'stopped') reasons.push(event.reason);
+  }
+  assert.deepEqual(reasons, ['Credentials were locked; reconnect in Guide & Setup.']);
   assert.equal((await harness.exportProject()).files['no.txt'], undefined);
   await session.end();
+});
+
+test('shared bridge lease expiry cancels an unanswered command with the real cause and no execution', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'guide-lease-approval-')); t.after(() => rm(root, { recursive: true, force: true }));
+  let now = 0;
+  const bridge = new NativeBridge({ workspace: root, origin: 'https://guide.test', now: () => now, grants: { commands: true, writes: false, gitWrites: false } });
+  const server = createBridgeServer(bridge); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { bridge.close(); server.closeAllConnections(); server.close(); });
+  const realFetch = fetch;
+  t.mock.method(globalThis, 'fetch', (url: string, init: RequestInit) => realFetch(url, { ...init, headers: { ...init.headers, origin: bridge.origin } }));
+  const harness = await backend(), session = new ManagedSession(harness, true, () => now);
+  t.after(() => session.end());
+  await session.call('attachBridge', { endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}`, code: bridge.code });
+  const events: import('../src/core.js').CoreEvent[] = [];
+  let approvalId = '';
+  for await (const event of harness.submit({ message: 'Run touch should-not-run.txt', useMemory: true, tools: ['run_command'], askApproval: true, agent: '', prompt: '' })) {
+    events.push(event);
+    if (event.type === 'approval') { approvalId = String(event.id); now = 121_000; await session.tick(); }
+  }
+  const reason = String(events.find(event => event.type === 'stopped')!.reason);
+  assert.match(reason, /bridge heartbeat failed/); assert.match(reason, /Time limit: 2 minutes/); assert.match(reason, /Keep the harness tab open/);
+  assert.equal(events.find(event => event.type === 'stopped')!.reason, reason);
+  assert.equal(events.find(event => event.type === 'command')!.outcome, 'cancelled');
+  assert.match(String(events.find(event => event.type === 'tool')!.result), /bridge heartbeat failed/);
+  assert.equal(harness.approve(approvalId, true), false);
+  const { readdir } = await import('node:fs/promises'); assert.deepEqual(await readdir(root), []);
+  // A subsequent turn must not inherit the old cancellation cause.
+  await harness.setProject('/workspace');
+  const resumed = harness.submit({ message: 'hello', useMemory: false, tools: [], askApproval: true, agent: '', prompt: '' });
+  await resumed.next(); harness.stop();
+  const following: import('../src/core.js').CoreEvent[] = []; for await (const event of resumed) following.push(event);
+  assert.equal(following.find(event => event.type === 'stopped')!.reason, 'stopped by the user');
 });
 
 test('locking during model connection cannot restore a credential afterward', async t => {
@@ -346,6 +383,10 @@ test('private bridge heartbeat failures preserve the model connection for retry'
   await session.call('attachBridge', { endpoint: 'http://127.0.0.1:5001', code: 'fixture' });
   now = 5000; await session.tick(); assert.equal(locked, false);
   assert.equal((await harness.bootstrap()).ready, true);
+  assert.match(String((await session.call('connectionStatus') as { reason?: string }).reason), /local bridge is unavailable/);
+  t.mock.method(harness, 'bridgeHeartbeat', async () => undefined);
+  now = 10_000; await session.tick();
+  assert.equal((await session.call('connectionStatus') as { reason?: string }).reason, undefined);
   await session.end(); assert.equal(locked, true);
 });
 
@@ -364,5 +405,17 @@ test('private Guide pairing retains real native bridge authority after browser s
   assert.equal(harness.bridgeStatus().connected, true);
   assert.equal((await harness.exportProject()).files['resume.txt'], 'still connected');
   assert.ok(((await harness.bootstrap()).tools as { name: string }[]).some((tool: { name: string }) => tool.name === 'run_command'));
+  await session.end();
+});
+
+test('live Guide connection status reports a lock and each connection separately', async () => {
+  const harness = await backend(), session = new ManagedSession(harness, true);
+  let status = await session.call('connectionStatus') as { bridge: { connected: boolean }; model: { ready: boolean; name: string }; reason?: string };
+  assert.equal(status.bridge.connected, false); assert.equal(status.model.ready, true); assert.equal(status.reason, undefined);
+  await session.lock('bridge heartbeat failed. [Time limit: 2 minutes]');
+  status = await session.call('connectionStatus') as typeof status;
+  assert.equal(status.bridge.connected, false); assert.match(status.reason!, /Time limit: 2 minutes/);
+  await session.call('connectModel', { config: { provider: 'demo', model: 'scripted-demo' } });
+  status = await session.call('connectionStatus') as typeof status; assert.equal(status.reason, undefined); assert.equal(status.model.ready, true);
   await session.end();
 });

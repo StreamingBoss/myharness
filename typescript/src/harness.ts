@@ -16,6 +16,7 @@ import { planText } from './plan.js';
 import { unavailable, savedModelRequest, type InspectionPort, type TokenInspection, TOKENIZATION_PROGRESS, type TokenizationProgress, type InspectionProgress } from './tokenization.js';
 import { orchestrationLimits, boundedLimit, type OrchestrationLimits } from './orchestration-limits.js';
 import { McpManager, type McpToolCall } from './mcp/manager.js';
+import { kvCacheEstimate, kvText, type KvEstimate } from './timing.js';
 
 export interface TurnAction {
   message: string; useMemory: boolean; tools: string[]; askApproval: boolean; agent: string; prompt: string; sessionId?: string;
@@ -71,6 +72,9 @@ export class Harness implements TurnHost {
   private readonly sessions: SessionPort | undefined;
   private session: SessionRecord;
   private running = false;
+  private cancellationReason = 'turn cancelled';
+  /** In memory only: after loading a session nothing is known about what the provider still has cached. */
+  private lastRequest: ModelRequest | undefined;
   private inspectionProgress: TokenizationProgress | null = null;
   private controller = new AbortController();
   private readonly approvals = new Map<string, (outcome: ApprovalOutcome) => void>();
@@ -240,7 +244,7 @@ export class Harness implements TurnHost {
     const live = this.runs.get(id); if (live) return structuredClone(live.events.slice(after + 1));
     return structuredClone(this.session.events.map(frame => frame.type === 'agent_event' ? frame.event as CoreEvent : frame as CoreEvent).filter(frame => frame.run_id === id && Number(frame.sequence) > after));
   }
-  async cancelRun(): Promise<void> { this.stop(); await this.execution?.done; await this.drainChildren('cancelled'); }
+  async cancelRun(reason = 'stopped by the user'): Promise<void> { this.stop(reason); await this.execution?.done; await this.drainChildren('cancelled'); }
   private launchGoal(action: TurnAction, adopted?: { run: Execution; done: Promise<TurnOutcome> }): void {
     this.goalArmed = true; this.closed = false;
     const goal = this.getGoal()!;
@@ -354,8 +358,8 @@ export class Harness implements TurnHost {
     catch (error) { throw new BackendError((error as Error).message); }
   }
   /** Cancel first, then remove every provider credential, including child routes. */
-  async lockCredentials(): Promise<void> {
-    await this.cancelRun();
+  async lockCredentials(reason = 'Credentials were locked; reconnect in Guide & Setup.'): Promise<void> {
+    await this.cancelRun(reason);
     if (this.adapter instanceof ProviderRouter) this.adapter.clearKeys();
     await this.mcp.close();
   }
@@ -413,7 +417,8 @@ export class Harness implements TurnHost {
     this.recordEvent({ type: 'reset', reason: 'memory reset' });
     await this.saveSession();
   }
-  stop(): void {
+  stop(reason = 'stopped by the user'): void {
+    this.cancellationReason = reason;
     this.goalArmed = false;
     this.execution?.stop('cancelled');
     this.cancelWork();
@@ -447,7 +452,7 @@ export class Harness implements TurnHost {
     const router = this.adapter, model = configuredModel(provider, value.model);
     let candidate = router.adapter(provider, value.apiKey), context = value.contextLength ?? (provider === 'demo' ? 4096 : 8192);
     let endpoint: string | undefined, selectionChanged = false;
-    this.running = true; this.state.stopped = false; this.controller = new AbortController();
+    this.running = true; this.state.stopped = false; this.cancellationReason = 'turn cancelled'; this.controller = new AbortController();
     try {
       if (provider === 'ollama') {
         const url = new URL(value.url ?? 'http://localhost:11434');
@@ -463,7 +468,7 @@ export class Harness implements TurnHost {
       }
       const maxOutput = ['demo', 'ollama', 'vertex'].includes(provider) ? value.maxOutputTokens : value.maxOutputTokens ?? 2048;
       if (maxOutput !== undefined && maxOutput >= context) throw new BackendError('Maximum output tokens must be smaller than the working context limit.');
-      if (this.stopped()) throw new BackendError('stopped by the user');
+      if (this.stopped()) throw new BackendError(this.stopReason());
       if (candidate instanceof LegacyModelAdapter) router.setLegacy(provider, candidate.port);
       if (value.apiKey !== undefined) router.setKey(provider, value.apiKey);
       if (endpoint) await this.saveModelEndpoint(endpoint);
@@ -520,7 +525,7 @@ export class Harness implements TurnHost {
     if (!this.managedTurn && this.execution && ['running', 'stopping'].includes(this.execution.snapshot.status)) throw new BackendError('An autonomous run is already running. Queue a message or stop it first.', 409);
     if (this.session.missing_workspace || !this.workspace.exists(this.workspace.root)) throw new BackendError('The saved project folder is missing. Choose a replacement folder before continuing.', 409);
     if (!this.adapter.ready(this.state.provider ?? (this.state.model === 'scripted-demo' ? 'demo' : 'ollama'))) throw new BackendError('Enter the API key for this session provider before continuing.');
-    this.running = true; this.state.stopped = false; this.controller = new AbortController();
+    this.running = true; this.state.stopped = false; this.cancellationReason = 'turn cancelled'; this.controller = new AbortController();
     this.currentAskApproval = action.askApproval;
     const ordinary = !this.parentId && !this.managedTurn;
     if (ordinary) {
@@ -580,7 +585,7 @@ export class Harness implements TurnHost {
         return next.value;
       } finally { await iterator.return('cancelled'); }
     } catch (error) {
-      const event = { type: 'stopped', reason: this.stopped() ? 'stopped by the user' : `Turn failed: ${String(error instanceof Error ? error.message : error)}`, memory: this.memoryText(), ...(!this.stopped() ? { failure: failureDetails(error) } : {}) };
+      const event = { type: 'stopped', reason: this.stopped() ? this.stopReason() : `Turn failed: ${String(error instanceof Error ? error.message : error)}`, memory: this.memoryText(), ...(!this.stopped() ? { failure: failureDetails(error) } : {}) };
       this.recordEvent(event); yield event; failureOutcome = this.stopped() ? 'cancelled' : 'error';
     } finally {
       this.controller.abort();
@@ -594,6 +599,8 @@ export class Harness implements TurnHost {
   }
 
   stopped(): boolean { return this.state.stopped; }
+  stopReason(): string { return this.cancellationReason; }
+  stoppedToolResult(): string { return this.cancellationReason === 'stopped by the user' ? STOPPED_RESULT : `stopped: ${this.cancellationReason} This tool did not run.`; }
   modelProvider(): string | undefined { return this.state.provider; }
   maxOutputTokens(): number | undefined { return this.state.maxOutputTokens; }
   model(): string { return this.state.model; }
@@ -601,6 +608,9 @@ export class Harness implements TurnHost {
   lastPromptTokens(): number { return this.state.lastPromptTokens; }
   setLastPromptTokens(value: number): void { this.state.lastPromptTokens = value; }
   memoryText(): string { return pythonRepr(this.state.memory); }
+  now(): number { return (this.options.clock ?? executionClock).now(); }
+  previousRequest(): ModelRequest | undefined { return this.lastRequest; }
+  setPreviousRequest(payload: ModelRequest): void { this.lastRequest = payload; }
   private selectedPrompt(name: string): string {
     const snapshot = this.session.snapshots.prompt;
     return snapshot?.name === name ? snapshot.text : this.catalog.prompts()[name] ?? '';
@@ -642,6 +652,7 @@ export class Harness implements TurnHost {
     if (this.session.max_output_tokens) this.state.maxOutputTokens = this.session.max_output_tokens; else delete this.state.maxOutputTokens;
     if (this.adapter instanceof ProviderRouter) this.adapter.selected = this.session.provider ?? (this.session.model === 'scripted-demo' ? 'demo' : 'ollama');
     for (const key of ['hide_thinking', 'explore', 'chat_width', 'memory_height', 'draft']) delete (this.session.settings as unknown as Record<string, unknown>)[key];
+    this.lastRequest = undefined;
     Object.assign(this.state, { model: this.session.model, contextLength: this.session.context_length, workspace: this.session.workspace, memory: this.session.memory, lastPromptTokens: this.session.last_prompt_tokens ?? 0 });
     this.workspace = this.options.runtime.workspace(this.state.workspace); this.catalog = this.options.runtime.catalog(this.workspace);
   }
@@ -835,7 +846,7 @@ export class Harness implements TurnHost {
         }
         if (name === 'get_goal') return { kind: 'text', text: JSON.stringify({ goal: this.getGoal() ?? null }) };
         return { kind: 'text', text: JSON.stringify({ goal: await this.updateGoal(this.numberArgument(args, 'revision', 1), this.stringArgument(args, 'action'), typeof args.evidence === 'string' ? args.evidence : undefined, true) }) };
-      } catch (error) { return { kind: 'text', text: `error: ${(error as Error).message}` }; }
+      } catch (error) { return { kind: 'text', text: `error: ${(error as Error).message}`, failure: failureDetails(error, 'harness', `Tool: ${name}`, 'Check the tool information and project access, then retry.') }; }
     }
     if (ORCHESTRATION_TOOLS.some(tool => tool.function.name === name)) {
       if (this.parentId || !enabled.includes(name)) return { kind: 'text', text: 'error: subagents are disabled by the harness policy' };
@@ -851,7 +862,7 @@ export class Harness implements TurnHost {
         if (name === 'wait_agent') return { kind: 'text', text: JSON.stringify(await this.waitAgent(id)) };
         if (name === 'send_message') return { kind: 'text', text: JSON.stringify(await this.sendMessage(id, this.stringArgument(args, 'message'))) };
         return { kind: 'text', text: JSON.stringify(await this.restartAgent(id, typeof args.message === 'string' ? args.message : undefined, args.timeout_ms === undefined ? undefined : this.numberArgument(args, 'timeout_ms', 1))) };
-      } catch (error) { return { kind: 'text', text: `error: ${(error as Error).message}` }; }
+      } catch (error) { return { kind: 'text', text: `error: ${(error as Error).message}`, failure: failureDetails(error, 'harness', `Tool: ${name}`, 'Check the tool information and project access, then retry.') }; }
     }
     if (this.mcp.owns(name)) return enabled.includes(name) ? this.mcp.prepare(name, args, this.controller.signal) : { kind: 'text', text: `error: unknown tool '${name}'` };
     if (!enabled.includes(name) || !TOOL_NAMES.includes(name)) return { kind: 'text', text: `error: unknown tool '${name}'` };
@@ -905,7 +916,7 @@ export class Harness implements TurnHost {
           return { kind: 'text', text: `Skill '${s('name')}' loaded. Follow these instructions:\n\n${skill.body}` };
         }
       }
-    } catch (error) { return { kind: 'text', text: `error: ${(error as Error).message}` }; }
+    } catch (error) { return { kind: 'text', text: `error: ${(error as Error).message}`, failure: failureDetails(error, 'harness', `Tool: ${name}`, 'Check the tool information and project access, then retry.') }; }
   }
 
   /**
@@ -920,7 +931,7 @@ export class Harness implements TurnHost {
       this.approvals.set(id, outcome => { this.approvals.delete(id); clearTimeout(timer); resolve(outcome); });
       timer = setTimeout(() => this.settle(id, 'unavailable'), this.options.approvalTimeoutMs ?? 600_000);
     });
-    try { yield { type: 'approval', id, ...fields }; return await answer; }
+    try { yield { type: 'approval', id, timeout_ms: this.options.approvalTimeoutMs ?? 600_000, ...fields }; return await answer; }
     finally { this.settle(id, 'cancelled'); }
   }
   /** What the model is told when an action did not run, so it can tell a refusal from silence. */
@@ -945,9 +956,9 @@ export class Harness implements TurnHost {
     if (signal.aborted) wake();
     await Promise.race([previous, cancelled]);
     try {
-      if (this.stopped()) return STOPPED_RESULT;
+      if (this.stopped()) return this.stoppedToolResult();
       return yield* action;
-    } finally { signal.removeEventListener('abort', wake); release(); await action.return(STOPPED_RESULT); }
+    } finally { signal.removeEventListener('abort', wake); release(); await action.return(this.stoppedToolResult()); }
   }
   private async *applyChangeNow(name: string, change: unknown): AsyncGenerator<CoreEvent, string, void> {
     const value = change as Change;
@@ -960,8 +971,8 @@ export class Harness implements TurnHost {
     if (lines(oldText).join('\n') === lines(value.content).join('\n')) diff = isNew ? 'Creating an empty file.' : value.content.endsWith('\n') ? 'Adding the final newline.' : 'Removing the final newline.';
     const note = value.note ?? '';
     const outcome = yield* this.askUser({ name, path: relative, diff, note });
-    yield { type: 'change', path: relative, diff, approved: outcome === 'allowed-once', outcome, note };
-    if (this.stopped()) return STOPPED_RESULT;
+    yield { type: 'change', path: relative, diff, approval_timeout_ms: this.options.approvalTimeoutMs ?? 600_000, approved: outcome === 'allowed-once', outcome, note };
+    if (this.stopped()) return this.stoppedToolResult();
     if (outcome !== 'allowed-once') return this.refusal(outcome, 'change');
     const checked = this.workspace.pathFor(value.path);
     if (this.execution && (this.workspace.exists(checked) ? await this.workspace.readText(checked) : null) !== (isNew ? null : oldText)) return 'error: the approved file changed while waiting; inspect it and propose a new change';
@@ -975,11 +986,11 @@ export class Harness implements TurnHost {
   private async *executeCommandNow(command: string): AsyncGenerator<CoreEvent, string, void> {
     const outcome = yield* this.askUser({ name: 'run_command', command });
     if (this.stopped() || outcome !== 'allowed-once') {
-      yield { type: 'command', command, approved: false, outcome, output: '', status: '' };
-      return this.stopped() ? STOPPED_RESULT : this.refusal(outcome, 'command');
+      yield { type: 'command', command, approval_timeout_ms: this.options.approvalTimeoutMs ?? 600_000, approved: false, outcome, output: '', status: '' };
+      return this.stopped() ? this.stoppedToolResult() : this.refusal(outcome, 'command');
     }
     const result = await this.options.runtime.executeCommand(command, this.workspace.root, this.controller.signal);
-    yield { type: 'command', command, approved: true, outcome, output: result.output, status: result.status };
+    yield { type: 'command', command, approval_timeout_ms: this.options.approvalTimeoutMs ?? 600_000, approved: true, outcome, output: result.output, status: result.status };
     return result.output ? `${result.status}\noutput:\n${result.output}` : `${result.status}\n(no output)`;
   }
   /** MCP tool calls are external effects: approval is required while approvals are on. */
@@ -991,12 +1002,12 @@ export class Harness implements TurnHost {
     const fields = { name: call.name, server: call.server, tool: call.tool, arguments: args };
     const outcome = yield* this.askUser({ ...fields, annotations: call.annotations });
     if (this.stopped() || outcome !== 'allowed-once') {
-      yield { type: 'mcp', ...fields, approved: false, outcome, result: '', is_error: false };
-      return this.stopped() ? STOPPED_RESULT : this.refusal(outcome, 'MCP tool call');
+      yield { type: 'mcp', ...fields, approval_timeout_ms: this.options.approvalTimeoutMs ?? 600_000, approved: false, outcome, result: '', is_error: false };
+      return this.stopped() ? this.stoppedToolResult() : this.refusal(outcome, 'MCP tool call');
     }
     const result = await this.mcp.call(call, this.controller.signal);
-    yield { type: 'mcp', ...fields, approved: true, outcome, result: result.text, is_error: result.isError, protocol_version: result.version, transport: result.transport, request: result.request ?? null, response: result.response ?? null };
-    return this.stopped() ? STOPPED_RESULT : result.text;
+    yield { type: 'mcp', ...fields, approval_timeout_ms: this.options.approvalTimeoutMs ?? 600_000, approved: true, outcome, result: result.text, is_error: result.isError, protocol_version: result.version, transport: result.transport, request: result.request ?? null, response: result.response ?? null };
+    return this.stopped() ? this.stoppedToolResult() : result.text;
   }
   /**
    * File deletions and moves and git changes: the action was prepared (and its preview built) when the model asked,
@@ -1009,13 +1020,13 @@ export class Harness implements TurnHost {
     const action = raw as ToolAction, fields = { name: action.name, title: action.title, detail: action.detail };
     const outcome = yield* this.askUser(fields);
     if (this.stopped() || outcome !== 'allowed-once') {
-      yield { type: 'action', ...fields, approved: false, outcome, result: '' };
-      return this.stopped() ? STOPPED_RESULT : this.refusal(outcome, action.what);
+      yield { type: 'action', ...fields, approval_timeout_ms: this.options.approvalTimeoutMs ?? 600_000, approved: false, outcome, result: '' };
+      return this.stopped() ? this.stoppedToolResult() : this.refusal(outcome, action.what);
     }
     let result: string;
     try { result = await action.run(); } catch (error) { result = `error: ${(error as Error).message}`; }
-    yield { type: 'action', ...fields, approved: true, outcome, result };
-    return this.stopped() ? STOPPED_RESULT : result;
+    yield { type: 'action', ...fields, approval_timeout_ms: this.options.approvalTimeoutMs ?? 600_000, approved: true, outcome, result };
+    return this.stopped() ? this.stoppedToolResult() : result;
   }
   /** Built-in tools this runtime can run here. The git tools also need a repository adapter for this folder. */
   private availableTools(): string[] {
@@ -1097,7 +1108,7 @@ export class Harness implements TurnHost {
     let payload: ModelRequest;
     try { payload = savedModelRequest(event.type === 'request' ? event.model_request ?? JSON.parse((event.parts as string[]).join('')) : event.payload); }
     catch { throw new BackendError('Saved model request is invalid'); }
-    this.running = true; this.state.stopped = false; this.controller = new AbortController();
+    this.running = true; this.state.stopped = false; this.cancellationReason = 'turn cancelled'; this.controller = new AbortController();
     const progress: TokenizationProgress = { sessionId: this.session.id, eventIndex, stage: 'inspecting', message: TOKENIZATION_PROGRESS.inspecting };
     this.inspectionProgress = progress;
     try {
@@ -1154,7 +1165,7 @@ export class Harness implements TurnHost {
     if (this.running) throw new BackendError('A turn is already running.', 409);
     this.idle('compacting memory');
     if (!this.adapter.ready(this.state.provider ?? 'ollama')) throw new BackendError('Enter the API key for this session provider before compacting.');
-    this.running = true; this.state.stopped = false; this.controller = new AbortController();
+    this.running = true; this.state.stopped = false; this.cancellationReason = 'turn cancelled'; this.controller = new AbortController();
     try { for await (const event of this.compactContext(this.state.memory)) { this.recordEvent(event); await this.saveSession(); yield event; } }
     finally { this.running = false; this.controller.abort(); }
   }
@@ -1173,7 +1184,7 @@ export class Harness implements TurnHost {
       yield { type: 'context', action: 'compact_response', response: data };
       const summary = completion.message.content;
       if (typeof summary !== 'string') throw new DiagnosticError(failureDetails('the model returned invalid summary text', 'model', this.model(), 'Retry compaction; memory is unchanged.'));
-      if (this.stopped()) throw new Error('stopped by the user');
+      if (this.stopped()) throw new Error(this.stopReason());
       if (!summary.trim() || completion.status !== 'completed') throw new DiagnosticError(failureDetails('the model returned an empty or incomplete summary', 'model', this.model(), 'Retry compaction; memory is unchanged.'));
       const replacement: ChatMessage[] = [{ role: 'user', content: `[Summary of earlier conversation]\n${summary.trim()}` }];
       if (estimateTokens([], replacement, []) >= estimateTokens([], older, [])) throw new Error('the summary did not reduce the context');
@@ -1181,15 +1192,30 @@ export class Harness implements TurnHost {
       yield { type: 'context', action: 'compact', reason: `— compacted ${boundary} earlier messages —`, summary: summary.trim(), memory: this.memoryText() };
     } catch (error) { yield { type: 'context', action: 'error', reason: `Compaction failed; memory unchanged: ${(error as Error).message}`, ...(!this.stopped() ? { failure: failureDetails(error) } : {}), memory: this.memoryText() }; }
   }
-  async explore(action: Omit<TurnAction, 'message' | 'askApproval'>): Promise<Record<string, unknown>> {
-    await this.workspace.refresh();
+  async explore(action: Omit<TurnAction, 'message' | 'askApproval'>, describeModel = true): Promise<Record<string, unknown>> {
+    const warnings: string[] = [];
+    try { await this.workspace.refresh(); }
+    catch { warnings.push('The workspace could not be refreshed. Showing available session instructions and the last known workspace data; reconnect or select the project to refresh them.'); }
+    let show = { template: describeModel ? 'Enter this provider’s API key to connect. Its internal template is not exposed.' : 'Model template inspection was not requested.', parameters: '' };
+    let kv: KvEstimate | undefined;
+    if (describeModel && this.adapter.ready(this.state.provider ?? 'ollama')) {
+      try {
+        const description = await this.adapter.describe(this.model());
+        show = { template: description.template ?? '', parameters: description.parameters ?? '' };
+        kv = description.model_info ? kvCacheEstimate(description.model_info, this.state.contextLength)
+          : { available: false, reason: 'This provider does not publish the model’s layer and attention-head sizes, so its KV-cache size cannot be estimated. The provider manages that memory on its own servers.' };
+      } catch {
+        show = { template: 'Model template unavailable. Check the model connection; saved harness details remain available.', parameters: '' };
+        warnings.push(show.template);
+      }
+    }
     const setup = action.useMemory && this.state.memory.length ? this.session.setup : { agent: action.agent, prompt: action.prompt };
     const includeGoals = Boolean(this.getGoal()) || action.tools.some(name => GOAL_TOOLS.some(tool => tool.function.name === name));
-    const tools = [...TOOLS.filter(tool => this.availableTools().includes(tool.function.name)), ...this.mcp.definitions(), ...(includeGoals ? GOAL_TOOLS : []), ...(this.allowSubagents && !this.parentId ? ORCHESTRATION_TOOLS : [])].filter(tool => action.tools.includes(tool.function.name) || (includeGoals && GOAL_TOOLS.some(control => control.function.name === tool.function.name)) || ORCHESTRATION_TOOLS.some(control => control.function.name === tool.function.name)), show = this.adapter.ready(this.state.provider ?? 'ollama') ? await this.adapter.describe(this.model()) : { template: 'Enter this provider’s API key to connect. Its internal template is not exposed.', parameters: '' };
+    const tools = [...TOOLS.filter(tool => this.availableTools().includes(tool.function.name)), ...this.mcp.definitions(), ...(includeGoals ? GOAL_TOOLS : []), ...(this.allowSubagents && !this.parentId ? ORCHESTRATION_TOOLS : [])].filter(tool => action.tools.includes(tool.function.name) || (includeGoals && GOAL_TOOLS.some(control => control.function.name === tool.function.name)) || ORCHESTRATION_TOOLS.some(control => control.function.name === tool.function.name));
     const history = action.useMemory ? this.state.memory : [], withSkills = action.tools.includes('use_skill');
     const system = this.systemMessages(setup, withSkills, action.tools);
-    return { mcp: this.mcp.status(), system_prompt: this.selectedPrompt(setup.prompt), prompt_name: setup.prompt, agent: this.selectedAgent(setup.agent), agent_name: setup.agent,
-      tools: json(tools, 2), template: show.template ?? '', parameters: show.parameters ?? '', final: this.model().includes('qwen') ? renderQwenPrompt([...system, ...history, { role: 'user', content: '(your next message)' }], tools) : `The reconstruction is only written for Qwen templates, and the model is ${this.model()}.`,
+    return { warnings, mcp: this.mcp.status(), system_prompt: this.selectedPrompt(setup.prompt), prompt_name: setup.prompt, agent: this.selectedAgent(setup.agent), agent_name: setup.agent,
+      tools: json(tools, 2), template: show.template, parameters: show.parameters, ...(kv ? { kv_cache: kv, kv_text: kvText(kv) } : {}), final: this.model().includes('qwen') ? renderQwenPrompt([...system, ...history, { role: 'user', content: '(your next message)' }], tools) : `The reconstruction is only written for Qwen templates, and the model is ${this.model()}.`,
       skills: Object.values(this.effectiveSkills()), skills_section: skillsSection(this.effectiveSkills()), skills_listed: withSkills, project_instructions: this.session.project_instructions ?? this.catalog.projectInstructions(), skill_context: this.skillContext([...system, ...history]) };
   }
 }

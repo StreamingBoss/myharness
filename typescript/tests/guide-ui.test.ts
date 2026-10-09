@@ -37,7 +37,7 @@ function fixture(origin = 'https://guide.test') {
   const events = new Events(); let timer!: () => void;
   const child = { closed: false, focusCount: 0, focus() { this.focusCount++; }, postMessage() {} };
   const window_ = Object.assign(events, { location: { href: origin + '/guide.html', origin }, setInterval: (fn: () => void) => { timer = fn; return 1; }, clearInterval() {} }) as unknown as Window;
-  const worker = new Backend(); let popup = true; let count = 0;
+  const worker = new Backend(); worker.values.connectionStatus = { bridge: { connected: false }, model: { ready: true, provider: 'ollama', name: 'fixture' } }; let popup = true; let count = 0;
   const ports: Port[] = [];
   const cleanup = mountGuide(document_, window_, { worker: url => { assert.equal(url.searchParams.get('temporary'), get('privacy').value === 'shared' ? '1' : '0'); count++; return worker; }, open: () => popup ? child as unknown as Window : null, channel: () => { const port1 = new Port(), port2 = new Port(); port1.peer = port2; port2.peer = port1; ports.push(port1, port2); return { port1, port2 } as unknown as MessageChannel; } });
   const click = async (id: string) => { get(id).emit('click'); await settle(); };
@@ -67,7 +67,7 @@ test('guide renders privacy and forwards connection/vault/MCP actions without re
 });
 
 test('guide handoff validates window identity, replaces a reloaded tab connection and closes linked sessions', async t => {
-  const f = fixture(); f.setPopup(false); await f.click('open-harness'); assert.match(f.get('status').textContent, /Could not/);
+  const f = fixture(); f.setPopup(false); await f.click('open-harness'); assert.match(f.get('status').textContent, /could not/i);
   f.setPopup(true); await f.click('open-harness'); await f.click('open-harness'); assert.equal(f.child.focusCount, 1); assert.equal(f.count(), 1);
   for (const event of [{ source: f.child, origin: 'https://evil.test', data: { type: 'harness-ready' } }, { source: {}, origin: 'https://guide.test', data: { type: 'harness-ready' } }, { source: f.child, origin: 'https://guide.test', data: { type: 'wrong' } }]) f.events.emit('message', event);
   assert.equal(f.ports.length, 0);
@@ -198,4 +198,54 @@ test('bridge failures show the exact HTTP or HTTPS restart argument without assu
     assert.match(message, /Ctrl\+C/); assert.match(message, /new pairing code/); assert.match(message, /If the origin already matches/);
     assert.doesNotMatch(message, /PRIVATE/); await f.click('end-session'); f.cleanup();
   }
+});
+
+test('Guide refreshes live connection state on return and periodically after automatic locks', async () => {
+  const f = fixture(); f.events.emit('focus'); f.poll(); await settle(); assert.equal(f.worker.requests.length, 0);
+  await f.click('connect-model');
+  f.worker.values.connectionStatus = { bridge: { connected: true, workspace: '/repo' }, model: { ready: true, provider: 'gemini', name: 'model' } };
+  f.events.emit('focus'); f.events.emit('focus'); await settle();
+  assert.match(f.get('bridge-status').textContent, /Connected to your local computer/); assert.match(f.get('model-status').textContent, /Model configured/);
+  assert.equal(f.worker.requests.filter(request => request.action === 'connectionStatus').length, 1);
+  f.worker.values.connectionStatus = { bridge: { connected: false }, model: { ready: false, provider: 'gemini', name: 'model' }, reason: 'bridge heartbeat failed. [Time limit: 2 minutes]' };
+  f.poll(); await settle();
+  assert.match(f.get('bridge-status').textContent, /disconnected/); assert.match(f.get('model-status').textContent, /disconnected/);
+  assert.match(f.get('status').textContent, /Keep the harness tab open/); assert.match(f.get('status').textContent, /Time limit: 2 minutes/);
+  assert.doesNotMatch(f.get('status').textContent, /heartbeat/); assert.equal(f.get('status').children[0]!.children[0]!.textContent, 'Technical details');
+  const disconnected = f.worker.values.connectionStatus;
+  f.worker.values.connectionStatus = { bridge: { connected: true }, model: { ready: true, provider: 'gemini', name: 'model' } };
+  f.poll(); await settle(); assert.match(f.get('status').textContent, /Connection status updated/);
+  f.worker.values.connectionStatus = disconnected; f.poll(); await settle();
+  f.get('status').textContent = 'Do not overwrite my action result'; f.poll(); await settle(); assert.equal(f.get('status').textContent, 'Do not overwrite my action result');
+  f.worker.values.connectionStatus = { bridge: { connected: true }, model: { ready: true, provider: 'gemini', name: 'model' } };
+  f.poll(); await settle(); assert.equal(f.get('status').textContent, 'Do not overwrite my action result');
+  f.worker.values.connectionStatus = disconnected; f.poll(); await settle();
+  f.get('connect-model').disabled = f.get('connect-bridge').disabled = true;
+  f.get('model-status').textContent = f.get('bridge-status').textContent = 'Connecting'; f.poll(); await settle();
+  assert.equal(f.get('model-status').textContent, 'Connecting'); assert.equal(f.get('bridge-status').textContent, 'Connecting');
+  f.get('connect-model').disabled = f.get('connect-bridge').disabled = false;
+  f.worker.reject = 'connectionStatus'; f.events.emit('focus'); await settle(); assert.match(f.get('status').textContent, /Could not check/);
+  assert.match(f.get('bridge-status').textContent, /could not be checked/); assert.doesNotMatch(f.get('status').textContent, /PRIVATE/);
+  await f.click('end-session'); f.cleanup();
+});
+
+test('Guide ignores connection-state replies from an experiment that ended while checking', async () => {
+  const f = fixture(); await f.click('connect-model');
+  const original = f.worker.postMessage.bind(f.worker); let pending: RpcRequest | undefined;
+  f.worker.postMessage = request => { if (request.action === 'connectionStatus') pending = request; else original(request); };
+  f.events.emit('focus'); f.events.emit('focus'); await f.click('end-session'); await settle();
+  f.worker.emit('message', { data: { id: pending!.id, type: 'result', value: { bridge: { connected: true }, model: { ready: true, name: 'stale' } } } }); await settle();
+  assert.equal(f.get('bridge-status').textContent, ''); assert.match(f.get('status').textContent, /Session ended/); f.cleanup();
+});
+
+test('Guide drops a successful stale status result and skips refresh while ending', async t => {
+  const { WorkerClient } = await import('../src/browser/client.js');
+  const original = WorkerClient.prototype.call; let resolve!: (value: unknown) => void;
+  t.mock.method(WorkerClient.prototype, 'call', function(this: InstanceType<typeof WorkerClient>, action: string, payload?: Record<string, unknown>) {
+    return action === 'connectionStatus' ? new Promise(result => { resolve = result; }) : original.call(this, action, payload);
+  });
+  const f = fixture(); await f.click('connect-model'); f.events.emit('focus');
+  f.get('end-session').emit('click'); f.events.emit('focus'); await settle();
+  resolve({ bridge: { connected: true }, model: { ready: true, name: 'stale' } }); await settle();
+  assert.equal(f.get('bridge-status').textContent, ''); assert.match(f.get('status').textContent, /Session ended/); f.cleanup();
 });

@@ -1,3 +1,4 @@
+import { timeoutDuration } from '../error-messages.js';
 import type { InspectionProgress } from '../tokenization.js';
 import { TokenizerProcess } from './tokenizer-process.js';
 import { open, realpath, stat } from 'node:fs/promises';
@@ -30,7 +31,8 @@ export class ManagedTokenizer {
 
   async binding(model: string, signal: AbortSignal, progress?: InspectionProgress): Promise<PromptTokenizer> {
     if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(model)) throw new TokenizerSetupError('Choose a valid exact Ollama model ID before starting its tokenizer.');
-    const requestSignal = AbortSignal.any([signal, this.lifetime.signal, AbortSignal.timeout(this.options.startupTimeoutMs ?? 30_000)]);
+    const startupTimeoutMs = this.options.startupTimeoutMs ?? 30_000;
+    const requestSignal = AbortSignal.any([signal, this.lifetime.signal, AbortSignal.timeout(startupTimeoutMs)]);
     requestSignal.throwIfAborted();
     progress?.('locating');
     let file: string, identity: string;
@@ -69,7 +71,7 @@ export class ManagedTokenizer {
     const binding: PromptTokenizer = { alias: model, identity, tokenize: async (content, signal) => {
       try {
         const result = await process.exchange(AbortSignal.any([signal, this.lifetime.signal, AbortSignal.timeout(30_000)]), content) as { tokens?: { id: unknown; bytes: unknown }[] } | null;
-        if (!result || !Array.isArray(result.tokens)) throw new Error('Tokenizer helper did not return token pieces.');
+        if (!result || !Array.isArray(result.tokens)) throw new Error('Token inspection returned no token pieces to display. Retry inspection.');
         return { label: 'Ollama-rendered prompt', tokens: result.tokens.map(token => tokenPiece(token.id, token.bytes)) };
       } catch (error) {
         process.close();
@@ -79,14 +81,14 @@ export class ManagedTokenizer {
     } };
     this.running = { process, key, binding };
     try {
-      const ready = await process.exchange(requestSignal) as { ready?: unknown; protocol?: unknown; vocab_only?: unknown } | null;
+      const ready = await process.exchange(requestSignal, undefined, startupTimeoutMs) as { ready?: unknown; protocol?: unknown; vocab_only?: unknown } | null;
       if (!ready || ready.ready !== true || ready.protocol !== 1 || ready.vocab_only !== true) throw new Error('Tokenizer helper returned an incompatible readiness response. Build the vocabulary-only helper and retry.');
       return binding;
     } catch (error) {
       process.close();
       if (this.running?.process === process) this.running = undefined;
       throw new TokenizerSetupError(requestSignal.aborted
-        ? (!signal.aborted && !this.lifetime.signal.aborted ? 'Tokenizer helper did not become ready before the startup deadline. Check GGUF compatibility or configure MYHARNESS_TOKENIZERS.' : 'Tokenizer startup was cancelled. Retry inspection after reconnecting if necessary.')
+        ? (!signal.aborted && !this.lifetime.signal.aborted ? `Tokenizer helper did not become ready before the startup deadline. [Time limit: ${timeoutDuration(startupTimeoutMs)}] Check GGUF compatibility or configure MYHARNESS_TOKENIZERS.` : 'Tokenizer startup was cancelled. Retry inspection after reconnecting if necessary.')
         : (error as Error).message);
     }
   }

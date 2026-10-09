@@ -11,3 +11,5 @@ export { BridgeClient, BridgeWorkspace } from './bridge.js';
 export { ChannelWorker, SessionRelay } from './channel.js';
 
 export { TOKENIZATION_PROGRESS, type TokenizationProgress, type TokenizationStage, type InspectionProgress } from '../tokenization.js';
+
+export { failureText, presentFailure, timeoutDuration, type FailureDetails } from '../failure.js';

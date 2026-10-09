@@ -20,6 +20,7 @@ export class NodeGit implements GitPort {
           if (!error) return resolve(stdout);
           if ((error as NodeJS.ErrnoException).code === 'ENOENT') return reject(new Error('git is not installed or not on PATH'));
           if (error.name === 'AbortError') return reject(new Error('stopped'));
+          if (error.killed) return reject(new Error('The Git action was stopped because it took too long. [Time limit: 30 seconds] Retry the action after checking the repository.'));
           reject(new Error(stderr.trim() || stdout.trim() || error.message));
         });
     });

@@ -27,10 +27,12 @@ for (const file of readdirSync('tests/scenarios').filter(name => name.endsWith('
         events[index]!.push(event);
         if (event.type === 'approval') { if (scenario.approval === 'stop') backend.stop(); else backend.approve(String(event.id), scenario.approval === 'approve'); }
       }
-      assert.deepEqual(events[index]!.map(event => event.type), scenario.expect.event_types);
+      assert.deepEqual(events[index]!.map(event => event.type).filter(type => type !== 'turn_timing'), scenario.expect.event_types);
       assert.deepEqual(backend.inspect().memory.map(message => message.role), scenario.expect.memory_roles);
     }
-    const normalize = (value: unknown, workspace: string): unknown => JSON.parse(JSON.stringify(value).replaceAll(workspace, '<workspace>'), (key, item: unknown) => key === 'id' ? '<approval>' : item);
+    // Both runtimes read the real clock, so measured durations differ; their presence and every other field must match.
+    const measured = ['wall_ms', 'ttft_ms', 'decode_ms', 'decode_tps', 'tpot_ms', 'tool_ms', 'timing_text', 'timeline_text'];
+    const normalize = (value: unknown, workspace: string): unknown => JSON.parse(JSON.stringify(value).replaceAll(workspace, '<workspace>'), (key, item: unknown) => key === 'id' ? '<approval>' : measured.includes(key) ? '<measured>' : item);
     assert.deepEqual(normalize(events[1], '/workspace'), normalize(events[0], root));
     assert.deepEqual(normalize(requests[1], '/workspace'), normalize(requests[0], root));
     assert.deepEqual(normalize(browser.inspect().memory, '/workspace'), normalize(node.inspect().memory, root));

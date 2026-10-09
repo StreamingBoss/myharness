@@ -171,10 +171,18 @@ to `ManagedSession` through `managed-worker.js`. Shared mode uses MemoryStorage,
 personal vaults use Web Crypto/IndexedDB, and ChannelWorker/SessionRelay link the
 existing harness page. End session and locking handle simultaneous tab cleanup and
 in-flight configuration. Missed page heartbeats do not end a session. Shared-computer
-bridge pairings have a 15-second lease; private-computer pairings remain valid
+bridge pairings have a 120-second lease; private-computer pairings remain valid
 until explicit release or bridge process exit. Only shared mode locks after ten
 minutes without user interaction. A private-mode bridge heartbeat failure does
 not clear unrelated model credentials; bridge requests report their own failures.
+Automatic shared-mode locks report inactivity or bridge-heartbeat/pairing expiry
+as the cancellation cause in stopped events and tool results. An explicit Stop
+still reports "stopped by the user"; unanswered approvals remain denied.
+Explorer views request live model metadata only for the model-template view
+(`describe_model` in HTTP/Worker, the optional second `explore` argument headlessly).
+Workspace refresh and model-description failures return safe warnings alongside
+available session snapshots; transport failures are displayed instead of leaving
+the explorer blank.
 Reloading the linked harness tab replaces its private port without clearing the
 managed session or bridge credentials. Page unload detaches the client; closing
 the tab is detected by the guide. Backend requests register resumed activity.
@@ -251,3 +259,19 @@ startup. Build instructions and protocol are in TOKENIZATION.md. Prompt renderin
 still uses Ollama and can reload an evicted model; no unsupported capture during
 normal generation or automatic extra render request is introduced. Remote adapters
 and saved inspection replay retain their existing behavior.
+
+
+User-facing errors use `error-messages.ts` and `failure.ts` to explain what happened
+and how to continue. The raw diagnostic remains intact in events and exports, and
+is shown under Technical details in chat and Guide. The shared formatter is built
+as `error-messages.js` for both the Node-served UI and browser distribution.
+Approval events/results carry their actual configured wait limits; network,
+command, Git, task and token-inspection failures report their operation limits.
+
+`BRIDGE_CONNECTION_TIMEOUT_MS` in `bridge/protocol.ts` is the single source for
+shared-mode bridge expiry, ordinary bridge request deadlines and the lock message.
+Its current value is 120 seconds. Private pairings still remain valid until release.
+Guide polls the read-only `connectionStatus` backend action and refreshes on focus,
+so automatic locks replace stale success messages. It reports model configuration
+separately from bridge connectivity; configured local Ollama does not imply a live
+network check. Polling does not count as user activity or extend an inactivity lock.

@@ -1,3 +1,4 @@
+import { BRIDGE_CONNECTION_TIMEOUT_MS } from '../bridge/protocol.js';
 import { ManagedTokenizer, TokenizerSetupError, type ManagedTokenizerOptions } from './managed-tokenizer.js';
 import { OllamaAdapter, type FetchLike } from '../ollama.js';
 import { tokenizerBindings, type TokenizerBinding, type PromptTokenizer } from '../llama-tokenizer.js';
@@ -51,7 +52,7 @@ export class NativeBridge {
     if (code !== this.code || this.paired || this.now() >= this.pairingExpiry) throw new BridgeError('Pairing code is invalid, expired, or already used', 403);
     this.paired = true;
     const token = randomBytes(32).toString('hex');
-    this.connections.set(token, { expires: persistent ? Infinity : this.now() + 15_000, operations: new Map(), effects: Promise.resolve(), workspaces: new Map([['/bridge-workspace', this.workspace]]) });
+    this.connections.set(token, { expires: persistent ? Infinity : this.now() + BRIDGE_CONNECTION_TIMEOUT_MS, operations: new Map(), effects: Promise.resolve(), workspaces: new Map([['/bridge-workspace', this.workspace]]) });
     return { token };
   }
   private connection(token: string): Connection {
@@ -70,7 +71,7 @@ export class NativeBridge {
     if (typeof id !== 'string' || !id || connection.operations.has(id) || typeof operation !== 'string') throw new BridgeError('Use a unique request ID and operation');
     object(args);
     if (operation === 'inspectionProgress') return { stage: connection.inspectionStage ?? null };
-    if (operation === 'heartbeat') { connection.expires = connection.expires === Infinity ? Infinity : this.now() + 15_000; return { ok: true }; }
+    if (operation === 'heartbeat') { connection.expires = connection.expires === Infinity ? Infinity : this.now() + BRIDGE_CONNECTION_TIMEOUT_MS; return { ok: true }; }
     if (operation === 'release') { this.release(token); return { ok: true }; }
     if (operation === 'cancel') { connection.operations.get(text(args, 'id'))?.abort(); return { ok: true }; }
     const mutations = ['write', 'remove', 'move', 'git_commit', 'git_createBranch', 'git_checkout'];

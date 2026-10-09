@@ -162,7 +162,7 @@ test('unsupported transports, invalid entries, disabled servers and connection f
 
   const timed = new McpManager({ ...runtime, loadConfig: async () => ({ mcpServers: { slow: { url: 'http://slow/mcp' } } }) }, { connectTimeoutMs: 30 });
   await timed.load();
-  assert.match(String(servers(timed)[0]!.error), /no reply within 30 ms/);
+  assert.match(String(servers(timed)[0]!.error), /Time limit: 30 milliseconds/);
   const plain = new McpManager({ source: 'browser', stdioUnsupported: 'stdio needs Node.', loadConfig: async () => ({ mcpServers: { a: { command: 'x' }, b: { url: 'http://b/mcp' } } }) });
   await plain.load();
   assert.deepEqual(servers(plain).map(state => [state.status, state.error]), [['unsupported', 'stdio needs Node.'], ['unsupported', 'HTTP servers are unavailable in this runtime']]);

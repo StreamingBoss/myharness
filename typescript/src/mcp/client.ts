@@ -1,3 +1,4 @@
+import { timeoutDuration } from '../error-messages.js';
 import { sliceCharacters } from '../format.js';
 import { CLIENT_INFO, ERROR, HttpStatusError, LEGACY_VERSIONS, META, MODERN_VERSIONS, McpError, isModernError, isObject, requestMeta, type JsonObject, type RpcNotification, type RpcRequest, type RpcResponse } from './protocol.js';
 
@@ -24,7 +25,7 @@ const FALLBACK_STATUSES = [400, 404, 405];
 
 /** Runs `work` with `signal` plus a deadline. The timer is cleared afterwards. */
 export async function withDeadline<T>(signal: AbortSignal, ms: number, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  const deadline = new AbortController(), timer = setTimeout(() => deadline.abort(new Error(`no reply within ${ms} ms`)), ms);
+  const deadline = new AbortController(), timer = setTimeout(() => deadline.abort(new Error(`The connected tool service did not reply in time. [Time limit: ${timeoutDuration(ms)}]`)), ms);
   try { return await work(AbortSignal.any([signal, deadline.signal])); } finally { clearTimeout(timer); }
 }
 const shown = (value: unknown): string => sliceCharacters(typeof value === 'string' ? value : JSON.stringify(value), 2000);

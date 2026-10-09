@@ -1,3 +1,5 @@
+import { timeoutDuration } from './error-messages.js';
+import { DiagnosticError, failureDetails } from './failure.js';
 import type { ModelOption } from "./model.js";
 import type { ModelRequest } from "./core.js";
 import { unavailable, type TokenInspection, type InspectionProgress } from './tokenization.js';
@@ -25,7 +27,7 @@ export class OllamaAdapter {
     let data: Record<string, unknown>;
     try { data = await this.request('chat', { ...payload, stream: false, _debug_render_only: true, options: { ...payload.options, num_predict: 1 } }, signal); }
     catch (error) {
-      const reason = error instanceof Error && /^Ollama request failed with HTTP \d+$/.test(error.message) ? error.message : 'Ollama did not return a valid rendering response (connection failure, timeout or cancellation).';
+      const reason = error instanceof Error && /^Ollama request failed with HTTP \d+$/.test(error.message) ? error.message : 'Ollama could not prepare the saved message for token inspection. The connection may have failed, timed out, or been cancelled. [Time limit: 3 minutes]';
       result.explanation = `Ollama prompt rendering failed: ${reason} Check the Ollama server and its support for _debug_render_only. No tokenizer request was sent.`;
       return result;
     }
@@ -48,7 +50,8 @@ export class OllamaAdapter {
     let group;
     try { group = local ? await local.tokenize(prompt, signal ?? new AbortController().signal) : await tokenizeWithLlama(this.fetch_, binding!, prompt, signal); }
     catch (error) {
-      const reason = error instanceof Error && /^(Tokenizer model lookup failed \(HTTP \d+\)|Tokenizer request failed \(HTTP \d+\)|Configured tokenizer model alias does not match the running tokenizer service|Tokenizer did not return token pieces|Tokenizer returned an invalid token ID|Tokenizer returned invalid token bytes)$/.test(error.message) ? error.message : 'The tokenizer service is unavailable or returned an invalid response.';
+      const limit = error instanceof DiagnosticError && error.failure.timeoutMs !== undefined ? ` [Time limit: ${timeoutDuration(error.failure.timeoutMs)}]` : '';
+      const reason = error instanceof DiagnosticError ? `${error.failure.reason}${limit}` : error instanceof Error && /^(Tokenizer model lookup failed \(HTTP \d+\)|Tokenizer request failed \(HTTP \d+\)|Configured tokenizer model alias does not match the running tokenizer service|Tokenizer did not return token pieces|Tokenizer returned an invalid token ID|Tokenizer returned invalid token bytes)$/.test(error.message) ? error.message : 'The tokenizer service is unavailable or returned an invalid response.';
       result.explanation = `llama.cpp tokenization failed: ${reason} Check the running tokenizer, matching GGUF and model alias, then retry.`;
       return result;
     }
@@ -64,11 +67,17 @@ export class OllamaAdapter {
     return fetch_(input, init);
   }
 
+  private fetchResponse(url: string, init: Parameters<FetchLike>[1], timeoutMs: number): Promise<FetchResponse> {
+    return this.fetch(url, init).catch(error => {
+      const reason = error instanceof Error && /^Ollama request failed with HTTP \d+$/.test(error.message) ? error.message : 'Could not connect to Ollama. Check its address, browser access and network connection.';
+      throw new DiagnosticError(failureDetails(reason, 'model', 'Ollama', 'Check that Ollama is running and the selected model is installed, then retry.', timeoutMs));
+    });
+  }
   async *streamChat(payload: ModelRequest, signal?: AbortSignal): AsyncGenerator<string> {
-    const response = await this.fetch(`${this.baseUrl}/api/chat`, {
+    const response = await this.fetchResponse(`${this.baseUrl}/api/chat`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
-    });
+    }, 180_000);
     if (!response.ok) throw new Error(`Ollama request failed with HTTP ${response.status}`);
     if (!response.body) throw new Error("Ollama returned no response body");
     const reader = response.body.getReader();
@@ -92,13 +101,13 @@ export class OllamaAdapter {
   }
 
   async request(endpoint: string, payload: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const response = await this.fetch(`${this.baseUrl}/api/${endpoint}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000) });
+    const response = await this.fetchResponse(`${this.baseUrl}/api/${endpoint}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000) }, 180_000);
     if (!response.ok) throw new Error(`Ollama request failed with HTTP ${response.status}`);
     return await response.json() as Record<string, unknown>;
   }
 
   async listModels(): Promise<ModelOption[]> {
-    const response = await this.fetch(`${this.baseUrl}/api/tags`, { method: 'GET', signal: AbortSignal.timeout(10_000) });
+    const response = await this.fetchResponse(`${this.baseUrl}/api/tags`, { method: 'GET', signal: AbortSignal.timeout(10_000) }, 10_000);
     if (!response.ok) throw new Error(`Could not list Ollama models (HTTP ${response.status}). Check the server URL and OLLAMA_ORIGINS.`);
     const data = await response.json() as { models?: { name?: unknown }[] };
     if (!data || !Array.isArray(data.models)) throw new Error('Ollama returned an invalid model list.');

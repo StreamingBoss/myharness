@@ -23,7 +23,7 @@ test('diagnostics identify model and bridge failures and retain safe details in 
   assert.equal(failureText('offline', 'fallback'), 'fallback');
   assert.equal(failureText(new Error('offline'), 'fallback'), 'fallback');
   assert.equal(failureText(new BackendError('offline'), 'fallback'), 'fallback');
-  assert.match(failureText(new DiagnosticError(detail), 'fallback'), /Source: model.*Ollama/);
+  assert.match(failureText(new DiagnosticError(detail), 'fallback'), /Where: Model service.*Ollama/);
   for (const error of [new Error('HTTP 503'), 'offline', new BridgeError('Bridge connection expired', 401)]) {
     const harness = new NodeHarness({ workspace: root, model: 'q', contextLength: 1000, ollama: { async *streamChat() { throw error; } } });
     const events = []; for await (const event of harness.submit(action)) events.push(event);
@@ -62,7 +62,7 @@ test('chat diagnostics render the same details in live errors and replay without
   const failure = failureDetails('HTTP 503', 'model', 'Ollama / q', 'Start Ollama and retry.');
   const displayed = context.displayError(context.responseError({ error: failure.reason, failure }));
   assert.match(displayed, /Source: model/); assert.match(displayed, /Ollama \/ q/); assert.match(displayed, /Reason: HTTP 503/); assert.match(displayed, /Next: Start Ollama/);
-  assert.match(context.displayError(context.responseError({ error: 'offline' })), /Source: unavailable/);
+  assert.match(context.displayError(context.responseError({ error: 'offline' })), /request could not be completed/);
   assert.match(context.displayError(context.responseError({})), /Request failed/);
   new Script(html.slice(html.indexOf('function replaySessionEvent('), html.indexOf('// A loop-hygiene guard'))).runInNewContext(context);
   context.replaySessionEvent({ type: 'stopped', reason: 'Turn failed', failure });

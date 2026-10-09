@@ -43,7 +43,7 @@ test('browser hydrates the existing UI, streams a terminal reply, and restores s
 
 test('a separately served UI approves a write and exports the backend session', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'myharness-browser-split-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const ui = createServer(async (request, response) => { const file = request.url!.startsWith('/static/') ? path.join(process.cwd(), 'web', request.url!) : path.join(process.cwd(), 'web/templates/index.html'); response.end(await readFile(file)); });
+  const ui = createServer(async (request, response) => { const file = request.url === '/error-messages.js' ? path.join(process.cwd(), 'dist/browser/error-messages.js') : request.url!.startsWith('/static/') ? path.join(process.cwd(), 'web', request.url!) : path.join(process.cwd(), 'web/templates/index.html'); response.end(await readFile(file)); });
   await new Promise<void>(resolve => ui.listen(0, '127.0.0.1', resolve)); t.after(() => ui.close());
   const uiAddress = ui.address(); assert.ok(uiAddress && typeof uiAddress !== 'string'); const origin = `http://127.0.0.1:${uiAddress.port}`;
   let turn = 0;

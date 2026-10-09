@@ -101,7 +101,7 @@ test('empty-model, manual unknown skill, project refresh and optional-runtime bo
   await harness.reset(); await collect(harness.submit({ ...action, message: '/one' }));
   const emptySkills = new NodeHarness({ workspace: path.join(dir, 'work'), projectRoot: path.join(dir, 'work'), model: 'q', contextLength: 1000, ollama: model });
   assert.match((await emptySkills.runTool('use_skill', { name: 'absent' }, ['use_skill']) as { text: string }).text, /\(none\)/);
-  await assert.rejects(new NodeHarness({ workspace: dir, model: 'q', contextLength: 1000, ollama: { streamChat: model.streamChat } }).explore(action), /does not support/);
+  assert.match(String((await new NodeHarness({ workspace: dir, model: 'q', contextLength: 1000, ollama: { streamChat: model.streamChat } }).explore(action)).template), /Model template unavailable/);
   assert.equal((await new NodeHarness({ workspace: dir, model: 'qwen', contextLength: 1000, ollama: { ...model, async request() { return {}; } } }).explore(action)).template, '');
   assert.match(String((await emptySkills.explore({ ...action, useMemory: false })).final), /only written for Qwen/);
   const missingPrompt = harness.activeSessionRecord(); missingPrompt.setup = { prompt: 'gone', agent: 'gone' }; missingPrompt.snapshots = { prompt: { name: 'gone', text: '' }, agent: { name: 'gone', value: null } }; await store.save(missingPrompt); await harness.activateSession(missingPrompt.id); await collect(harness.submit(action));

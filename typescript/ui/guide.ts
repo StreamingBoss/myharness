@@ -1,4 +1,4 @@
-import { failureText } from '../src/failure.js';
+import { failureText, presentFailure } from '../src/failure.js';
 import { WorkerClient, type WorkerPort } from '../src/browser/client.js';
 import { SessionRelay } from '../src/browser/channel.js';
 
@@ -11,7 +11,16 @@ export interface GuidePlatform {
 /** View/controller only: all configuration, privacy and execution actions go to the backend. */
 export function mountGuide(document_: Document, window_: Window, platform: GuidePlatform): () => void {
   const input = (id: string) => document_.getElementById(id) as HTMLInputElement;
-  const status = (message: string) => { input('status').textContent = message; };
+  const showStatus = (id: string, message: string) => {
+    const node = input(id), marker = "\n\nTechnical details: ", split = message.indexOf(marker);
+    node.textContent = split < 0 ? message : message.slice(0, split);
+    if (split >= 0) {
+      const details = document_.createElement('details'), label = document_.createElement('summary'), diagnostic = document_.createElement('pre');
+      label.textContent = 'Technical details'; diagnostic.textContent = message.slice(split + marker.length);
+      details.append(label, diagnostic); node.append(details);
+    }
+  };
+  const status = (message: string) => { showStatus('status', message); };
   let worker: WorkerPort | undefined, client: WorkerClient | undefined, relay: SessionRelay | undefined, child: Window | null = null;
   let ending: Promise<void> | undefined;
   const notifyHarness = () => { if (child && !child.closed) child.postMessage({ type: 'harness-state-changed' }, window_.location.origin); };
@@ -28,13 +37,41 @@ export function mountGuide(document_: Document, window_: Window, platform: Guide
     if (!client) {
       const url = new URL('./managed-worker.js', window_.location.href);
       url.searchParams.set('temporary', input('privacy').value === 'shared' ? '1' : '0');
+      shownLock = undefined;
       worker = platform.worker(url); client = new WorkerClient(worker);
       relay = new SessionRelay(worker, () => { void end().catch(() => status('Session connection closed.')); });
     }
     return client;
   };
+  let refreshingConnections = false, shownLock: string | undefined;
+  const refreshConnections = async () => {
+    if (!client || ending || refreshingConnections) return;
+    const current = client; refreshingConnections = true;
+    try {
+      const state = await current.call('connectionStatus') as { bridge: { connected: boolean; workspace?: string }; model: { ready: boolean; provider: string; name: string }; reason?: string };
+      if (current !== client) return;
+      if (!input('connect-bridge').disabled) input('bridge-status').textContent = state.bridge.connected
+        ? 'Connected to your local computer. Choose a project folder in the harness.'
+        : 'Local computer disconnected. Reconnect the bridge here to use local files and commands.';
+      if (!input('connect-model').disabled) input('model-status').textContent = state.model.ready
+        ? `Model configured: ${state.model.name}.`
+        : 'Model disconnected. Enter your API key or restore a saved key, then click Connect model.';
+      if (state.reason && state.reason !== shownLock) { status(presentFailure(undefined, state.reason)); notifyHarness(); }
+      if (!state.reason && shownLock) {
+        if (input('status').textContent!.startsWith(presentFailure(undefined, shownLock).split('\n\nTechnical details: ')[0]!)) status('Connection status updated. Check the model and local computer indicators above before continuing.');
+        notifyHarness();
+      }
+      shownLock = state.reason;
+    } catch (error) {
+      if (current === client) {
+        input('bridge-status').textContent = 'Connection status could not be checked.';
+        input('model-status').textContent = 'Connection status could not be checked.';
+        status(failureText(error, 'Could not check your connections. Keep Guide & Setup open and retry. If this experiment ended, open a new harness tab from this page.'));
+      }
+    } finally { refreshingConnections = false; }
+  };
   const command = (id: string, action: () => Promise<void>) => {
-    input(id).addEventListener('click', () => { void action().catch(error => { clearFields(); status(failureText(error, 'Could not complete this action. Check connections, passphrase, mode, and whether the harness is busy.')); }); });
+    input(id).addEventListener('click', () => { void action().catch(error => { clearFields(); status(failureText(error, 'This action could not be completed. Check its connection settings on this page and try again. If a message is still running, wait for it or press Stop.')); }); });
   };
   const models = async () => {
     const config = { provider: input('provider').value, url: input('ollama-url').value, apiKey: input('api-key').value };
@@ -54,7 +91,7 @@ export function mountGuide(document_: Document, window_: Window, platform: Guide
   command('check-models', models);
   command('connect-model', async () => {
     const button = input('connect-model');
-    const report = (message: string) => { input('model-status').textContent = message; status(message); };
+    const report = (message: string) => { showStatus('model-status', message); status(message); };
     button.disabled = true;
     report('Connecting selected model…');
     try {
@@ -62,7 +99,7 @@ export function mountGuide(document_: Document, window_: Window, platform: Guide
       notifyHarness();
       report('Model connected. Open the harness to experiment.');
     } catch (error) {
-      report(failureText(error, 'Could not connect to model. Check the provider, model ID, API key or unlocked vault, and whether the harness is busy. For Ollama, check its address and allowed website origin.'));
+      report(failureText(error, 'Could not connect to model. Check the selected model, service address and API key on this page, then try again. For Ollama, make sure the model is installed and this website can access it.'));
     } finally {
       input('api-key').value = '';
       button.disabled = false;
@@ -92,7 +129,7 @@ export function mountGuide(document_: Document, window_: Window, platform: Guide
   });
   command('connect-bridge', async () => {
     const button = input('connect-bridge');
-    const report = (message: string) => { input('bridge-status').textContent = message; status(message); };
+    const report = (message: string) => { showStatus('bridge-status', message); status(message); };
     button.disabled = true;
     report('Connecting to local bridge…');
     try {
@@ -128,9 +165,11 @@ export function mountGuide(document_: Document, window_: Window, platform: Guide
   const activity = () => { if (client) void client.call('activity').catch(() => undefined); };
   const pagehide = () => { void end().catch(() => undefined); worker?.terminate(); clearFields(); };
   window_.addEventListener('message', ready); window_.addEventListener('pointerdown', activity); window_.addEventListener('keydown', activity); window_.addEventListener('pagehide', pagehide);
-  const timer = window_.setInterval(() => { if (child?.closed) void end().catch(() => undefined); }, 1000);
+  const focus = () => { void refreshConnections(); };
+  window_.addEventListener('focus', focus);
+  const timer = window_.setInterval(() => { if (child?.closed) void end().catch(() => undefined); else void refreshConnections(); }, 1000);
   render();
   return () => {
-    window_.clearInterval(timer); window_.removeEventListener('message', ready); window_.removeEventListener('pointerdown', activity); window_.removeEventListener('keydown', activity); window_.removeEventListener('pagehide', pagehide); pagehide();
+    window_.clearInterval(timer); window_.removeEventListener('focus', focus); window_.removeEventListener('message', ready); window_.removeEventListener('pointerdown', activity); window_.removeEventListener('keydown', activity); window_.removeEventListener('pagehide', pagehide); pagehide();
   };
 }

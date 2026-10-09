@@ -15,6 +15,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--llama-source', type=pathlib.Path, required=True)
 parser.add_argument('--helper', type=pathlib.Path, required=True)
 args = parser.parse_args()
+args.llama_source = args.llama_source.resolve()
+args.helper = args.helper.resolve()
 source = pathlib.Path(__file__).resolve().parents[1]
 
 with tempfile.TemporaryDirectory(prefix='myharness-native-check-') as folder:

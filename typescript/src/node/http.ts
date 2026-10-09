@@ -53,7 +53,7 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
         if (!existsSync(file)) throw new BackendError('Not found', 404);
         response.writeHead(200, { 'content-type': route === '/' ? 'text/html; charset=utf-8' : 'application/javascript' }); response.end(await readFile(file)); return;
       }
-      const browserAssets: Record<string, string> = { '/guide.html': 'text/html; charset=utf-8', '/index.html': 'text/html; charset=utf-8', '/guide-ui.js': 'application/javascript', '/managed-worker.js': 'application/javascript', '/library.json': 'application/json', '/browser-ui.js': 'application/javascript', '/backend-worker.js': 'application/javascript', '/browser-backend.js': 'application/javascript' };
+      const browserAssets: Record<string, string> = { '/error-messages.js': 'application/javascript', '/guide.html': 'text/html; charset=utf-8', '/index.html': 'text/html; charset=utf-8', '/guide-ui.js': 'application/javascript', '/managed-worker.js': 'application/javascript', '/library.json': 'application/json', '/browser-ui.js': 'application/javascript', '/backend-worker.js': 'application/javascript', '/browser-backend.js': 'application/javascript' };
       if (request.method === 'GET' && browserAssets[route]) {
         const file = path.join(root, 'dist/browser', route.slice(1));
         if (!existsSync(file)) throw new BackendError('Build the browser distribution before opening Guide & Setup.', 404);
@@ -110,7 +110,7 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
         const value = await body(request);
         send(response, 200, await harness.tokenize(value.event_index as number, typeof value.session_id === 'string' ? value.session_id : undefined)); return;
       }
-      if (request.method === 'POST' && route === '/explore') { send(response, 200, await harness.explore(action(await body(request), false))); return; }
+      if (request.method === 'POST' && route === '/explore') { const value = await body(request); send(response, 200, await harness.explore(action(value, false), value.describe_model !== false)); return; }
       if (request.method === 'POST' && route === '/project') {
         const value = await body(request);
         if (typeof value.path !== 'string') throw new BackendError('path must be a string');

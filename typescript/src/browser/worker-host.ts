@@ -56,7 +56,7 @@ export class WorkerHost {
         case 'browse': value = await backend.browseProject(typeof payload.path === 'string' ? payload.path : backend.state.workspace, payload.bridge === true); break;
         case 'tokenizationProgress': value = await backend.tokenizationProgress(); break;
         case 'tokenize': value = await backend.tokenize(payload.event_index as number, typeof payload.session_id === 'string' ? payload.session_id : undefined); break;
-        case 'explore': value = await backend.explore(turnAction(payload, false)); break;
+        case 'explore': value = await backend.explore(turnAction(payload, false), payload.describe_model !== false); break;
         case 'importProject': value = await backend.importProject(payload); break;
         case 'exportProject': value = await backend.exportProject(); break;
         case 'attachLocalFolder': value = await backend.attachLocalFolder(payload.handle as LocalDirectory); break;

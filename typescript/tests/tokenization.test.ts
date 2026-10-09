@@ -78,14 +78,16 @@ test('Gemini generation normalizes terminal content, usage and provider parts, w
   const calls: { url: string; headers: Record<string, string>; body: Record<string, unknown>; signal: AbortSignal }[] = [];
   const adapter = new GeminiAdapter(async (url, init) => { calls.push({ url, headers: init.headers!, body: JSON.parse(init.body!), signal: init.signal! }); return response({ modelVersion: 'gemini-test-001', candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: 'thought', thought: true }, { text: 'answer' }, { functionCall: { name: 'pwd', args: {} }, thoughtSignature: 'sig' }, { functionCall: { name: 'other' } }] } }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2, thoughtsTokenCount: 3 } }); }, { kind: 'developer', apiKey: 'secret' });
   const data = JSON.parse(String((await collect(adapter.streamChat(request('gemini-test'))))[0]));
-  assert.equal(data.message.content, 'answer'); assert.equal(data.message.thinking, 'thought'); assert.equal(data.message.tool_calls.length, 2); assert.equal(data.eval_count, 5); assert.equal(data.done_reason, 'length');
+  assert.equal(data.message.content, 'answer'); assert.equal(data.message.thinking, 'thought'); assert.equal(data.message.tool_calls.length, 2); assert.equal(data.eval_count, 5); assert.equal(data.done_reason, 'length'); assert.equal(data.reasoning_count, 3); assert.equal(data.cached_count, undefined);
   assert.equal(calls[0]!.headers['x-goog-api-key'], 'secret'); assert.ok(!calls[0]!.url.includes('secret')); assert.ok(!JSON.stringify(adapter.requestMetadata(request('gemini-test'))).includes('secret'));
   const controller = new AbortController(); await adapter.request('chat', { ...request('gemini-test'), options: { num_ctx: 10, num_predict: 600 } }, controller.signal); controller.abort(); assert.equal(calls[1]!.signal.aborted, true); assert.deepEqual(calls[1]!.body.generationConfig, { maxOutputTokens: 600 });
   assert.match(String((await adapter.request('show', {})).template), /not exposed/);
   await assert.rejects(() => adapter.request('unknown', {}), /Unsupported/);
   await assert.rejects(() => adapter.request('chat', request('qwen')), /explicit Gemini/);
   const empty = new GeminiAdapter(async () => response({}), { kind: 'developer', apiKey: 'key' });
-  const normalized = await empty.request('chat', request('gemini-test')); assert.equal((normalized.message as { content: string }).content, ''); assert.equal(normalized.prompt_eval_count, 0); assert.equal(normalized.eval_count, 0); assert.equal(normalized.done_reason, 'stop');
+  const normalized = await empty.request('chat', request('gemini-test')); assert.equal((normalized.message as { content: string }).content, ''); assert.equal(normalized.prompt_eval_count, 0); assert.equal(normalized.eval_count, 0); assert.equal(normalized.done_reason, 'stop'); assert.equal(normalized.reasoning_count, undefined);
+  const cached = new GeminiAdapter(async () => response({ usageMetadata: { promptTokenCount: 10, cachedContentTokenCount: 7 } }), { kind: 'developer', apiKey: 'key' });
+  assert.equal((await cached.request('chat', request('gemini-test'))).cached_count, 7);
   const blocked = new GeminiAdapter(async () => response({}, 401), { kind: 'developer', apiKey: 'secret' }); await assert.rejects(() => blocked.request('chat', request('gemini-test')), /HTTP 401/);
   assert.throws(() => new GeminiAdapter(fetch, { kind: 'developer', apiKey: '' })); assert.throws(() => new GeminiAdapter(fetch, { kind: 'vertex', project: '', location: 'global', accessToken: 'token' }));
 });

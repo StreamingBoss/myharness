@@ -39,7 +39,33 @@ test('bottom viewer explains exactness, shows real pieces/bytes and restores ins
   const detail = await page.locator('#token-details').textContent(); assert.match(detail!, /9007199254740993/); assert.match(detail!, /C3/); assert.match(detail!, /part of a UTF-8/);
   assert.match(await page.locator('#token-summary').textContent() ?? '', /Input count reported during generation: 12/); assert.equal(await page.locator('#tokenization img').count(), 0);
   await page.reload(); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0); await page.locator('#explore-view').selectOption('tokens'); await page.locator('.token-chip').first().waitFor(); assert.equal(inspected, 1);
+  await page.locator('.token-chip').first().click();
+  await page.locator('#token-groups details').first().evaluate(node => node.setAttribute('open', ''));
+  const selectedDetails = await page.locator('#token-details').textContent();
+  await page.evaluate(() => {
+    const scope = globalThis as unknown as { tokenMutations: number };
+    scope.tokenMutations = 0;
+    const observer = new MutationObserver(records => { scope.tokenMutations += records.length; });
+    for (const id of ['token-summary', 'token-groups', 'token-details', 'token-about']) observer.observe(document.getElementById(id)!, { childList: true, subtree: true, characterData: true, attributes: true });
+  });
+  await page.locator('#input').fill('second message'); await page.locator('#send').click();
+  await page.waitForFunction(() => document.querySelectorAll('#token-request option').length === 2);
+  assert.equal(await page.evaluate(() => (globalThis as unknown as { tokenMutations: number }).tokenMutations), 0);
+  assert.equal(await page.locator('#token-details').textContent(), selectedDetails);
+  assert.equal(await page.locator('#token-groups details').first().getAttribute('open'), '');
+  assert.equal(await page.locator('#token-request').inputValue(), '1');
+  assert.equal(inspected, 1);
+  await page.locator('#token-request').selectOption({ label: '2 · gemini-test · gemini-vertex' });
+  assert.equal(await page.locator('#token-inspect').isEnabled(), true);
+  await page.locator('#token-inspect').click();
+  await page.getByText('Provider tokenization of text', { exact: true }).waitFor(); assert.equal(inspected, 2);
+  await page.locator('#token-request').selectOption({ label: '1 · gemini-test · gemini-vertex' });
+  assert.equal(await page.locator('.token-chip').count(), 3); assert.equal(inspected, 2);
   await page.locator('#explore-view').selectOption('memory'); assert.equal(await page.locator('#tokenization').isVisible(), false); assert.equal(await page.locator('#memory').isVisible(), true);
+  await page.route('**/explore', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Explorer connection unavailable' }) }));
+  await page.locator('#explore-view').selectOption('tools');
+  await page.getByText(/Could not load this explorer view\.[\s\S]*Technical details: Explorer connection unavailable/).waitFor();
+  await page.unroute('**/explore');
   assert.ok((await page.locator('#harness-box').boundingBox())!.height < page.viewportSize()!.height * 0.45 - 1); assert.deepEqual(errors, []);
 });
 
@@ -73,6 +99,31 @@ test('viewer distinguishes count-only, configured-tokenizer, unavailable and fai
   await page.evaluate(() => { const s = globalThis as unknown as { status: number; mode: string; viewer: { refresh(id: string): Promise<void> } }; s.status = 200; s.mode = 'wait'; void s.viewer.refresh('stale'); });
   await page.evaluate(() => { const s = globalThis as unknown as { mode: string; viewer: { refresh(id: string): Promise<void> } }; s.mode = 'success'; return s.viewer.refresh('current'); });
   await page.evaluate(() => (globalThis as unknown as { resolve(response: Response): void }).resolve(Response.json({ events: [] }))); assert.equal(await page.locator('#token-request option').count(), 2);
+});
+
+test('viewer refresh renders changed evidence and handles removed requests in the same session', async t => {
+  const browser = await launch(); t.after(() => browser.close()); const page = await browser.newPage();
+  await page.setContent('<div id="root"></div>'); await page.addScriptTag({ path: 'web/static/tokenization.js' });
+  await page.evaluate(async () => {
+    const scope = globalThis as unknown as { TokenViewer: new (...args: unknown[]) => { refresh(id: string): Promise<void> }; viewer: { refresh(id: string): Promise<void> }; events: unknown[] };
+    scope.events = [{ type: 'request', model_request: { model: 'qwen' } }];
+    scope.viewer = new scope.TokenViewer(document.getElementById('root'), async () => Response.json({ events: scope.events }), () => {});
+    await scope.viewer.refresh('current');
+  });
+  assert.match(await page.locator('#token-summary').innerText(), /Not inspected/);
+  await page.evaluate(async () => {
+    const scope = globalThis as unknown as { viewer: { refresh(id: string): Promise<void> }; events: unknown[] };
+    scope.events.push({ type: 'tokenization', request_index: 0, inspection: { model: 'qwen', provider: 'ollama', fidelity: 'count-only', source: 'fixture', explanation: 'fixture', coverage: 'fixture', count: 10, groups: [], limitations: [] } });
+    await scope.viewer.refresh('current');
+  });
+  assert.match(await page.locator('#token-summary').innerText(), /Inspection count: 10/);
+  await page.evaluate(async () => {
+    const scope = globalThis as unknown as { viewer: { refresh(id: string): Promise<void> }; events: unknown[] };
+    scope.events = []; await scope.viewer.refresh('current');
+  });
+  assert.equal(await page.locator('#token-request option').count(), 0);
+  assert.match(await page.locator('#token-summary').innerText(), /no saved request/);
+  assert.equal(await page.locator('#token-inspect').isEnabled(), false);
 });
 
 test('viewer shows backend loading, rendering and tokenizing stages and ignores late progress', async t => {

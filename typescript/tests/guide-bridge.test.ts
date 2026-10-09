@@ -73,7 +73,7 @@ test('bridge policy, pairing, lease, request IDs and HTTP origin checks fail clo
   await assert.rejects(call('write'), /not granted/); await assert.rejects(call('command'), /not granted/); await assert.rejects(call('git_commit'), /not granted/);
   await assert.rejects(call('unknown'), /Unknown/); await assert.rejects(call('read', { path: '/etc/passwd' }));
   await assert.rejects(bridge.call(token, { id: '', operation: 'read', args: {} }), /unique/);
-  await call('cancel', { id: 'nonexistent' }); now = 1000; await call('heartbeat'); now = 16000; await assert.rejects(call('snapshot'), /unavailable/); bridge.release('missing'); bridge.close();
+  await call('cancel', { id: 'nonexistent' }); now = 1000; await call('heartbeat'); now = 120999; await call('snapshot'); now = 121000; await assert.rejects(call('snapshot'), /unavailable/); bridge.release('missing'); bridge.close();
   const expired = new NativeBridge({ workspace: root, origin: bridge.origin, grants, now: () => now }); now += 300001; assert.throws(() => expired.pair(expired.code));
   assert.equal((await fetch(base + '/v1/pair', { method: 'POST' })).status, 403);
   assert.equal(await new Promise<number>(resolve => { const request = httpRequest(base + '/v1/pair', { method: 'POST', headers: { origin: bridge.origin, host: 'evil.test' } }, response => { response.resume(); resolve(response.statusCode!); }); request.end(); }), 403);

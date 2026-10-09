@@ -1,6 +1,7 @@
-import { DiagnosticError, failureDetails } from './failure.js';
+import { DiagnosticError, failureDetails, type FailureDetails } from './failure.js';
 import { legacyEvents, validateToolBatch, type ModelEvent, type ModelResult } from './model.js';
 import { RepeatGuard, type RepeatReminder } from './guard.js';
+import { prefixReuse, prefixText, timingSummary, timingText, turnTimelineText, turnTotals, type MeasuredTiming, type RoundTiming } from './timing.js';
 /** Transport-free agent loop shared by Node and a future browser host. */
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
@@ -40,6 +41,16 @@ export interface ModelChunk {
   done?: boolean;
   prompt_eval_count?: number;
   eval_count?: number;
+  /** Ollama durations in nanoseconds. */
+  load_duration?: number;
+  prompt_eval_duration?: number;
+  eval_duration?: number;
+  total_duration?: number;
+  /** Prompt tokens Ollama reused from its KV cache instead of computing them again. */
+  prompt_eval_cached_count?: number;
+  /** Input tokens served from a provider prompt cache, and output tokens spent thinking. */
+  cached_count?: number;
+  reasoning_count?: number;
 }
 
 export interface ModelRequest {
@@ -73,7 +84,7 @@ export interface Turn {
 export type ApprovalOutcome = "allowed-once" | "rejected" | "cancelled" | "unavailable";
 
 export type ToolResult =
-  | { kind: "text"; text: string }
+  | { kind: "text"; text: string; failure?: FailureDetails }
   | { kind: "change"; change: unknown }
   | { kind: "command"; command: string }
   | { kind: "mcp"; call: unknown }
@@ -84,6 +95,8 @@ export type ToolResult =
 export interface TurnHost {
   readonly maxSteps: number;
   stopped(): boolean;
+  stopReason?(): string;
+  stoppedToolResult?(): string;
   modelProvider?(): string | undefined;
   maxOutputTokens?(): number | undefined;
   streamModel?(payload: ModelRequest): AsyncIterable<ModelEvent>;
@@ -114,6 +127,11 @@ export interface TurnHost {
   /** Terminal goal updates close tool admission after the balanced batch. */
   concludesTurn?(): boolean;
   takeContext?(): ChatMessage[];
+  /** Monotonic milliseconds, for timing model calls and tools. Without it only provider-reported timing is shown. */
+  now?(): number;
+  /** The last request sent to the model, kept by the host across turns to show what a prompt cache could reuse. */
+  previousRequest?(): ModelRequest | undefined;
+  setPreviousRequest?(payload: ModelRequest): void;
 }
 
 export type TurnOutcome = 'completed' | 'cancelled' | 'step-limit' | 'context-limit' | 'output-limit' | 'error';
@@ -125,6 +143,14 @@ export class HarnessCore {
   constructor(private readonly host: TurnHost) {}
 
   async *runTurn(turn: Turn): AsyncGenerator<CoreEvent, TurnOutcome> {
+    const rounds: RoundTiming[] = [];
+    const outcome = yield* this.runSteps(turn, rounds);
+    // One round is already covered by its TIMING block; the timeline shows how an agent loop's cost grows.
+    if (rounds.length > 1) yield this.emit({ type: "turn_timing", rounds, totals: turnTotals(rounds), timeline_text: turnTimelineText(rounds) });
+    return outcome;
+  }
+
+  private async *runSteps(turn: Turn, rounds: RoundTiming[]): AsyncGenerator<CoreEvent, TurnOutcome> {
     if (turn.manualSkill) {
       yield this.emit({ type: "skill", name: turn.manualSkill });
     }
@@ -168,21 +194,28 @@ export class HarnessCore {
         ...payload,
         messages: payload.messages.map((message) => message === turn.userMessage ? MARKER : message),
       };
+      const prefix = this.host.setPreviousRequest
+        ? prefixReuse(this.host.previousRequest?.(), payload, (messages, tools) => this.host.estimateTokens([], messages, tools))
+        : undefined;
+      this.host.setPreviousRequest?.(payload);
       yield this.emit({
-        ...this.host.requestMetadata?.(payload),
+        ...this.host.requestMetadata?.(payload), ...(prefix ? { prefix, prefix_text: prefixText(prefix) } : {}),
         ...(payload.provider ? { model_request: payload } : {}),
         type: "request", parts: this.host.splitJson(this.host.prepareModel?.(payload) ?? shown, turn.userMessage), memory: this.host.memoryText(),
         skill_context: this.host.skillContext([...system, ...turn.conversation]),
       });
 
-      const reply: string[] = [];
+      const reply: string[] = [], thoughts: string[] = [];
+      const started = this.host.now?.();
+      let firstDelta: number | undefined, streamed = false;
       let completed: ModelResult | undefined;
       const stream = this.host.streamModel ? this.host.streamModel(payload) : legacyEvents(this.host.streamChat(payload), () => this.host.stopped());
       for await (const event of stream) {
         if (this.host.stopped()) break;
         if (event.type === 'completed') completed = event.result;
         else {
-          reply.push(event.content);
+          if (firstDelta === undefined && started !== undefined) { firstDelta = this.host.now!(); streamed = !event.terminal; }
+          reply.push(event.content); thoughts.push(event.thinking);
           if (event.thinking) yield this.emit({ type: 'thinking', content: event.thinking });
           if (!event.terminal) yield this.emit({ type: 'chunk', content: event.content });
         }
@@ -206,13 +239,21 @@ export class HarnessCore {
       }
       turn.conversation.push(assistant);
       const received = { ...assistant, ...(completed.thinking ? { thinking: completed.thinking } : {}) };
+      // A KV cache also holds the tokens just generated, thinking included, so the next request is compared with the reply as generated.
+      this.host.setPreviousRequest?.({ ...payload, messages: [...payload.messages, received] });
       const tokensIn = completed.usage.input, tokensOut = completed.usage.output;
       if (turn.useMemory && tokensIn !== undefined) this.host.setLastPromptTokens(tokensIn);
       const used = tokensIn !== undefined && tokensOut !== undefined ? tokensIn + tokensOut : 'unknown';
+      const measured: MeasuredTiming | undefined = started === undefined ? undefined : { started, completed: this.host.now!(), streamed, ...(firstDelta === undefined ? {} : { firstDelta }) };
+      const timing = timingSummary(completed.usage, completed.timing, measured, completed.thinking || thoughts.join(''), assistant.content + (toolCalls.length ? JSON.stringify(toolCalls) : ''));
+      const round: RoundTiming = { round: rounds.length + 1, ...(tokensIn === undefined ? {} : { tokens_in: tokensIn }), ...(tokensOut === undefined ? {} : { tokens_out: tokensOut }),
+        ...(timing.wall_ms === undefined ? {} : { wall_ms: timing.wall_ms }), ...(timing.prefill_ms === undefined ? {} : { prefill_ms: timing.prefill_ms }), ...(timing.decode_ms === undefined ? {} : { decode_ms: timing.decode_ms }) };
+      rounds.push(round);
       yield this.emit({
         type: 'response', parts: this.host.splitJson({ ...completed.raw, message: MARKER }, received),
         tokens: `[${tokensIn ?? 'unknown'} in + ${tokensOut ?? 'unknown'} out = ${used} |${used} / ${this.host.contextLength()} ]`,
         tokens_in: tokensIn, ...(payload.provider ? { usage: completed.usage } : {}), context_length: this.host.contextLength(), memory: this.host.memoryText(), content: assistant.content,
+        round: round.round, timing, timing_text: timingText(timing, prefix),
       });
       if (!toolCalls.length) {
         if (!assistant.content) yield this.emit({ type: 'stopped', reason: 'The model returned an empty reply. Send another message to try again.', failure: failureDetails('The model returned an empty reply.', 'model', this.host.model(), 'Send another message to try again.'), memory: this.host.memoryText() });
@@ -220,6 +261,7 @@ export class HarnessCore {
       }
 
       const reminders: RepeatReminder[] = [];
+      const toolsStarted = this.host.now?.();
       for (const call of toolCalls) {
         const name = call.function.name;
         const arguments_ = call.function.arguments ?? {};
@@ -228,15 +270,16 @@ export class HarnessCore {
           if (reminder) reminders.push(reminder);
         }
         const result = this.host.stopped()
-          ? { kind: "text", text: STOPPED_RESULT } as ToolResult
+          ? { kind: "text", text: this.host.stoppedToolResult?.() ?? STOPPED_RESULT } as ToolResult
           : await this.host.runTool(name, arguments_, turn.enabledTools);
         const text = yield* this.resolveToolResult(name, result);
         turn.conversation.push({ role: "tool", tool_name: name, content: text, ...(call.id ? { tool_call_id: call.id } : {}) });
         yield this.emit({
-          type: "tool", name, arguments: JSON.stringify(arguments_), result: text, memory: this.host.memoryText(),
+          type: "tool", name, arguments: JSON.stringify(arguments_), result: text, ...(result.kind === "text" && result.failure ? { failure: result.failure } : {}), memory: this.host.memoryText(),
           skill_context: this.host.skillContext([...system, ...turn.conversation]),
         });
       }
+      if (toolsStarted !== undefined) round.tool_ms = this.host.now!() - toolsStarted;
       if (this.host.stopped()) {
         yield this.emit(this.stoppedEvent());
         return 'cancelled';
@@ -259,7 +302,7 @@ export class HarnessCore {
   }
 
   private stoppedEvent(): CoreEvent {
-    return { type: "stopped", reason: "stopped by the user", memory: this.host.memoryText() };
+    return { type: "stopped", reason: this.host.stopReason?.() ?? "turn cancelled", memory: this.host.memoryText() };
   }
 
   private async *resolveToolResult(name: string, result: ToolResult): AsyncGenerator<CoreEvent, string, void> {

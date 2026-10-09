@@ -28,11 +28,12 @@ test('HTTPS guide connects a real loopback bridge and Ollama fixture, opens unch
   await mkdir(path.join(scratch, 'agents'));
   await writeFile(path.join(scratch, 'agents', 'coder.md'), 'tools: read_file, write_file, run_command\n---\nProject coder: inspect the relevant code before answering.');
   assert.equal(spawnSync('git', ['init', '-q', scratch]).status, 0);
+  let failModelDescription = false;
   const model = new DemoModel(), ollama = createServer(async (request, response) => {
     response.setHeader('Access-Control-Allow-Origin', origin); response.setHeader('Access-Control-Allow-Headers', 'Content-Type'); response.setHeader('Access-Control-Allow-Private-Network', 'true');
     if (request.method === 'OPTIONS') { response.end(); return; }
     if (request.url === '/api/tags') { response.end(JSON.stringify({ models: [{ name: 'qwen3:8b' }] })); return; }
-    if (request.url === '/api/show') { response.end(JSON.stringify({ model_info: { 'general.architecture': 'qwen3', 'qwen3.context_length': 8192 } })); return; }
+    if (request.url === '/api/show') { if (failModelDescription) { response.writeHead(503); response.end('PRIVATE provider response'); return; } response.end(JSON.stringify({ model_info: { 'general.architecture': 'qwen3', 'qwen3.context_length': 8192 } })); return; }
     let body = ''; for await (const chunk of request) body += chunk;
     const payload = JSON.parse(body) as ModelRequest & { _debug_render_only?: boolean };
     if (payload._debug_render_only) { response.end(JSON.stringify({ _debug_info: { rendered_template: 'hello' } })); return; }
@@ -89,12 +90,29 @@ test('HTTPS guide connects a real loopback bridge and Ollama fixture, opens unch
   await child.reload();
   await child.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0 && !(document.getElementById('send') as HTMLButtonElement).disabled, undefined, { timeout: 12_000 });
   assert.match(await child.locator('#browser-mode-label').innerText(), /paired local workspace/);
-  assert.match(await page.locator('#bridge-status').innerText(), /Native workspace connected/);
+  assert.match(await page.locator('#bridge-status').innerText(), /Native workspace connected|Connected to your local computer/);
   assert.match(await child.locator('#messages').innerText(), /browser-approved.txt/);
   await child.locator('#input').fill('Write after-reload.txt: still connected'); await child.locator('#send').click();
   await child.getByRole('button', { name: 'Approve', exact: true }).click();
   await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled);
   assert.equal(await readFile(path.join(scratch, 'after-reload.txt'), 'utf8'), 'still connected\n');
+  // Inspect a fresh request after reload; cached evidence alone cannot prove bridge handoff.
+  await child.locator('#explore-view').selectOption('tokens');
+  await child.waitForFunction(() => document.querySelectorAll('#token-request option').length >= 4);
+  const latestRequest = await child.locator('#token-request option').last().getAttribute('value');
+  await child.locator('#token-request').selectOption(latestRequest!);
+  await child.locator('#token-inspect').click();
+  await child.getByText('Configured tokenizer · separate tokenization', { exact: true }).waitFor();
+  assert.equal(tokenizations, 2);
+  failModelDescription = true;
+  for (const [view, content] of [['system', /no system prompt selected/], ['agent', /no agent selected/], ['tools', /read_file/], ['template', /Model template unavailable/], ['final', /im_start/]]) {
+    await child.locator('#explore-view').selectOption(view as string);
+    await child.waitForFunction(pattern => new RegExp(pattern).test(document.getElementById('explore')!.textContent!), (content as RegExp).source);
+    if (view === 'template') assert.match(await child.locator('#explore-header').innerText(), /Model template unavailable/);
+    assert.ok(!(await child.locator('#explore').innerText()).includes('PRIVATE'));
+  }
+  failModelDescription = false;
+  await child.locator('#explore-view').selectOption('memory');
   await child.locator('#project').fill('/workspace'); await child.locator('#set-project').click();
   await child.waitForFunction(() => document.getElementById('browser-mode-label')!.textContent!.includes('virtual workspace'), undefined, { timeout: 3000 });
   assert.equal(await child.locator('.tool-checkbox[value="run_command"]').count(), 0);
@@ -135,5 +153,24 @@ test('HTTPS guide connects a real loopback bridge and Ollama fixture, opens unch
   const exported = await child.evaluate(async () => (window as unknown as { harness: { call(action: string): Promise<{ files: Record<string, string> }> } }).harness.call('exportProject'));
   assert.equal(exported.files['after-unpair.txt'], 'browser file\n');
   await child.close(); await page.waitForFunction(() => document.getElementById('status')!.textContent!.includes('Session ended'), undefined, { timeout: 5000 }).catch(async () => { throw new Error('After closure: ' + (await page.locator('#status').innerText()) + ' ' + requests.join(', ') + ' ' + errors.join(', ')); });
+  // A backend lease failure must replace the Guide's previous success result.
+  let connectionNow = 0;
+  const secondBridge = new NativeBridge({ workspace: scratch, origin, now: () => connectionNow, grants: { writes: true, commands: true, gitWrites: false } });
+  const secondServer = createBridgeServer(secondBridge); await new Promise<void>(resolve => secondServer.listen(0, '127.0.0.1', resolve));
+  t.after(() => { secondBridge.close(); secondServer.closeAllConnections(); secondServer.close(); });
+  failModelDescription = false; await page.locator('#connect-model').click();
+  await page.locator('#bridge-url').fill(`http://127.0.0.1:${(secondServer.address() as { port: number }).port}`);
+  await page.locator('#bridge-code').fill(secondBridge.code); await page.locator('#connect-bridge').click();
+  await page.waitForFunction(() => document.getElementById('bridge-status')!.textContent!.includes('connected') || document.getElementById('bridge-status')!.textContent!.includes('Connected'));
+  const resumedPopup = page.waitForEvent('popup'); await page.locator('#open-harness').click(); const resumedChild = await resumedPopup;
+  await resumedChild.waitForFunction(() => document.querySelectorAll('.tool-checkbox[value="run_command"]').length === 1);
+  connectionNow = 120_001; secondBridge.sweep(); await page.bringToFront();
+  await page.waitForFunction(() => document.getElementById('bridge-status')!.textContent!.includes('disconnected'), undefined, { timeout: 10_000 });
+  assert.match(await page.locator('#model-status').innerText(), /Model configured/);
+  assert.match(await page.locator('#status').innerText(), /Keep the harness tab open/);
+  assert.match(await page.locator('#status').innerText(), /Time limit: 2 minutes/);
+  assert.equal(await page.locator('#status details').evaluate(element => (element as HTMLDetailsElement).open), false);
+  await resumedChild.waitForFunction(() => document.querySelectorAll('.tool-checkbox[value="run_command"]').length === 0);
+  await resumedChild.close();
   assert.deepEqual(errors, []);
 });

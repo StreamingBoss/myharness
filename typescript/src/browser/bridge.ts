@@ -1,19 +1,20 @@
 import { BrowserWorkspace } from './workspace.js';
 import type { GitPort } from '../git.js';
 export type BridgeFetch = (input: string, init: RequestInit) => Promise<Response>;
-import { BridgeError, type BridgeSnapshot } from '../bridge/protocol.js';
+import { BRIDGE_CONNECTION_TIMEOUT_MS, BridgeError, type BridgeSnapshot } from '../bridge/protocol.js';
 
 /** A private origin-paired connection. Tokens never appear in state or workspace data. */
 export class BridgeClient {
   private token = '';
   private ended = false;
+  private available = true;
   private snapshot_: BridgeSnapshot | undefined;
   private readonly projects = new Map<string, BridgeSnapshot>();
   constructor(readonly endpoint: string, private readonly fetch_: BridgeFetch = fetch) {
     const url = new URL(endpoint);
     if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.pathname !== '/' || url.search || url.hash || url.username || url.password) throw new BridgeError('Use an HTTP loopback bridge URL such as http://127.0.0.1:5001');
   }
-  get connected(): boolean { return !this.ended && !!this.token; }
+  get connected(): boolean { return !this.ended && this.available && !!this.token; }
   async pair(code: string, persistent = false): Promise<void> {
     const data = await this.request('pair', { code, persistent }); this.token = (data as { token: string }).token;
     this.snapshot_ = await this.call<BridgeSnapshot>('snapshot');
@@ -33,10 +34,11 @@ export class BridgeClient {
   private async request(route: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
     const fetch_ = this.fetch_;
     let response;
-    const timeout = (body as { operation?: string }).operation === 'inspectTokens' ? 260_000 : 70_000;
+    const timeout = (body as { operation?: string }).operation === 'inspectTokens' ? 260_000 : BRIDGE_CONNECTION_TIMEOUT_MS;
     try { response = await fetch_(new URL('v1/' + route, this.endpoint).href, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + this.token }, body: JSON.stringify(body), redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout) }); }
-    catch { throw new BridgeError('Bridge request unavailable, timed out or cancelled. Check origin, browser local-network permission, and the bridge process.'); }
-    if (!response.ok) throw new BridgeError('Bridge denied the request (' + response.status + '). Check pairing, local grants, or whether the file changed.');
+    catch { this.available = false; throw new BridgeError('Bridge request unavailable, timed out or cancelled. Check origin, browser local-network permission, and the bridge process.', 400, timeout); }
+    if (!response.ok) { if (response.status === 401) this.available = false; throw new BridgeError('Bridge denied the request (' + response.status + '). Check pairing, local grants, or whether the file changed.'); }
+    this.available = true;
     return ((await response.json()) as { value: unknown }).value;
   }
   async call<T = unknown>(operation: string, args: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {

@@ -1,3 +1,4 @@
+import { DiagnosticError, failureDetails } from './failure.js';
 import type { McpFetch } from './mcp/http.js';
 
 /**
@@ -37,7 +38,7 @@ export async function webSearch(fetch_: McpFetch, query: string, signal?: AbortS
   const url = new URL(DUCKDUCKGO_URL);
   url.searchParams.set('q', query);
   const timeout = AbortSignal.timeout(timeoutMs);
-  const response = await fetch_(url.href, { method: 'GET', headers: { accept: 'text/html', 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0' }, signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+  const response = await fetch_(url.href, { method: 'GET', headers: { accept: 'text/html', 'user-agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0' }, signal: signal ? AbortSignal.any([signal, timeout]) : timeout }).catch(() => { throw new DiagnosticError(failureDetails('Web search could not reach DuckDuckGo.', 'harness', 'Web search', 'Check the network connection and try your search again.', timeoutMs)); });
   if (!response.ok) throw new Error(`DuckDuckGo answered HTTP ${response.status}${response.status === 429 ? ' (rate limit reached)' : ''}`);
   const page = await response.text(), results = parse(page).slice(0, RESULTS);
   if (!results.length) {

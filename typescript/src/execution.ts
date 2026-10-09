@@ -1,3 +1,4 @@
+import { timeoutDuration } from './error-messages.js';
 import type { CoreEvent } from './core.js';
 
 export type ExecutionStatus = 'running' | 'stopping' | 'completed' | 'cancelled' | 'timed-out' | 'policy-disabled' | 'error' | 'limit';
@@ -53,6 +54,7 @@ export class Execution {
   /** Close admission synchronously; completion waits for every owned operation to drain. */
   stop(cause: StopCause): void {
     if (this.finished || this.cause || this.snapshot.ended_at) return;
+    if (cause === 'timed-out') this.snapshot.reason = `The task stopped because it reached its time limit. Partial output is still available. [Time limit: ${timeoutDuration(this.snapshot.timeout_ms)}]`;
     this.cause = cause; this.snapshot.status = 'stopping'; this.cancelWork();
     this.emit({ type: 'run_status', status: 'stopping', cause });
   }

@@ -61,7 +61,7 @@ locking first and starting a fresh bridge process with a new code.
 Requests use `/v1/pair` and `/v1/call`, exact Host/Origin checks and in-memory bearer
 tokens. Every operation has an ID. Command settlement uses a final NDJSON frame
 with the existing output/status shape; incremental output and background jobs are
-outside this delivery. Shared-computer bridge pairings have a 15-second lease renewed every five seconds.
+outside this delivery. Shared-computer bridge pairings have a 120-second lease renewed every five seconds.
 Private-computer pairings persist until release or bridge process exit.
 Stop and release cancel operations; lease expiry handles missing browser cleanup.
 
@@ -101,7 +101,7 @@ credentials after locking; End session is idempotent for simultaneous tab cleanu
 ### Clarification to the proposal
 
 Bridge bearer tokens deliberately remain session-only. Saving a single-use pairing
-code or an origin/process-bound 15-second lease token would not provide a reusable
+code or an origin/process-bound 120-second lease token would not provide a reusable
 connection after lock/reload. Re-pairing requires a fresh local startup. The vault
 supports connection bindings, but this delivery offers persistence only for model
 API keys and HTTP MCP headers. It does not advertise saved bridge authentication.

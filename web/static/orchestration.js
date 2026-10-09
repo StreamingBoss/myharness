@@ -34,7 +34,7 @@ class OrchestrationPanel {
   el(id) { return this.root.querySelector('#' + id); }
   async call(path, method = 'GET', value) {
     const response = await this.request(path, { method, ...(value === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) }) });
-    const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Backend request failed'); return result;
+    const result = await response.json(); if (!response.ok) throw new Error(globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.presentFailure(result.failure, result.error || 'Backend request failed') : result.error || 'Backend request failed'); return result;
   }
   async perform(work) { try { this.error.textContent = ''; await work(); await this.refresh(); } catch (error) { this.error.textContent = error.message; } }
   initialize(data) {
@@ -56,7 +56,7 @@ class OrchestrationPanel {
       this.el('cancel-run').disabled = !live && !active;
       this.el('goal-status').textContent = state.goal ? `${state.goal.phase}: ${state.goal.objective}\n${state.goal.criteria}\nRounds: ${state.goal.rounds}/${state.goal.max_rounds}; shared requests: ${state.goal.model_requests}/${state.goal.max_requests}\nTimeout: ${state.goal.timeout_ms} ms\n${state.run ? `Run: ${state.run.status}; deadline ${state.run.deadline_at}\n` : ''}${state.goal.evidence || state.goal.blocker || ''}` : 'No autonomous goal. The master can configure one when the task needs continuation.';
       const failed = [state.run, ...state.children.map(child => child.run)].find(run => run?.status === 'error');
-      if (failed) this.error.textContent = failed.reason || 'Agent execution failed. Open Under the hood for details.';
+      if (failed) this.error.textContent = globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.presentFailure(undefined, failed.reason || 'Agent execution failed. Open Under the hood for details.') : failed.reason || 'Agent execution failed. Open Under the hood for details.';
       this.children(state.children);
       const runs = [...(state.run ? [state.run] : []), ...state.children.map(child => child.run).filter(Boolean)];
       for (const run of runs) {

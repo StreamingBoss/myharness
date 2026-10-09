@@ -29,10 +29,10 @@ test('the UI shows the repeat-guard reminder and why an unanswered approval did 
   const live = await page.locator('#terminal').innerText();
   assert.match(live, /GUARD — repeated tool call \(pwd x3, gentle reminder added to the conversation\)/);
   assert.match(live, /\[harness reminder\] You are repeating the exact same tool call/);
-  assert.match(live, /COMMAND — no answer/);
-  assert.match(await page.locator('.change-status').last().innerText(), /no answer/);
+  assert.match(live, /COMMAND — Not run: no approval within 150 milliseconds/);
+  assert.match(await page.locator('.change-status').last().innerText(), /no approval within 150 milliseconds/);
   await page.reload(); await page.getByText('all done', { exact: true }).first().waitFor();
   const replayed = await page.locator('#terminal').innerText();
-  assert.match(replayed, /GUARD — repeated tool call/); assert.match(replayed, /COMMAND — no answer/);
+  assert.match(replayed, /GUARD — repeated tool call/); assert.match(replayed, /COMMAND — Not run: no approval within 150 milliseconds/);
   assert.deepEqual(errors, []);
 });

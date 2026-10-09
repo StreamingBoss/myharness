@@ -1,3 +1,5 @@
+import { BRIDGE_CONNECTION_TIMEOUT_MS } from '../bridge/protocol.js';
+import { timeoutDuration } from '../error-messages.js';
 import { DiagnosticError } from '../failure.js';
 class ManagedActionError extends DiagnosticError {
   constructor(reason: string) { super({ source: 'harness', component: 'Guide session', reason, recovery: 'Check the session and connection settings in Guide & Setup.' }); }
@@ -10,7 +12,7 @@ import { object, text } from '../bridge/protocol.js';
 
 const endpoints: Record<string, string> = { gemini: 'https://generativelanguage.googleapis.com/', openai: 'https://api.openai.com/', anthropic: 'https://api.anthropic.com/' };
 export class ManagedSessionEndedError extends ManagedActionError {}
-export const MANAGED_ACTIONS = ['managedStatus', 'linkHeartbeat', 'activity', 'lock', 'endSession', 'bridgeHeartbeat', 'attachBridge', 'detachBridge', 'vaultList', 'vaultCreate', 'vaultUnlock', 'vaultDelete', 'vaultForget', 'forgetModel', 'forgetMcp', 'connectModel', 'saveMcp', 'restoreMcp'];
+export const MANAGED_ACTIONS = ['managedStatus', 'connectionStatus', 'linkHeartbeat', 'activity', 'lock', 'endSession', 'bridgeHeartbeat', 'attachBridge', 'detachBridge', 'vaultList', 'vaultCreate', 'vaultUnlock', 'vaultDelete', 'vaultForget', 'forgetModel', 'forgetMcp', 'connectModel', 'saveMcp', 'restoreMcp'];
 
 /** Managed lifecycle and credential policy belong to the backend, never the page. */
 export class ManagedSession {
@@ -19,6 +21,7 @@ export class ManagedSession {
   private vaultLoading: Promise<CredentialVault> | undefined;
   private activityAt: number;
   private bridgeAt = 0;
+  private lockReason: string | undefined;
   private bridgeActive = false;
   private ended = false;
   private ending: Promise<void> | undefined;
@@ -33,15 +36,16 @@ export class ManagedSession {
   }
   async tick(): Promise<void> {
     if (this.ended) return;
-    if (this.temporary && this.now() - this.activityAt >= 600_000) await this.lock();
+    if (this.temporary && this.now() - this.activityAt >= 600_000) await this.lock('Shared-computer session locked after ten minutes of inactivity. Your conversation is still available. Keep the harness tab open and reconnect your model and local bridge in Guide & Setup. [Time limit: 10 minutes]');
     if (this.bridgeActive && this.now() - this.bridgeAt >= 5000) {
       this.bridgeAt = this.now();
-      try { await this.harness.bridgeHeartbeat(); } catch { if (this.temporary) await this.lock(); }
+      try { await this.harness.bridgeHeartbeat(); if (!this.temporary) this.lockReason = undefined; } catch { if (this.temporary) await this.lock(`Shared-computer session locked because the local bridge heartbeat failed or its pairing expired. Your conversation is still available. Keep the harness tab open. Reconnect the local bridge in Guide & Setup; reconnect the model too if it uses an API key. [Time limit: ${timeoutDuration(BRIDGE_CONNECTION_TIMEOUT_MS)}]`); else this.lockReason = `The local bridge is unavailable. Your model connection is still configured. Keep the harness tab open and check the bridge in Guide & Setup. [Time limit: ${timeoutDuration(BRIDGE_CONNECTION_TIMEOUT_MS)}]`; }
     }
   }
-  async lock(): Promise<void> {
+  async lock(reason = 'Credentials were locked; reconnect in Guide & Setup.'): Promise<void> {
+    this.lockReason = reason;
     this.generation++; this.bridgeActive = false; this.vault?.lock();
-    this.locking ??= this.harness.lockCredentials().finally(() => { this.locking = undefined; });
+    this.locking ??= this.harness.lockCredentials(reason).finally(() => { this.locking = undefined; });
     return this.locking;
   }
   async end(): Promise<void> {
@@ -63,13 +67,17 @@ export class ManagedSession {
     this.ensureActive();
     const generation = this.generation;
     switch (action) {
+      case 'connectionStatus': {
+        const state = await this.harness.bootstrap();
+        return { bridge: this.harness.bridgeStatus(), model: { ready: state.ready, provider: this.harness.state.provider ?? 'ollama', name: this.harness.state.model }, reason: this.lockReason };
+      }
       case 'managedStatus': return { temporary: this.temporary, vault: this.vault?.status() ?? { locked: true, id: '' } };
       case 'linkHeartbeat': return { ok: true };
       case 'activity': this.activityAt = this.now(); return { ok: true };
       case 'lock': await this.lock(); return { ok: true };
       case 'bridgeHeartbeat': await this.harness.bridgeHeartbeat(); return { ok: true };
       case 'detachBridge': await this.harness.detachBridge(); this.bridgeActive = false; return { ok: true };
-      case 'attachBridge': await this.harness.attachBridge(text(payload, 'endpoint'), text(payload, 'code'), !this.temporary); if (generation !== this.generation) { await this.lock(); throw new ManagedActionError('Bridge connection cancelled by credential locking.'); } this.bridgeActive = true; return { ok: true, connection: this.harness.bridgeStatus() };
+      case 'attachBridge': await this.harness.attachBridge(text(payload, 'endpoint'), text(payload, 'code'), !this.temporary); if (generation !== this.generation) { await this.lock(); throw new ManagedActionError('Bridge connection cancelled by credential locking.'); } this.bridgeActive = true; this.lockReason = undefined; return { ok: true, connection: this.harness.bridgeStatus() };
       case 'vaultList': return (await this.credentials()).list();
       case 'vaultCreate':
       case 'vaultUnlock': {
@@ -100,6 +108,7 @@ export class ManagedSession {
           if (!config.apiKey) throw new ManagedActionError('Enter or restore the API key before saving it.');
           await (await this.credentials()).save(binding, config.apiKey);
         }
+        this.lockReason = undefined;
         return { ok: true };
       }
       case 'saveMcp':

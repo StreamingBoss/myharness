@@ -197,3 +197,13 @@ exit, permission errors and restarting failed channels. Managed tests exercise
 bridge cleanup and ensure the native path never calls HTTP tokenizer endpoints.
 Browser smoke tests verify the vocabulary-only progress wording. Live checks
 with the owner's GGUF remain an optional final parity/performance check.
+
+
+Plain-language errors are covered by `error-messages.test.ts`, including safe
+technical detail disclosure, service identification and actual default/custom time
+limits. Guide backend/view tests cover live connection status after locks, refresh
+on focus, stale replies and pending connection setup. The HTTPS Guide browser
+check expires a scratch bridge connection and verifies that Guide marks it
+disconnected, retains the model configuration, and updates the harness tool list.
+The bridge lease regression checks both sides of the centralized 120-second
+boundary without waiting two minutes or touching the owner's services.
