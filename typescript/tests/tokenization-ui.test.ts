@@ -80,7 +80,7 @@ test('viewer shows backend loading, rendering and tokenizing stages and ignores 
   await page.setContent('<div id="root"></div>'); await page.addScriptTag({ path: 'web/static/tokenization.js' });
   await page.evaluate(async () => {
     const state = globalThis as unknown as { TokenViewer: new (...args: unknown[]) => { refresh(id: string): Promise<void> }; stage: string; resolveResult(value: Response): void; resolveProgress?: (value: Response) => void; deferProgress: boolean };
-    state.stage = 'Loading the tokenizer model in llama.cpp… First startup can take time.';
+    state.stage = 'Loading tokenizer vocabulary in llama.cpp… Model weights are skipped.';
     const viewer = new state.TokenViewer(document.getElementById('root'), async (url: string) => {
       if (url.startsWith('/sessions/')) return Response.json({ events: [{ type: 'request', provider: 'ollama', model_request: { model: 'qwen3:8b' } }] });
       if (url === '/tokenize/progress') {
@@ -92,7 +92,7 @@ test('viewer shows backend loading, rendering and tokenizing stages and ignores 
     await viewer.refresh('current');
   });
   await page.locator('#token-inspect').click();
-  await page.getByText('Loading the tokenizer model in llama.cpp… First startup can take time.', { exact: true }).waitFor();
+  await page.getByText('Loading tokenizer vocabulary in llama.cpp… Model weights are skipped.', { exact: true }).waitFor();
   for (const stage of ['Rendering the saved prompt with Ollama…', 'Tokenizing the rendered prompt with llama.cpp…']) {
     await page.evaluate(value => { (globalThis as unknown as { stage: string }).stage = value; }, stage);
     await page.getByText(stage, { exact: true }).waitFor();

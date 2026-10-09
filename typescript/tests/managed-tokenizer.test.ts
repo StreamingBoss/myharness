@@ -17,23 +17,24 @@ const grants = { writes: false, commands: false, gitWrites: false };
 const request: ModelRequest = { model, provider: 'ollama', messages: [{ role: 'user', content: 'hello' }], stream: true, options: { num_ctx: 4096 } };
 async function fixture(t: { after(fn: () => unknown): void }) {
   const root = await mkdtemp(path.join(tmpdir(), 'managed-tokenizer-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const gguf = path.join(root, 'model file.gguf'), executable = path.join(root, 'llama-server');
+  const gguf = path.join(root, 'model file.gguf'), executable = path.join(root, 'myharness-tokenizer');
   await writeFile(gguf, 'GGUF fixture');
   await writeFile(executable, `#!/usr/bin/env node
 const fs = require('node:fs');
-const http = require('node:http');
+const readline = require('node:readline');
 const args = process.argv.slice(2);
-const get = key => args[args.indexOf(key) + 1];
-const file = get('-m');
+const file = args[args.indexOf('-m') + 1];
 fs.writeFileSync(file + '.process', JSON.stringify({pid:process.pid,args,env:process.env.LLAMA_ARG_TOOLS}));
-if (fs.readFileSync(file,'utf8').includes('exit')) process.exit(1);
-const server = http.createServer(async (req,res) => {
- if (req.url === '/v1/models') {res.end(JSON.stringify({data:[{id:get('--alias')}]}));return;}
- let body='';for await(const chunk of req)body+=chunk;
- res.end(JSON.stringify({tokens:[{id:42,piece:JSON.parse(body).content}]}));
+const mode = fs.readFileSync(file,'utf8');
+if (mode.includes('exit')) process.exit(1);
+if (!mode.includes('stall')) console.log(mode.includes('wrong') ? '{"ready":false}' : '{"ready":true,"protocol":1,"vocab_only":true}');
+readline.createInterface({input:process.stdin}).on('line', line => {
+ const text=JSON.parse(line).content;
+ if (text==='stall') return;
+ if (text==='invalid') {console.log('{}');return;}
+ if (text==='bad-token') {console.log('{"tokens":[{"id":-1,"bytes":[]}]}');return;}
+ console.log(JSON.stringify({tokens:[{id:42,bytes:[...Buffer.from(text)]}]}));
 });
-if (!fs.readFileSync(file,'utf8').includes('stall')) server.listen(Number(get('--port')),get('--host'));
-else setInterval(()=>{},1000);
 `, { mode: 0o755 });
   const rawFetch = globalThis.fetch;
   let show: unknown = { modelfile: `FROM "${gguf}"\n` };
@@ -62,9 +63,13 @@ test('managed tokenizer discovers exact GGUF, reuses and replaces owned processe
   assert.equal(first.alias, model); assert.match(first.identity, /Ollama-reported GGUF/);
   assert.deepEqual(await manager.binding(model, signal, progress), first); assert.equal(await pid(f.gguf), firstPid); assert.deepEqual(phases, ['locating', 'loading', 'locating', 'reusing']);
   const args = JSON.parse(await readFile(f.gguf + '.process', 'utf8')); assert.equal(args.env, undefined);
-  assert.equal(args.args[args.args.indexOf('--host') + 1], '127.0.0.1');
+  assert.deepEqual(args.args, ['-m', f.gguf]);
+  assert.deepEqual((await first.tokenize('é\n\0', signal)).tokens, [{ id: '42', bytes: [195, 169, 10, 0] }]);
   assert.ok(!args.args.includes('--tools')); assert.ok(!args.args.includes('--agent'));
-  await manager.binding('other-exact-model', signal); const secondPid = await pid(f.gguf); assert.notEqual(firstPid, secondPid); await gone(firstPid);
+  const second = await manager.binding('other-exact-model', signal); const secondPid = await pid(f.gguf); assert.notEqual(firstPid, secondPid); await gone(firstPid);
+  await assert.rejects(first.tokenize('stale binding', signal));
+  assert.equal(await manager.binding('other-exact-model', signal), second);
+  assert.equal((await second.tokenize('still alive', signal)).tokens[0]!.id, '42');
   process.kill(secondPid, 'SIGKILL'); await gone(secondPid); await delay(20);
   await manager.binding('other-exact-model', signal); const thirdPid = await pid(f.gguf); assert.notEqual(secondPid, thirdPid);
   await writeFile(f.gguf, 'GGUF changed fixture');
@@ -95,7 +100,7 @@ test('explicit operator GGUF supports remote Ollama and startup errors are actio
   const configured = new ManagedTokenizer({ executable: f.executable, models: { [model]: f.gguf } }, 'http://remote.test', f.fetch_); t.after(() => configured.close());
   assert.match((await configured.binding(model, signal)).identity, /operator-configured/); configured.close(); await gone(await pid(f.gguf));
   const missing = new ManagedTokenizer({ executable: path.join(f.root, 'missing'), models: { [model]: f.gguf } }, 'http://remote.test', f.fetch_);
-  await assert.rejects(missing.binding(model, signal), /Install llama.cpp/); missing.close();
+  await assert.rejects(missing.binding(model, signal), /Build myharness-tokenizer/); missing.close();
   const nonexecutable = path.join(f.root, 'not-executable'); await writeFile(nonexecutable, 'bad');
   const denied = new ManagedTokenizer({ executable: nonexecutable, models: { [model]: f.gguf } }, 'http://remote.test', f.fetch_);
   await assert.rejects(denied.binding(model, signal), /executable permissions/); denied.close();
@@ -107,7 +112,7 @@ test('explicit operator GGUF supports remote Ollama and startup errors are actio
   await assert.rejects(stalled.binding(model, signal), /did not become ready/); await gone(await pid(f.gguf)); stalled.close();
 });
 
-test('startup cancellation and shutdown kill only the owned process; wrong readiness aliases never succeed', async t => {
+test('startup cancellation and shutdown kill only the owned process; incompatible readiness never succeeds', async t => {
   const f = await fixture(t); await writeFile(f.gguf, 'GGUF stall');
   for (const shutdown of [false, true]) {
     const controller = new AbortController();
@@ -120,9 +125,9 @@ test('startup cancellation and shutdown kill only the owned process; wrong readi
   }
   const controller = new AbortController(); controller.abort();
   await assert.rejects(new ManagedTokenizer({}, 'http://localhost', f.fetch_).binding(model, controller.signal));
-  const wrong: FetchLike = async (url, init) => url.endsWith('/api/show') ? f.fetch_(url, init) : Response.json({ data: [{ id: 'wrong' }] });
-  const manager = new ManagedTokenizer({ executable: f.executable, startupTimeoutMs: 200 }, 'http://localhost:11434', wrong);
-  await assert.rejects(manager.binding(model, new AbortController().signal), /did not become ready/); manager.close();
+  await writeFile(f.gguf, 'GGUF wrong');
+  const manager = new ManagedTokenizer({ executable: f.executable }, 'http://localhost:11434', f.fetch_);
+  await assert.rejects(manager.binding(model, new AbortController().signal), /incompatible readiness/); manager.close();
 });
 
 test('browser requests automatic inspection through a real bridge without Bash grants; unpair stops the child', async t => {
@@ -149,7 +154,7 @@ test('CLI startup grant enables automatic inspection; setup failure returns safe
   const f = await fixture(t);
   const args = ['--workspace', f.root, '--origin', 'https://guide.test', '--port', '0', '--allow-tokenizer'];
   await assert.rejects(bridgeMain(args, () => undefined, 'linux', { MYHARNESS_TOKENIZER_MODELS: 'null' }), /absolute GGUF/);
-  const server = await bridgeMain(args, () => undefined, 'linux', { MYHARNESS_LLAMA_SERVER: f.executable, MYHARNESS_TOKENIZER_MODELS: '{}' });
+  const server = await bridgeMain(args, () => undefined, 'linux', { MYHARNESS_LLAMA_TOKENIZER: f.executable, MYHARNESS_TOKENIZER_MODELS: '{}' });
   await new Promise<void>(resolve => server!.close(() => resolve()));
   const service = new NativeBridge({ workspace: f.root, origin: 'https://guide.test', grants, managedTokenizer: {}, inspectionFetch: f.fetch_ });
   const { token } = service.pair(service.code);
@@ -177,16 +182,12 @@ test('manual bindings take precedence; aborted discovery cannot launch a process
   await assert.rejects(readFile(f.gguf + '.process')); cancelled.close();
 });
 
-test('readiness requires a successful matching catalog; default executable lookup has useful errors', async t => {
+test('default executable lookup has useful errors', async t => {
   const f = await fixture(t);
-  for (const response of [new Response('{}', { status: 503 }), Response.json({}), Response.json({ data: [] }), Response.json({ data: [{ id: model }] }, { status: 503 })]) {
-    const manager = new ManagedTokenizer({ executable: f.executable, startupTimeoutMs: 150 }, 'http://localhost:11434', async (url, init) => url.endsWith('/api/show') ? f.fetch_(url, init) : response.clone());
-    await assert.rejects(manager.binding(model, new AbortController().signal), /did not become ready/); manager.close();
-  }
   const previous = process.env.PATH; process.env.PATH = '/missing-managed-tokenizer-path';
   try {
     const manager = new ManagedTokenizer({}, 'http://localhost:11434', f.fetch_);
-    await assert.rejects(manager.binding(model, new AbortController().signal), /Install llama.cpp/); manager.close();
+    await assert.rejects(manager.binding(model, new AbortController().signal), /Build myharness-tokenizer/); manager.close();
   } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
   const args = ['--workspace', f.root, '--origin', 'https://guide.test', '--port', '0', '--allow-tokenizer'];
   const server = await bridgeMain(args, () => undefined, 'linux', {});

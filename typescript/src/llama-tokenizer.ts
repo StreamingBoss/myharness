@@ -1,6 +1,7 @@
 import type { FetchLike } from './ollama.js';
 import { tokenPiece, type TokenGroup } from './tokenization.js';
 
+export interface PromptTokenizer { alias: string; identity: string; tokenize(content: string, signal: AbortSignal): Promise<TokenGroup> }
 export interface TokenizerBinding { url: string; alias: string; identity: string }
 /** Explicit per-model bindings; never guess a tokenizer from a model-name substring. */
 export function tokenizerBindings(text: string): Record<string, TokenizerBinding> {

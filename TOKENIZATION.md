@@ -86,19 +86,36 @@ server on behalf of the browser. The browser needs access to the bridge, but
 llama.cpp does not need browser CORS settings or a public listening address.
 The browser still connects directly to Ollama for ordinary chat.
 
-Install llama.cpp once using the [official build instructions](https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md).
-On Ubuntu, the CPU build is:
+Build the vocabulary-only helper once from the Myharness repository. It uses
+llama.cpp at a pinned revision; the bridge never downloads dependencies or models.
+On Ubuntu/WSL, install Git, CMake and a C++ compiler, then run:
 
 ```bash
 sudo apt update
 sudo apt install -y git cmake build-essential
-git clone https://github.com/ggml-org/llama.cpp.git "$HOME/llama.cpp"
-cmake -S "$HOME/llama.cpp" -B "$HOME/llama.cpp/build" -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=OFF
-cmake --build "$HOME/llama.cpp/build" --config Release --target llama-server -j4
-export MYHARNESS_LLAMA_SERVER="$HOME/llama.cpp/build/bin/llama-server"
+cmake -S native/tokenizer -B dist/tokenizer -DCMAKE_BUILD_TYPE=Release
+cmake --build dist/tokenizer --target myharness-tokenizer -j4
+export MYHARNESS_LLAMA_TOKENIZER="$(pwd)/dist/tokenizer/bin/myharness-tokenizer"
 ```
 
-Run the export in the bridge terminal. If `llama-server` is already on PATH, it
+The initial explicit build downloads llama.cpp source. For an offline build, use
+an existing checkout of the pinned revision:
+
+```bash
+cmake -S native/tokenizer -B dist/tokenizer \
+  -DMYHARNESS_LLAMA_SOURCE=/absolute/path/to/llama.cpp
+```
+
+The pin is recorded in `native/tokenizer/CMakeLists.txt`. The helper is statically
+linked to llama.cpp and needs no inference server or additional listening port.
+Its protocol is private NDJSON over stdin/stdout; version 1 starts with
+`{"ready":true,"protocol":1,"vocab_only":true}` and accepts `{"content":"..."}`.
+Replies contain `tokens` with numeric `id` and raw `bytes` arrays. Input frames
+are limited to 8 MiB and output frames to 64 MiB. Special markers are parsed;
+automatic BOS/EOS insertion is disabled. Empty input and trailing newlines are
+preserved, and a token's bytes need not be valid UTF-8 on their own.
+
+Run the export in the bridge terminal. If `myharness-tokenizer` is already on PATH, it
 is discovered automatically. Then **start only the bridge**:
 
 ```bash
@@ -113,14 +130,35 @@ exact model ID, and send a message in the linked harness. Open **Explore →
 tokenization of a saved request → Inspect selected request**.
 
 On the first inspection the bridge asks local Ollama for its model file, verifies
-the GGUF header, starts llama-server on an unused loopback port, and waits for its
-model alias to appear. Subsequent inspections reuse that owned process. Switching
+the GGUF header, starts `myharness-tokenizer`, and waits for its vocabulary-only
+readiness response. Subsequent inspections reuse that owned process. Switching
 models or changing the file replaces it; unpairing, ending the session, lease
 expiry or bridge shutdown stops it. Startup cancellation also stops the process.
 The bridge never runs an installation shell or downloads models. It strips
 `LLAMA_ARG_*` defaults so they cannot enable llama.cpp agent tools or alter the
-fixed launch arguments. Startup has a 30-second deadline. The managed server uses
-CPU, one slot and a small context, but still loads the model weights separately.
+fixed launch arguments. Startup has a 30-second deadline. The helper sets llama.cpp's `vocab_only=true`, reads tokenizer metadata, and
+skips all weight tensors. It creates no inference context and never generates.
+There is no duplicate model-weight load in the managed token inspection path.
+
+Migration: `MYHARNESS_LLAMA_SERVER` no longer configures automatic inspection.
+Build the helper and set `MYHARNESS_LLAMA_TOKENIZER` instead; do not point this
+setting at `llama-server` or `llama-tokenize`, which use different protocols.
+Existing manual `MYHARNESS_TOKENIZERS` HTTP bindings retain precedence and keep
+working. Those externally managed services may still load weights.
+
+Inspecting immediately after a reply normally reuses Ollama's resident model for
+prompt rendering. This does not guarantee zero Ollama loading time: it can unload
+or evict the model, particularly for historical requests or model switching. The
+current normal chat response does not expose its rendered prompt, so this release
+does not automatically capture it during generation or add a background model
+request. Successful inspections already save rendered text and token evidence;
+replaying them requires no model or tokenizer request. Local template rendering
+requires separate parity work before claiming equivalence to Ollama.
+
+Remote API/subscription adapters do not require this helper. They retain their
+existing pieces/count/unavailable behavior. A remote connection must expose an
+inspection capability or have verified tokenizer assets; a subscription alone
+is not evidence of access to a separate counting API.
 
 Windows Ollama drive paths are automatically translated to standard WSL mounts:
 `D:\Users\...` becomes `/mnt/d/Users/...`. If the file is readable there, no

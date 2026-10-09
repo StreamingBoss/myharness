@@ -19,7 +19,7 @@ export interface TokenInspection {
 export const TOKENIZATION_PROGRESS = {
   inspecting: 'Inspecting saved request…',
   locating: 'Locating the matching Ollama model file…',
-  loading: 'Loading the tokenizer model in llama.cpp… First startup can take time.',
+  loading: 'Loading tokenizer vocabulary in llama.cpp… Model weights are skipped.',
   reusing: 'Reusing the running tokenizer…',
   rendering: 'Rendering the saved prompt with Ollama…',
   tokenizing: 'Tokenizing the rendered prompt with llama.cpp…',

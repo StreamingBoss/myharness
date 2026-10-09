@@ -527,12 +527,16 @@ The bridge's startup grants still apply; changing folders does not grant command
 unless it was started with `--allow-commands`. Unpair restores the previous browser
 workspace and removes the bridge tools while keeping the model and conversation.
 
-For Ollama token pieces, install llama.cpp once and start the bridge with
+For Ollama token pieces, build the vocabulary-only `myharness-tokenizer` helper
+once and start the bridge with
 `--allow-tokenizer`. It manages the matching tokenizer process automatically;
-`OLLAMA_URL`, `MYHARNESS_LLAMA_SERVER` and optional `MYHARNESS_TOKENIZER_MODELS`
+`OLLAMA_URL`, `MYHARNESS_LLAMA_TOKENIZER` and optional `MYHARNESS_TOKENIZER_MODELS`
 configure host access. Existing `MYHARNESS_TOKENIZERS` services also work. Follow the
 [browser token inspection setup](TOKENIZATION.md#browser-harness-through-the-local-bridge).
-The browser does not need direct access to llama.cpp.
+The helper reads only tokenizer metadata and skips model weights. The browser
+does not need direct access to llama.cpp. Existing `MYHARNESS_LLAMA_SERVER` setups
+must migrate to the helper; manual HTTP bindings remain supported. Ollama prompt
+rendering can still reload a model that has been unloaded.
 
 Use another unused bridge port when the static site already uses 5001. The browser
 backend still owns approvals and the agent loop. Commands run with account permissions.

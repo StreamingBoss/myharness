@@ -216,7 +216,7 @@ llama.cpp; it accepts no browser-selected upstream URLs. Setup is in TOKENIZATIO
 
 `--allow-tokenizer` grants dedicated on-demand llama.cpp startup independently of
 Bash. `node/managed-tokenizer.ts` discovers local Ollama GGUF paths, supports
-operator `MYHARNESS_TOKENIZER_MODELS` mappings and `MYHARNESS_LLAMA_SERVER`, reuses
+operator `MYHARNESS_TOKENIZER_MODELS` mappings and `MYHARNESS_LLAMA_TOKENIZER`, reuses
 one owned process, and kills it on replacement, release, expiry or shutdown.
 Manual `MYHARNESS_TOKENIZERS` bindings take precedence. No installers run in the bridge.
 
@@ -232,3 +232,22 @@ that status without a backend timer. The viewer polls with stale-result guards.
 Renderer/tokenizer failures preserve safe stage-specific explanations; diagnostic
 bridge failures also survive the shared inspection boundary. Inspection requests
 have a 260-second bridge transport deadline matching their component budgets.
+
+
+## Vocabulary-only token inspection
+
+Automatic bridge inspection now owns `myharness-tokenizer`, built from
+`native/tokenizer/` against the pinned llama.cpp revision. It sets `vocab_only`,
+creates no inference context, and returns IDs/raw bytes through private NDJSON.
+`node/tokenizer-process.ts` bounds frames, removes inherited `LLAMA_ARG_*` settings,
+handles readiness and failures, and invalidates/kills interrupted processes.
+`ManagedTokenizer` retains discovery, WSL mappings, file-change reuse keys and
+lifecycle cleanup. `PromptTokenizer` keeps native processes out of the core;
+OllamaAdapter accepts the model-bound capability alongside existing HTTP bindings.
+Manual bindings take precedence. Missing helpers never fall back to full loading.
+
+`MYHARNESS_LLAMA_SERVER` is replaced by `MYHARNESS_LLAMA_TOKENIZER` for automatic
+startup. Build instructions and protocol are in TOKENIZATION.md. Prompt rendering
+still uses Ollama and can reload an evicted model; no unsupported capture during
+normal generation or automatic extra render request is introduced. Remote adapters
+and saved inspection replay retain their existing behavior.
