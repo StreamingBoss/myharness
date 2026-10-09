@@ -158,10 +158,9 @@ from a headless BrowserHarness, exact model/endpoint restrictions, byte preserva
 missing rendering, sanitized failures, cancellation and CLI environment configuration.
 All upstream model/tokenizer responses are fixtures; no owner services are contacted.
 
-`managed-tokenizer.test.ts` exercises real fixture child processes and loopback
-servers: automatic model discovery, explicit remote mappings, reuse/replacement,
+`managed-tokenizer.test.ts` exercises real fixture helper child processes: automatic model discovery, explicit remote mappings, reuse/replacement,
 missing binaries, permissions, invalid GGUF, startup exit/timeout/cancellation,
-readiness checks, removal of inherited llama tool settings, unpair cleanup and
+versioned vocabulary-only readiness checks, removal of inherited llama tool settings, unpair cleanup and
 manual-binding precedence. A headless BrowserHarness requests automatic inspection
 through real paired HTTP with no Bash grant. No live model or owner service is used.
 
@@ -170,3 +169,31 @@ failures, progress during headless Node inspection and HTTP requests, real paire
 bridge stage forwarding, advisory-status failures, cleanup and immediate Worker
 progress while a managed inspection is pending. Token viewer smoke tests check
 visible stage changes and reject delayed progress after final token pieces appear.
+
+
+## Native tokenizer verification
+
+Build `native/tokenizer` using the instructions in TOKENIZATION.md, then run:
+
+```bash
+python3 native/tokenizer/tests/verify.py \
+  --llama-source /path/to/the/pinned/llama.cpp \
+  --helper dist/tokenizer/bin/myharness-tokenizer
+```
+
+This compiles our helper against a test-only fault-injection shim, exercises every
+explicit success/error branch, and requires 100% executable line coverage using
+gcov. The shim is never linked into the real helper. It then runs the actual
+helper against llama.cpp's Qwen2, GPT-2 and Llama-SPM vocabulary-only GGUFs and
+independent upstream golden token IDs (46 cases per family). Byte-level round
+trips check accented text, emoji, NULs, newlines and special markers. Native logs
+must confirm skipped tensors. No owner weights, Ollama calls, or downloads of
+inference models are involved. Reported fixture startup times are not guarantees
+for an owner's GGUF/filesystem or comparisons with full inference startup.
+
+`tokenizer-process.test.ts` covers bounded/fragmented protocol replies, invalid
+output, input/output limits, concurrent requests, cancellation/timeouts, idle
+exit, permission errors and restarting failed channels. Managed tests exercise
+bridge cleanup and ensure the native path never calls HTTP tokenizer endpoints.
+Browser smoke tests verify the vocabulary-only progress wording. Live checks
+with the owner's GGUF remain an optional final parity/performance check.

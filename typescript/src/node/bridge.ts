@@ -1,6 +1,6 @@
 import { ManagedTokenizer, TokenizerSetupError, type ManagedTokenizerOptions } from './managed-tokenizer.js';
 import { OllamaAdapter, type FetchLike } from '../ollama.js';
-import { tokenizerBindings, type TokenizerBinding } from '../llama-tokenizer.js';
+import { tokenizerBindings, type TokenizerBinding, type PromptTokenizer } from '../llama-tokenizer.js';
 import { savedModelRequest, unavailable, type TokenizationStage } from '../tokenization.js';
 import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
@@ -140,16 +140,17 @@ export class NativeBridge {
       if (text(args, 'ollamaUrl') !== this.ollamaUrl) throw new BridgeError('Browser and bridge Ollama URLs must match');
       const progress = (stage: TokenizationStage) => { connection.inspectionStage = stage; };
       try {
-        let bindings = this.tokenizers;
+        const bindings = this.tokenizers;
+        const local: Record<string, PromptTokenizer> = {};
         if (!Object.hasOwn(bindings, payload.model)) {
           if (!this.managedTokenizer) throw new BridgeError('No tokenizer configured for this exact Ollama model');
-          try { bindings = { [payload.model]: await this.managedTokenizer.binding(payload.model, signal, progress) }; }
+          try { local[payload.model] = await this.managedTokenizer.binding(payload.model, signal, progress); }
           catch (error) {
             if (error instanceof TokenizerSetupError) return unavailable(payload.model, 'ollama', error.message);
             throw error;
           }
         }
-        return await new OllamaAdapter(this.inspectionFetch, this.ollamaUrl, bindings).inspectTokens(payload, signal, progress);
+        return await new OllamaAdapter(this.inspectionFetch, this.ollamaUrl, bindings, local).inspectTokens(payload, signal, progress);
       } finally { delete connection.inspectionStage; }
     }
     if (operation === 'snapshot') return this.snapshot(workspace, root);

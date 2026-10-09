@@ -1,7 +1,7 @@
 import type { ModelOption } from "./model.js";
 import type { ModelRequest } from "./core.js";
 import { unavailable, type TokenInspection, type InspectionProgress } from './tokenization.js';
-import { tokenizeWithLlama, type TokenizerBinding } from './llama-tokenizer.js';
+import { tokenizeWithLlama, type TokenizerBinding, type PromptTokenizer } from './llama-tokenizer.js';
 
 export interface FetchResponse {
   readonly ok: boolean;
@@ -16,7 +16,7 @@ export type FetchLike = (input: string, init: { method: "GET" | "POST"; headers?
 /** Fetch adapter usable in Node and browser Workers for Ollama's newline-delimited `/api/chat` stream. */
 export class OllamaAdapter {
   readonly provider = 'ollama';
-  constructor(private readonly fetch_: FetchLike, private readonly baseUrl: string, private readonly tokenizers: Record<string, TokenizerBinding> = {}) {}
+  constructor(private readonly fetch_: FetchLike, private readonly baseUrl: string, private readonly tokenizers: Record<string, TokenizerBinding> = {}, private readonly localTokenizers: Record<string, PromptTokenizer> = {}) {}
   requestMetadata(): Record<string, unknown> { return { provider: this.provider }; }
 
   async inspectTokens(payload: ModelRequest, signal?: AbortSignal, progress?: InspectionProgress): Promise<TokenInspection> {
@@ -39,19 +39,20 @@ export class OllamaAdapter {
     result.limitations.push('This is a new inspection request. On older servers that ignore the debug flag it may generate at most one token, and no rendered prompt is shown.');
     result.coverage = 'Prompt text returned by a separate render-only request with the saved messages, system instructions and tools.';
     const binding = this.tokenizers[payload.model];
-    if (!binding) {
+    const local = this.localTokenizers[payload.model];
+    if (!binding && !local) {
       result.explanation = 'Ollama returned its rendered prompt, but no matching tokenizer service is configured for this exact model. The text below is not a token sequence.';
       return result;
     }
     progress?.('tokenizing');
     let group;
-    try { group = await tokenizeWithLlama(this.fetch_, binding, prompt, signal); }
+    try { group = local ? await local.tokenize(prompt, signal ?? new AbortController().signal) : await tokenizeWithLlama(this.fetch_, binding!, prompt, signal); }
     catch (error) {
       const reason = error instanceof Error && /^(Tokenizer model lookup failed \(HTTP \d+\)|Tokenizer request failed \(HTTP \d+\)|Configured tokenizer model alias does not match the running tokenizer service|Tokenizer did not return token pieces|Tokenizer returned an invalid token ID|Tokenizer returned invalid token bytes)$/.test(error.message) ? error.message : 'The tokenizer service is unavailable or returned an invalid response.';
       result.explanation = `llama.cpp tokenization failed: ${reason} Check the running tokenizer, matching GGUF and model alias, then retry.`;
       return result;
     }
-    return { ...result, source: `llama.cpp tokenizer: ${binding.identity}`, fidelity: 'configured-tokenizer',
+    return { ...result, source: `llama.cpp tokenizer: ${(local ?? binding!).identity}`, fidelity: 'configured-tokenizer',
       explanation: 'Each coloured piece is a token returned by the configured tokenizer for the Ollama-rendered prompt. Click a piece for its ID and raw bytes.',
       limitations: ['Tokenization was performed separately, not captured during inference.', 'The configured model identity is supplied by the operator; matching model aliases do not prove matching vocabularies.', 'Automatic BOS/EOS insertion is disabled. Special markers in the prompt are parsed. Runner-specific additions or later truncation may differ.', 'Rendering now may differ from the original request if the Ollama model or server changed.'],
       count: group.tokens.length, groups: [group] };
