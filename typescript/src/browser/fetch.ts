@@ -51,7 +51,7 @@ export function browserFetch(client: WorkerClient) {
       } else if (method === 'POST') {
         if (route === '/sessions') action = 'newSession';
         else if (route === '/sessions/import') { action = 'importSession'; status = 201; }
-        else if (['/reset', '/stop', '/approve', '/explore', '/project', '/tokenize'].includes(route)) action = route.slice(1);
+        else if (['/reset', '/stop', '/approve', '/explore', '/project', '/tokenize', '/vocabulary'].includes(route)) action = route.slice(1);
         else if (route === '/mcp/add') action = 'addMcp';
         else if (route === '/mcp/reload') action = 'reloadMcp';
         else if (route === '/mcp/preview') action = 'previewMcp';

@@ -17,6 +17,7 @@ import { unavailable, savedModelRequest, type InspectionPort, type TokenInspecti
 import { orchestrationLimits, boundedLimit, type OrchestrationLimits } from './orchestration-limits.js';
 import { McpManager, type McpToolCall } from './mcp/manager.js';
 import { kvCacheEstimate, kvText, type KvEstimate } from './timing.js';
+import { Vocabulary, type VocabularyPage, type VocabularyQuery } from './vocabulary.js';
 
 export interface TurnAction {
   message: string; useMemory: boolean; tools: string[]; askApproval: boolean; agent: string; prompt: string; sessionId?: string;
@@ -75,6 +76,7 @@ export class Harness implements TurnHost {
   private cancellationReason = 'turn cancelled';
   /** In memory only: after loading a session nothing is known about what the provider still has cached. */
   private lastRequest: ModelRequest | undefined;
+  private vocabularyCache: { key: string; vocabulary: Vocabulary } | undefined;
   private inspectionProgress: TokenizationProgress | null = null;
   private controller = new AbortController();
   private readonly approvals = new Map<string, (outcome: ApprovalOutcome) => void>();
@@ -1132,6 +1134,22 @@ export class Harness implements TurnHost {
       }
       return structuredClone(inspection);
     } finally { this.inspectionProgress = null; this.running = false; this.controller.abort(); }
+  }
+
+  /** The selected model's vocabulary, paged or searched. Read-only: it never advances the agent loop. */
+  async vocabulary(query: VocabularyQuery): Promise<VocabularyPage> {
+    const key = `${this.state.provider ?? 'ollama'}/${this.state.model}`;
+    if (this.vocabularyCache?.key !== key) {
+      const missing = (reason: string): VocabularyPage => ({ available: false, reason });
+      let info: Record<string, unknown> | undefined;
+      try { info = await this.adapter.vocabularyInfo?.(this.state.model); }
+      catch { return missing('The model service did not answer. Check that it is running, then reopen this view.'); }
+      const vocabulary = Vocabulary.parse(this.state.model, info);
+      if (!vocabulary) return missing('This model did not publish its vocabulary. Local Ollama models do; most remote providers keep their tokenizer private, and the token viewer shows only counts for them.');
+      this.vocabularyCache = { key, vocabulary };
+    }
+    try { return this.vocabularyCache.vocabulary.page(query); }
+    catch (error) { throw new BackendError((error as Error).message); }
   }
 
   async *streamChat(payload: ModelRequest): AsyncGenerator<string> {

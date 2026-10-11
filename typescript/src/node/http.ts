@@ -106,6 +106,7 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
         const value = await body(request);
         await stream(response, harness.compact({ ...(typeof value.session_id === 'string' ? { sessionId: value.session_id } : {}), ...(typeof value.use_memory === 'boolean' ? { useMemory: value.use_memory } : {}) }), harness); return;
       }
+      if (request.method === 'POST' && route === '/vocabulary') { send(response, 200, await harness.vocabulary(await body(request))); return; }
       if (request.method === 'POST' && route === '/tokenize') {
         const value = await body(request);
         send(response, 200, await harness.tokenize(value.event_index as number, typeof value.session_id === 'string' ? value.session_id : undefined)); return;

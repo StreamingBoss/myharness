@@ -47,6 +47,27 @@ its prepared-token boundary. It should use a new explicit evidence type only
 when the sequence is captured there, including additions and truncation. No
 Ollama patch or unsupported internal runner endpoint is required by this version.
 
+## Model vocabulary
+
+Explore → "model vocabulary" lists every token the selected model can read or write, in ID
+order, with search, a whole-piece option and "Go to ID". `Harness.vocabulary()` builds it
+from Ollama's `/api/show` with `verbose: true` (the tokenizer fields `tokenizer.ggml.tokens`
+and `token_type`; no weights are loaded), decodes byte-level BPE and SentencePiece pieces to
+real text in `typescript/src/vocabulary.ts`, caches it for the selected model and serves
+pages through `POST /vocabulary` (also the browser worker action `vocabulary`). Providers that
+do not publish a vocabulary, such as the remote APIs, get an explanation instead of a list.
+
+## Special tokens
+
+Control tokens such as `<|im_end|>` carry structure, not words. `tokenPiece()` in
+`typescript/src/tokenization.ts` looks up each piece's exact text in the glossary in
+`typescript/src/special-tokens.ts` and adds an optional `special` field (label, meaning,
+model families). The viewer shows it on hover and when the token is clicked. A tokenizer
+returns only IDs and bytes, and IDs differ between models, so recognition is by text:
+the glossary covers ChatML/Qwen, Llama 2/3, Mistral, Gemma, Phi, gpt-oss and DeepSeek
+markers, and any other `<|…|>` token gets a generic "control token" note. Tokens that are
+not recognised have no `special` field. Add a model family by adding entries to the table.
+
 ## Local Ollama
 
 Without additional setup, inspection can show Ollama's rendered prompt if the

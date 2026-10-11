@@ -408,6 +408,14 @@
 #token-about { color: #aaa; border-top: 1px solid #333; margin-top: 12px; }
 #tokenization p, #tokenization li { line-height: 1.5; }
 #tokenization pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.vocabulary-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+#vocabulary-intro { margin: 8px 0; color: #aaa; }
+#vocabulary p { line-height: 1.5; margin: 4px 0; }
+#vocabulary-table { border-collapse: collapse; font: 13px monospace; margin: 8px 0; }
+#vocabulary-table caption { text-align: left; color: #aaa; padding-bottom: 4px; }
+#vocabulary-table th, #vocabulary-table td { text-align: left; padding: 2px 12px 2px 0; border-bottom: 1px solid #333; vertical-align: top; }
+#vocabulary-table .vocabulary-piece { white-space: pre-wrap; overflow-wrap: anywhere; color: #b5ecff; }
+#vocabulary-table .vocabulary-focus { background: #443457; }
 .token-controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .token-controls select { max-width: 400px; }
 .token-chips { display: flex; flex-wrap: wrap; gap: 3px; margin: 12px 0; }
@@ -495,7 +503,7 @@ Model: loading…
 <div id="harness-box">
   <div class="pane-header" id="explore-header">
     <label for="explore-view" class="help" title="Explore each piece that goes into a request: what the harness keeps and adds, what comes with the model, and the final text the model reads.">Explore:</label>
-    <select id="explore-view" title="Choose which part of the harness to inspect: memory, instructions, tools, MCP servers, skills, model template or saved-request tokens. Inspection does not advance a chat turn.">
+    <select id="explore-view" title="Choose which part of the harness to inspect: memory, instructions, tools, MCP servers, skills, model template, saved-request tokens or the model's vocabulary. Inspection does not advance a chat turn.">
       <option value="memory">harness memory</option>
       <option value="system">harness system prompt</option>
       <option value="agent">harness agent</option>
@@ -505,6 +513,7 @@ Model: loading…
       <option value="skills">harness skills</option>
       <option value="template">model template</option>
       <option value="tokens">tokenization of a saved request</option>
+      <option value="vocabulary">model vocabulary</option>
       <option value="final">prompt reconstruction (Qwen)</option>
     </select>
     <button id="mcp-reload" hidden title="Ask the backend to re-read its MCP configuration file and reconnect every server. The tool list below the chat is rebuilt from what the servers report.">Reload MCP servers</button>
@@ -525,6 +534,7 @@ Model: loading…
     <span id="mcp-config-message" role="status"></span>
   </section>
   <div id="tokenization" hidden></div>
+  <div id="vocabulary" hidden></div>
 </div>
 
 <dialog id="mcp-registry" aria-label="MCP Registry">
@@ -544,6 +554,7 @@ Model: loading…
 
 <script src="/error-messages.js"></script>
 <script src="/static/tokenization.js"></script>
+<script src="/static/vocabulary.js"></script>
 <script src="/static/orchestration.js"></script>
 <script>
 const messagesEl = document.getElementById("messages");
@@ -575,6 +586,7 @@ let toolCheckboxes = [];
 let contextLength = 0;
 let initialized = false;
 const tokenViewer = new TokenViewer(document.getElementById('tokenization'), (path, options) => backendFetch(api(path), options), busy => setControlsDisabled(busy));
+const vocabularyViewer = new VocabularyViewer(document.getElementById('vocabulary'), (path, options) => backendFetch(api(path), options));
 const orchestrationPanel = new OrchestrationPanel(document.getElementById('chat-pane'), (path, options) => backendFetch(api(path), options), () => ({ use_memory: memoryCheckbox.checked, ask_approval: askApprovalCheckbox.checked, tools: toolCheckboxes.filter(box => box.checked).map(box => box.value), agent: agentSelect.value, prompt: promptSelect.value }));
 const sessionSelect = document.getElementById("session-select");
 const sessionStatus = document.getElementById("session-status");
@@ -1273,6 +1285,12 @@ async function refreshExplorer() {
   mcpServerDetails.hidden = !showMcp;
   mcpReloadBtn.hidden = mcpFindBtn.hidden = view !== "mcp";
   document.getElementById('tokenization').hidden = view !== 'tokens';
+  document.getElementById('vocabulary').hidden = view !== 'vocabulary';
+  if (view === 'vocabulary') {
+    memoryEl.hidden = true; exploreEl.hidden = true;
+    exploreNote.textContent = 'Every token the selected model can read or write, in ID order. Search for a word to see whether it is one token or several.';
+    await vocabularyViewer.refresh(); return;
+  }
   if (view === 'tokens') {
     memoryEl.hidden = true; exploreEl.hidden = true;
     exploreNote.textContent = 'Inspect the saved request for a specific model call. Source, coverage and limitations appear below.';

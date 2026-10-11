@@ -19,6 +19,8 @@ export type ModelEvent = { type: 'delta'; content: string; thinking: string; ter
 export interface ModelAdapter extends InspectionPort {
   prepare(input: ModelRequest): Record<string, unknown>;
   describe(model: string, signal?: AbortSignal): Promise<ModelDescription>;
+  /** The model's tokenizer fields, when the provider publishes them. */
+  vocabularyInfo?(model: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
   ready(provider: string): boolean;
   stream(input: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelEvent>;
   complete(input: ModelRequest, signal?: AbortSignal): Promise<ModelResult>;
@@ -64,6 +66,11 @@ export class LegacyModelAdapter implements ModelAdapter {
     const data = await this.port.request('show', { model }, signal);
     const info = data.model_info;
     return { provider: this.port.provider ?? 'ollama', ready: true, template: String(data.template ?? ''), parameters: String(data.parameters ?? ''), ...(info && typeof info === 'object' ? { model_info: info as Record<string, unknown> } : {}) };
+  }
+  async vocabularyInfo(model: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    if (!this.port.request) throw new Error('Model adapter does not support inspection');
+    const data = await this.port.request('show', { model, verbose: true }, signal);
+    return data.model_info && typeof data.model_info === 'object' ? data.model_info as Record<string, unknown> : {};
   }
   async *stream(input: ModelRequest, signal?: AbortSignal): AsyncGenerator<ModelEvent> {
     yield* legacyEvents(this.port.streamChat(input, signal), () => Boolean(signal?.aborted));

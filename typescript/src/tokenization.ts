@@ -1,7 +1,9 @@
 import type { ModelRequest } from './core.js';
+import { describeSpecialToken, type SpecialToken } from './special-tokens.js';
 
 /** Evidence about tokenization, never an implicit claim of inference capture. */
-export interface TokenPiece { id: string; bytes: number[] }
+/** `special` is present only for control tokens such as <|im_end|>, recognised by their text. */
+export interface TokenPiece { id: string; bytes: number[]; special?: SpecialToken }
 export interface TokenGroup { label: string; tokens: TokenPiece[] }
 export interface TokenInspection {
   model: string;
@@ -41,7 +43,8 @@ export function tokenPiece(id: unknown, piece: unknown): TokenPiece {
   if (!((typeof id === 'number' && Number.isSafeInteger(id) && id >= 0) || (typeof id === 'string' && /^\d+$/.test(id)))) throw new Error('Tokenizer returned an invalid token ID');
   const bytes = typeof piece === 'string' ? [...new TextEncoder().encode(piece)] : piece;
   if (!Array.isArray(bytes) || !bytes.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255)) throw new Error('Tokenizer returned invalid token bytes');
-  return { id: String(id), bytes };
+  const special = describeSpecialToken(new TextDecoder().decode(new Uint8Array(bytes)));
+  return { id: String(id), bytes, ...(special ? { special } : {}) };
 }
 export function base64Bytes(value: unknown): number[] {
   if (typeof value !== 'string') throw new Error('Tokenizer returned invalid base64 bytes');

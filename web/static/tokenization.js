@@ -62,7 +62,7 @@
         if (!sameSession || this.select.value !== previous || JSON.stringify(this.cache.get(previous)) !== evidence) this.showSelected();
       } catch { if (epoch === this.epoch) this.summary.textContent = 'Could not load saved requests. Choose the active session and try again.'; }
     }
-    clear() { this.groups.replaceChildren(); this.summary.replaceChildren(); this.about.replaceChildren(); this.details.textContent = 'Click a token to see its position, ID and bytes.'; this.details.hidden = true; }
+    clear() { this.groups.replaceChildren(); this.summary.replaceChildren(); this.about.replaceChildren(); this.details.textContent = 'Click a token to see its position, ID and bytes. Hover over or click a special token such as <|im_end|> to see what it means (matched by its text, because IDs differ between models).'; this.details.hidden = true; }
     showSelected() {
       this.clear();
       const cached = this.cache.get(this.select.value);
@@ -123,9 +123,9 @@
         group.tokens.forEach((token, index) => {
           const text = pieceText(token.bytes), visible = text.replaceAll(' ', '·').replaceAll('\n', '↵').replaceAll('\t', '⇥');
           const chip = element('button', visible || '(empty piece)', 'token-chip token-colour-' + index % 2);
-          chip.type = 'button'; chip.setAttribute('aria-label', 'Token ' + (index + 1) + ', ID ' + token.id); chip.title = 'Token ' + (index + 1) + ' · ID ' + token.id;
+          chip.type = 'button'; chip.setAttribute('aria-label', 'Token ' + (index + 1) + ', ID ' + token.id); chip.title = 'Token ' + (index + 1) + ' · ID ' + token.id + (token.special ? '\nSpecial token: ' + token.special.label + ' (' + token.special.models + ')\n' + token.special.meaning : '');
           chip.addEventListener('click', () => {
-            this.details.textContent = group.label + '\nPosition: ' + (index + 1) + '\nToken ID: ' + token.id + '\nPiece: ' + JSON.stringify(text) + '\nBytes (hex): ' + token.bytes.map(byte => byte.toString(16).padStart(2, '0').toUpperCase()).join(' ') + '\nBytes (decimal): ' + token.bytes.join(', ') + '\nA token can contain only part of a UTF-8 character. Such pieces show raw hex escapes; combined bytes restore the text.';
+            this.details.textContent = group.label + '\nPosition: ' + (index + 1) + '\nToken ID: ' + token.id + '\nPiece: ' + JSON.stringify(text) + (token.special ? '\nSpecial token: ' + token.special.label + ' (' + token.special.models + ')\n' + token.special.meaning : '') + '\nBytes (hex): ' + token.bytes.map(byte => byte.toString(16).padStart(2, '0').toUpperCase()).join(' ') + '\nBytes (decimal): ' + token.bytes.join(', ') + '\nA token can contain only part of a UTF-8 character. Such pieces show raw hex escapes; combined bytes restore the text.';
           }); chips.append(chip);
         });
         section.append(chips); this.groups.append(section);

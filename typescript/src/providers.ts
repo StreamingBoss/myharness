@@ -43,6 +43,7 @@ export class ProviderRouter implements ModelAdapter {
   ready(provider: string): boolean { try { return this.adapter(provider).ready(provider); } catch { return false; } }
   prepare(input: ModelRequest): Record<string, unknown> { return this.adapter(input.provider).prepare(input); }
   describe(model: string, signal?: AbortSignal): Promise<ModelDescription> { return this.adapter().describe(model, signal); }
+  async vocabularyInfo(model: string, signal?: AbortSignal): Promise<Record<string, unknown>> { return await this.adapter().vocabularyInfo?.(model, signal) ?? {}; }
   stream(input: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelEvent> { return this.adapter(input.provider).stream(input, signal); }
   complete(input: ModelRequest, signal?: AbortSignal): Promise<ModelResult> { return this.adapter(input.provider).complete(input, signal); }
   requestMetadata(input: ModelRequest): Record<string, unknown> {

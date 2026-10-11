@@ -195,3 +195,23 @@ test('Worker and browser fetch transports expose the same request inspection wit
   const fetcher = browserFetch({ call: async (action: string, payload: unknown) => { assert.equal(action, 'tokenize'); assert.deepEqual(payload, { event_index: 4 }); return { fidelity: 'unavailable' }; } } as never);
   const response = await fetcher('/tokenize', { method: 'POST', body: JSON.stringify({ event_index: 4 }) }); assert.equal(response.status, 200); assert.equal((await response.json()).fidelity, 'unavailable');
 });
+
+test('control tokens are explained by their text and ordinary pieces are not', async () => {
+  const { tokenPiece } = await import('../src/tokenization.js');
+  const { describeSpecialToken } = await import('../src/special-tokens.js');
+  const special = tokenPiece(151645, '<|im_end|>').special!;
+  assert.deepEqual([special.label, special.models], ['end of message', 'ChatML: Qwen and others']);
+  assert.match(special.meaning, /stops generating/);
+  assert.equal(tokenPiece('7', [60, 124, 105, 109, 95, 115, 116, 97, 114, 116, 124, 62]).special?.label, 'start of message');
+  const generic = tokenPiece(1, '<|new_marker|>').special!;
+  assert.deepEqual([generic.label, generic.models], ['control token', 'model-specific']);
+  assert.equal(tokenPiece(1, '<｜tool▁outputs▁begin｜>').special?.label, 'control token');
+  for (const text of ['hello', ' <|im_end|>', '<|im_end|>\n', '<div>', '<|a b|>', '<||>', 'constructor', '__proto__']) assert.equal(tokenPiece(2, text).special, undefined, text);
+  assert.equal(tokenPiece(3, [0xc3]).special, undefined);
+  assert.equal(describeSpecialToken('toString'), undefined);
+  // Every token Qwen's vision variants add to the ChatML set has its own explanation, not the generic note.
+  for (const name of ['vision_start', 'vision_end', 'vision_pad', 'image_pad', 'video_pad', 'object_ref_start', 'object_ref_end', 'box_start', 'box_end', 'quad_start', 'quad_end', 'fim_pad']) {
+    const described = describeSpecialToken(`<|${name}|>`)!;
+    assert.notEqual(described.label, 'control token', name); assert.match(described.models, /^Qwen/);
+  }
+});
