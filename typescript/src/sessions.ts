@@ -22,7 +22,7 @@ export interface SessionRecord {
   missing_workspace?: boolean;
   project_instructions: [string, string] | null;
   events: Record<string, unknown>[];
-  settings: { use_memory: boolean; tools: string[]; ask_approval: boolean };
+  settings: { use_memory: boolean; tools: string[]; ask_approval: boolean; goals?: boolean };
   /** Optional durable autonomous-work state. Older exports deliberately omit it. */
   orchestration?: { goal?: GoalRecord; children?: ChildSummary[] };
   parent_session_id?: string;

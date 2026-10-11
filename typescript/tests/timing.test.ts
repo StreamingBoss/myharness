@@ -111,6 +111,8 @@ test("prefix reuse compares requests in rendered order", () => {
   const long = request([system, user, reply, next]);
   assert.deepEqual(prefixReuse(long, request([system, user, { role: "assistant", content: "[summary]" }, next]), estimate), { change: "conversation rewritten", changed_index: 2, reused_messages: 2, total_messages: 4, reused_tokens_est: 20, new_tokens_est: 20 });
   assert.equal(prefixReuse(long, base, estimate).change, "none");
+  const other: ChatMessage = { role: "user", content: "something else" };
+  assert.deepEqual(prefixReuse(base, request([system, other]), estimate, false), { change: "memory off", changed_index: 1, reused_messages: 1, total_messages: 2, reused_tokens_est: 10, new_tokens_est: 10 });
   // Ollama's cache holds the reply as generated, thinking included; the harness sends it back without the thinking.
   const generated = request([system, user, { ...reply, thinking: "hmm" } as ChatMessage]);
   assert.deepEqual(prefixReuse(generated, long, estimate), { change: "thinking dropped", changed_index: 2, reused_messages: 2, total_messages: 4, reused_tokens_est: 20, new_tokens_est: 20 });
@@ -125,6 +127,7 @@ test("prefix text explains each kind of change", () => {
   assert.match(prefixText(prefix("tools")), /^The tool definitions changed/);
   assert.match(prefixText(prefix("system prompt", 0)), /^The system prompt changed at message 1 of 4 .*≈300 tokens, needs prefill again; only ≈1,200 tokens before it can be reused\.$/);
   assert.match(prefixText(prefix("conversation rewritten", 2)), /^The harness rewrote earlier history: message 3 of 4 differs/);
+  assert.match(prefixText(prefix("memory off", 1)), /^Harness memory is off, so each request holds only the system prompt \(if any\) and your new message: message 2 of 4 differs.*models are stateless, so every request starts from scratch.*many users in parallel.*All ≈300 tokens need prefill again\.$/);
   assert.match(prefixText(prefix("thinking dropped", 2)), /^The model's previous reply \(message 3 of 4\) started with thinking that the harness does not send back.*≈1,200 tokens before it can be reused; .* ≈300 tokens, need prefill again\.$/);
   assert.match(prefixText(prefix("appended", 2)), /^The first 2 of 4 messages are identical to the previous request \(≈1,200 tokens\)\..*only the ≈300 tokens added since need prefill\.$/);
   assert.equal(prefixText(prefix("none")), "Identical to the previous request (≈1,200 tokens); all of it can be reused.");

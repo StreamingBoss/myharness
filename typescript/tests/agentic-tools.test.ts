@@ -169,7 +169,7 @@ test('git tools are not offered or run when the runtime has no git for the folde
   assert.equal((await run(harness, model, 'git_log', {})).result, "error: unknown tool 'git_log'");
   const direct = async (name: string) => (await harness.runTool(name, {}, [name]) as { text: string }).text;
   assert.equal(await direct('git_log'), "unsupported: 'git_log' is unavailable in the Node runtime: no repository here"); assert.equal(await direct('git_status'), "unsupported: 'git_status' is unavailable in the Node runtime");
-  assert.equal((await harness.explore(turn(['git_status', 'delete_file']))).tools, JSON.stringify([(await import('../src/tools.js')).TOOLS.find(tool => tool.function.name === 'delete_file')], null, 2));
+  assert.equal((await harness.explore(turn(['git_status', 'delete_file'], { goals: false }))).tools, JSON.stringify([(await import('../src/tools.js')).TOOLS.find(tool => tool.function.name === 'delete_file')], null, 2));
   const settings = harness.activeSessionRecord().settings.tools; assert.equal(settings.includes('git_log'), false);
 });
 

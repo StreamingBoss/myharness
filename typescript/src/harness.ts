@@ -21,6 +21,8 @@ import { Vocabulary, type VocabularyPage, type VocabularyQuery } from './vocabul
 
 export interface TurnAction {
   message: string; useMemory: boolean; tools: string[]; askApproval: boolean; agent: string; prompt: string; sessionId?: string;
+  /** Offer the goal tools to the model. A separate switch from `tools`; defaults on. */
+  goals?: boolean;
 }
 export interface HarnessState {
   provider?: Provider; maxOutputTokens?: number; model: string; contextLength: number; lastPromptTokens: number; memory: ChatMessage[]; workspace: string; stopped: boolean;
@@ -227,7 +229,7 @@ export class Harness implements TurnHost {
     }
     return this.updateGoal(revision, 'resume');
   }
-  private defaultTurn(message: string): TurnAction { return { message, useMemory: true, tools: [...this.session.settings.tools], askApproval: this.session.settings.ask_approval, ...this.session.setup }; }
+  private defaultTurn(message: string): TurnAction { return { message, useMemory: true, tools: [...this.session.settings.tools], askApproval: this.session.settings.ask_approval, goals: this.session.settings.goals !== false, ...this.session.setup }; }
   inspectRun(id?: string): ExecutionSnapshot | undefined {
     if (!id) return this.execution?.inspect();
     const live = this.runs.get(id); if (live) return live.inspect();
@@ -402,6 +404,7 @@ export class Harness implements TurnHost {
       const settings = patch.settings as Record<string, unknown>;
       if (typeof settings.use_memory === 'boolean') this.session.settings.use_memory = settings.use_memory;
       if (typeof settings.ask_approval === 'boolean') this.session.settings.ask_approval = settings.ask_approval;
+      if (typeof settings.goals === 'boolean') this.session.settings.goals = settings.goals;
       if (Array.isArray(settings.tools) && settings.tools.every(name => typeof name === 'string')) this.session.settings.tools = settings.tools;
     }
     await this.saveSession();
@@ -566,12 +569,12 @@ export class Harness implements TurnHost {
       if (action.useMemory) conversation.push(userMessage);
       const mcpTools = this.mcp.definitions();
       if (this.settlementQueue.length) conversation.push(...this.settlementQueue.splice(0));
-      const includeGoals = !this.parentId && !this.closing;
+      const includeGoals = !this.parentId && !this.closing && action.goals !== false;
       const requestedTools = [...action.tools, ...(includeGoals ? GOAL_TOOLS.map(tool => tool.function.name) : []), ...this.delegationTools().map(tool => tool.function.name)];
       const available = this.availableTools();
       const enabledTools = requestedTools.filter(name => available.includes(name) || mcpTools.some(tool => tool.function.name === name) || ORCHESTRATION_TOOLS.some(tool => tool.function.name === name) || GOAL_TOOLS.some(tool => tool.function.name === name));
       // A disconnected MCP server keeps its tools selected for when it returns.
-      this.session.settings = { use_memory: action.useMemory, tools: action.tools.filter(name => enabledTools.includes(name) || this.mcp.owns(name)), ask_approval: action.askApproval };
+      this.session.settings = { use_memory: action.useMemory, tools: action.tools.filter(name => enabledTools.includes(name) || this.mcp.owns(name)), ask_approval: action.askApproval, goals: action.goals !== false };
       if (this.session.name === 'New session') this.session.name = await this.uniqueName(sessionTitle(message) || 'New session', this.session.id);
       this.recordEvent({ type: 'chat_user', content: message, ...(this.managedTurn ? { source: this.source } : {}) });
       if (prompt) { this.recordEvent(prompt); yield prompt; }
@@ -1228,12 +1231,12 @@ export class Harness implements TurnHost {
       }
     }
     const setup = action.useMemory && this.state.memory.length ? this.session.setup : { agent: action.agent, prompt: action.prompt };
-    const includeGoals = Boolean(this.getGoal()) || action.tools.some(name => GOAL_TOOLS.some(tool => tool.function.name === name));
+    const includeGoals = !this.parentId && action.goals !== false;
     const tools = [...TOOLS.filter(tool => this.availableTools().includes(tool.function.name)), ...this.mcp.definitions(), ...(includeGoals ? GOAL_TOOLS : []), ...(this.allowSubagents && !this.parentId ? ORCHESTRATION_TOOLS : [])].filter(tool => action.tools.includes(tool.function.name) || (includeGoals && GOAL_TOOLS.some(control => control.function.name === tool.function.name)) || ORCHESTRATION_TOOLS.some(control => control.function.name === tool.function.name));
     const history = action.useMemory ? this.state.memory : [], withSkills = action.tools.includes('use_skill');
     const system = this.systemMessages(setup, withSkills, action.tools);
     return { warnings, mcp: this.mcp.status(), system_prompt: this.selectedPrompt(setup.prompt), prompt_name: setup.prompt, agent: this.selectedAgent(setup.agent), agent_name: setup.agent,
       tools: json(tools, 2), template: show.template, parameters: show.parameters, ...(kv ? { kv_cache: kv, kv_text: kvText(kv) } : {}), final: this.model().includes('qwen') ? renderQwenPrompt([...system, ...history, { role: 'user', content: '(your next message)' }], tools) : `The reconstruction is only written for Qwen templates, and the model is ${this.model()}.`,
-      skills: Object.values(this.effectiveSkills()), skills_section: skillsSection(this.effectiveSkills()), skills_listed: withSkills, project_instructions: this.session.project_instructions ?? this.catalog.projectInstructions(), skill_context: this.skillContext([...system, ...history]) };
+      skills: withSkills ? Object.values(this.effectiveSkills()) : [], skills_section: withSkills ? skillsSection(this.effectiveSkills()) : '', skills_listed: withSkills, project_instructions: this.session.project_instructions ?? this.catalog.projectInstructions(), skill_context: this.skillContext([...system, ...history]) };
   }
 }

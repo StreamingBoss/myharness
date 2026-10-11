@@ -471,6 +471,7 @@
   <div id="input-row">
     <textarea id="input" rows="1" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line, /skill-name to use a skill)" autofocus title="Message sent to the model with enabled tools and harness instructions. Enter sends; Ctrl+Enter inserts a new line. Use /skill-name to request a skill."></textarea>
     <label class="toggle" title="The model remembers nothing between requests. Checked: the harness keeps the conversation (the messages list at the bottom) and re-sends ALL of it with every request, which is why the 'in' token count grows each turn. Unchecked: only your new message is sent and nothing is kept, so the model can't refer to earlier messages."><input id="use-memory" type="checkbox" checked title="Keep conversation memory and send it again on later requests. Turning this off sends only the new message and does not retain that turn in model memory."> <span class="help">Harness memory</span></label>
+    <label class="toggle" title="Goals are an extra loop on top of the usual tool loop. Checked: the harness offers get_orchestration, configure_goal, get_goal and update_goal (about 400 tokens on every request). If the model calls configure_goal, the harness keeps sending it follow-up rounds until it reports the goal complete or blocked, or a limit is reached. Unchecked: these tools are not sent and the model cannot start or finish a goal; a goal already running stops at its limits or when you press Stop."><input id="use-goals" type="checkbox" checked title="Offer the goal tools to the model so it can start autonomous multi-round work."> <span class="help">Goals</span></label>
     <label class="toggle" title="Only changes what the chat shows: the model still thinks before answering (which takes time and output tokens), and the RECEIVED blocks on the right still contain its thinking. Applies to the thinking already in the chat too."><input id="hide-thinking" type="checkbox" title="Hide thinking in the chat, including earlier thinking. This display preference does not change model generation or the Internals view."> <span class="help">Hide thinking</span></label>
     <button id="reset" title="Empty the harness memory: the model forgets the conversation, but the chat stays visible. Also unlocks the system prompt and agent.">Reset memory</button>
     <button id="compact" title="Ask the model to summarize older messages (under 300 words), retaining at least the last 4 messages and complete tool-call batches. Costs a model request; the request and summary appear in Internals. Memory changes only if the summary succeeds and saves space.">Compact</button>
@@ -569,6 +570,7 @@ const resetBtn = document.getElementById("reset");
 const memoryCheckbox = document.getElementById("use-memory");
 const toolsCheckbox = document.getElementById("use-tools");
 const askApprovalCheckbox = document.getElementById("ask-approval");
+const goalsCheckbox = document.getElementById("use-goals");
 const clearBtn = document.getElementById("clear");
 const agentSelect = document.getElementById("agent");
 const promptSelect = document.getElementById("prompt");
@@ -587,7 +589,7 @@ let contextLength = 0;
 let initialized = false;
 const tokenViewer = new TokenViewer(document.getElementById('tokenization'), (path, options) => backendFetch(api(path), options), busy => setControlsDisabled(busy));
 const vocabularyViewer = new VocabularyViewer(document.getElementById('vocabulary'), (path, options) => backendFetch(api(path), options));
-const orchestrationPanel = new OrchestrationPanel(document.getElementById('chat-pane'), (path, options) => backendFetch(api(path), options), () => ({ use_memory: memoryCheckbox.checked, ask_approval: askApprovalCheckbox.checked, tools: toolCheckboxes.filter(box => box.checked).map(box => box.value), agent: agentSelect.value, prompt: promptSelect.value }));
+const orchestrationPanel = new OrchestrationPanel(document.getElementById('chat-pane'), (path, options) => backendFetch(api(path), options), () => ({ use_memory: memoryCheckbox.checked, ask_approval: askApprovalCheckbox.checked, goals: goalsCheckbox.checked, tools: toolCheckboxes.filter(box => box.checked).map(box => box.value), agent: agentSelect.value, prompt: promptSelect.value }));
 const sessionSelect = document.getElementById("session-select");
 const sessionStatus = document.getElementById("session-status");
 
@@ -596,7 +598,7 @@ async function saveSessionSettings() {
   if (!session.id) return;
   markSessionSaving();
   const settings = {use_memory: memoryCheckbox.checked, tools: currentTools(),
-    ask_approval: askApprovalCheckbox.checked};
+    ask_approval: askApprovalCheckbox.checked, goals: goalsCheckbox.checked};
   try {
     const response = await backendFetch(api("/sessions/" + session.id), {method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({settings})});
     if (!response.ok) throw responseError(await response.json());
@@ -842,6 +844,7 @@ async function sendMessage() {
         message: text,
         use_memory: memoryCheckbox.checked,
         ask_approval: askApprovalCheckbox.checked,
+        goals: goalsCheckbox.checked,
         agent: agentSelect.value,
         prompt: promptSelect.value,
         tools: toolsCheckbox.checked
@@ -1099,14 +1102,16 @@ function renderSkills(data, context) {
     exploreEl.append(span);
   }
   if (!data.skills.length) {
-    exploreEl.textContent = "(no skills: add skills/<name>/SKILL.md files)";
+    exploreEl.textContent = data.skills_listed
+      ? "(no skills: add skills/<name>/SKILL.md files)"
+      : "(no skills sent: use_skill is unchecked)";
     exploreNote.textContent = EXPLORE_NOTES.skills;
     return;
   }
   const listCost = Math.round(data.skills_section.length / 4);
   const fullCost = Math.round(data.skills.reduce((n, s) => n + s.body.length, 0) / 4);
   exploreNote.textContent = EXPLORE_NOTES.skills + "  (list ~" + listCost +
-    " tokens on every request" + (data.skills_listed ? "" : ", use_skill is unchecked") +
+    " tokens on every request" +
     "; all full skills ~" + fullCost.toLocaleString("en") + " tokens)";
   append("SENT ON EVERY REQUEST (in the system message)\n\n");
   const firstEntry = data.skills_section.indexOf("\n- ");
@@ -1337,6 +1342,7 @@ async function refreshExplorer() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         use_memory: memoryCheckbox.checked,
+        goals: goalsCheckbox.checked,
         agent: agentSelect.value,
         prompt: promptSelect.value,
         tools: currentTools(),
@@ -1489,7 +1495,7 @@ function setChangeStatus(box, approved, doneLabel, denial = "refused") {
 }
 
 function setControlsDisabled(disabled) {
-  for (const el of [input, sendBtn, resetBtn, compactBtn, clearBtn, memoryCheckbox, toolsCheckbox,
+  for (const el of [input, sendBtn, resetBtn, compactBtn, clearBtn, memoryCheckbox, toolsCheckbox, goalsCheckbox,
                     askApprovalCheckbox, projectInput, setProjectBtn, browseBtn, mcpReloadBtn]) {
     el.disabled = disabled;
   }
@@ -1816,6 +1822,7 @@ function initialize(data) {
   syncToolGroups();
   askApprovalCheckbox.checked = session.settings?.ask_approval ?? true;
   memoryCheckbox.checked = session.settings?.use_memory ?? true;
+  goalsCheckbox.checked = session.settings?.goals !== false;
   initialized = true;
   updateContextMeter(data.last_prompt_tokens || null);
   replaySession();
@@ -1834,7 +1841,7 @@ document.getElementById("hide-thinking").addEventListener("change", (e) => {
   try { localStorage.setItem("hideThinking", e.target.checked ? "1" : ""); } catch {}
 });
 
-for (const el of [memoryCheckbox, toolsCheckbox, askApprovalCheckbox, ...toolCheckboxes]) {
+for (const el of [memoryCheckbox, toolsCheckbox, goalsCheckbox, askApprovalCheckbox, ...toolCheckboxes]) {
   el.addEventListener("change", saveSessionSettings);
 }
 exploreView.addEventListener("change", () => {
@@ -1882,6 +1889,7 @@ document.getElementById("import-session").addEventListener("change", async (e) =
 // Hydrate the session only after all renderer and control helpers exist.
 if (session.settings) {
   memoryCheckbox.checked = session.settings.use_memory !== false;
+  goalsCheckbox.checked = session.settings.goals !== false;
   askApprovalCheckbox.checked = session.settings.ask_approval !== false;
   for (const checkbox of toolCheckboxes) checkbox.checked = (session.settings.tools || []).includes(checkbox.value);
   toolsCheckbox.checked = toolCheckboxes.some(c => c.checked);

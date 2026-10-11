@@ -195,7 +195,7 @@ export class HarnessCore {
         messages: payload.messages.map((message) => message === turn.userMessage ? MARKER : message),
       };
       const prefix = this.host.setPreviousRequest
-        ? prefixReuse(this.host.previousRequest?.(), payload, (messages, tools) => this.host.estimateTokens([], messages, tools))
+        ? prefixReuse(this.host.previousRequest?.(), payload, (messages, tools) => this.host.estimateTokens([], messages, tools), turn.useMemory)
         : undefined;
       this.host.setPreviousRequest?.(payload);
       yield this.emit({

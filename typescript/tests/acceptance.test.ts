@@ -7,6 +7,7 @@ import { NodeHarness, type TurnAction, type ModelPort } from '../src/node/harnes
 import { SessionStore, sessionSummary, sessionTitle } from '../src/node/sessions.js';
 import type { ChatMessage, CoreEvent, ModelRequest } from '../src/core.js';
 import { headless } from '../src/node/headless.js';
+import { turnAction } from '../src/transport.js';
 import { Catalog, skillContext, skillsSection } from '../src/node/catalog.js';
 import { WorkspaceAdapter, unescape } from '../src/node/workspace.js';
 import { characters, estimateTokens, json, lines, pythonRepr, renderQwenPrompt, retainedBoundary, splitJson } from '../src/format.js';
@@ -60,6 +61,7 @@ test('catalog loading, system ordering, frozen snapshots, manual skills and expl
   await collect(harness.submit(turn({ agent: 'plain', prompt: '', tools: ['use_skill'] })));
   assert.match(model.requests[1]!.messages[0]!.content, /Product rules/);
   const explore = await harness.explore(turn({ tools: ['use_skill'] })); assert.equal(explore.system_prompt, 'Product rules'); assert.equal(explore.skills_listed, true); assert.match(String(explore.final), /your next message/);
+  const bare = await harness.explore(turn({ tools: [] })); assert.equal(bare.skills_listed, false); assert.deepEqual(bare.skills, []); assert.equal(bare.skills_section, '');
   assert.match((await harness.runTool('use_skill', { name: 'basic' }, ['use_skill']) as { text: string }).text, /project skill/);
   assert.match((await harness.runTool('use_skill', { name: 'missing' }, ['use_skill']) as { text: string }).text, /there is no skill/);
   await harness.reset();
@@ -221,4 +223,40 @@ test('formatting preserves Unicode, JSON, role boundaries and reconstructed Qwen
   assert.equal(unescape('a\\r\\nb\\t\\"c'), 'a\nb\t"c');
   assert.equal(skillsSection({}), '');
   assert.equal(skillContext([{ role: 'tool', tool_name: 'read_file', content: '   1: first\nplain' }], { s: { name: 's', description: '', body: 'first', source: 'test' } }).s !== undefined, true);
+});
+
+test('the Goals switch is separate from tools: off hides the goal tools, even while a goal is running', async t => {
+  const { harness, model } = await fixture(t);
+  const sent = () => (model.requests.at(-1)!.tools ?? []).map(tool => tool.function.name);
+  await collect(harness.submit(turn()));
+  assert.ok(sent().includes('configure_goal'));
+  assert.ok((await harness.explore(turn())).tools!.toString().includes('configure_goal'));
+  await collect(harness.submit(turn({ goals: false })));
+  assert.deepEqual(sent(), []);
+  assert.equal(harness.activeSessionRecord().settings.goals, false);
+  assert.ok(!String((await harness.explore(turn({ goals: false }))).tools).includes('configure_goal'));
+  await harness.patchSession(harness.activeSessionRecord().id, { settings: { goals: true } });
+  assert.equal(harness.activeSessionRecord().settings.goals, true);
+  await harness.patchSession(harness.activeSessionRecord().id, { settings: { goals: 'no' } });
+  assert.equal(harness.activeSessionRecord().settings.goals, true);
+  const before = model.requests.length;
+  await harness.startGoal({ objective: 'keep going', turn: turn({ goals: false, message: 'work' }) });
+  while (model.requests.length === before) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.ok(!sent().includes('update_goal'));
+  assert.ok(!String((await harness.explore(turn({ goals: false }))).tools).includes('update_goal'));
+  harness.stop(); await collect(harness.subscribeRun(harness.inspectRun()!.id));
+});
+
+test('turnAction validates the goals flag and defaults it on', () => {
+  const base = { use_memory: true, tools: [], agent: '', prompt: '' };
+  assert.equal(turnAction(base, false).goals, true);
+  assert.equal(turnAction({ ...base, goals: false }, false).goals, false);
+  assert.throws(() => turnAction({ ...base, goals: 'no' }, false), /Invalid turn settings/);
+});
+
+test('with memory off the prefix panel explains that models are stateless', async t => {
+  const { harness } = await fixture(t);
+  const prefixText = async (message: string, useMemory: boolean) => String((await collect(harness.submit(turn({ message, useMemory })))).find(event => event.type === 'request')!.prefix_text);
+  await prefixText('first', false);
+  assert.match(await prefixText('second', false), /^Harness memory is off.*models are stateless/);
 });

@@ -17,7 +17,7 @@ export interface TimingSummary {
   thinking_tokens?: number; thinking_exact?: boolean;
 }
 export interface PrefixReuse {
-  change: 'first request' | 'model' | 'context window' | 'tools' | 'system prompt' | 'conversation rewritten' | 'thinking dropped' | 'appended' | 'none';
+  change: 'first request' | 'model' | 'context window' | 'tools' | 'system prompt' | 'conversation rewritten' | 'memory off' | 'thinking dropped' | 'appended' | 'none';
   /** Index of the first message that differs from the previous request. */
   changed_index?: number;
   reused_messages: number; total_messages: number;
@@ -60,7 +60,7 @@ export function timingSummary(usage: ModelUsage, provider: ModelTiming | undefin
 }
 
 /** Compares a request with the previous one in the order a chat template renders it: tools, system, conversation. */
-export function prefixReuse(previous: ModelRequest | undefined, current: ModelRequest, estimate: (messages: ChatMessage[], tools: ToolDefinition[]) => number): PrefixReuse {
+export function prefixReuse(previous: ModelRequest | undefined, current: ModelRequest, estimate: (messages: ChatMessage[], tools: ToolDefinition[]) => number, memory = true): PrefixReuse {
   const tools = current.tools ?? [], total = estimate(current.messages, tools), count = current.messages.length;
   const none = (change: PrefixReuse['change']): PrefixReuse => ({ change, reused_messages: 0, total_messages: count, reused_tokens_est: 0, new_tokens_est: total });
   if (!previous) return none('first request');
@@ -73,7 +73,7 @@ export function prefixReuse(previous: ModelRequest | undefined, current: ModelRe
   const { thinking, ...sent } = (previous.messages[reused] ?? {}) as ChatMessage & { thinking?: string };
   const change: PrefixReuse['change'] = reused === count ? 'none' : current.messages[reused]!.role === 'system' ? 'system prompt' : reused === previous.messages.length ? 'appended'
     // The model generated its thinking, but the harness sends the reply back without it.
-    : thinking && JSON.stringify(sent) === JSON.stringify(current.messages[reused]) ? 'thinking dropped' : 'conversation rewritten';
+    : thinking && JSON.stringify(sent) === JSON.stringify(current.messages[reused]) ? 'thinking dropped' : memory ? 'conversation rewritten' : 'memory off';
   return { change, ...(change === 'none' ? {} : { changed_index: reused }), reused_messages: reused, total_messages: count, reused_tokens_est: reusedTokens, new_tokens_est: total - reusedTokens };
 }
 
@@ -139,6 +139,7 @@ export function prefixText(prefix: PrefixReuse): string {
     case 'system prompt': return `The system prompt changed at ${at} (instructions, agent, skills, MCP or project file). Everything from there on, ${tokens(prefix.new_tokens_est)}, needs prefill again; only ${tokens(prefix.reused_tokens_est)} before it can be reused.`;
     case 'thinking dropped': return `The model's previous reply (${at}) started with thinking that the harness does not send back, so the prompt now differs from what the model generated: its KV cache matches only up to that reply. ${tokens(prefix.reused_tokens_est)} before it can be reused; the reply without its thinking and everything after it, ${tokens(prefix.new_tokens_est)}, need prefill again.`;
     case 'conversation rewritten': return `The harness rewrote earlier history: ${at} differs from the previous request (old tool output trimmed, conversation compacted or memory changed). Everything after it, ${tokens(prefix.new_tokens_est)}, needs prefill again; ${tokens(prefix.reused_tokens_est)} before it can be reused.`;
+    case 'memory off': return `Harness memory is off, so each request holds only the system prompt (if any) and your new message: ${at} differs from the previous request and nothing from earlier turns is sent. This is how an LLM works without a harness: models are stateless, so every request starts from scratch, and that is also why one model can serve many users in parallel. All ${tokens(prefix.new_tokens_est)} need prefill again.`;
     case 'appended': return `The first ${prefix.reused_messages} of ${prefix.total_messages} messages are identical to the previous request (${tokens(prefix.reused_tokens_est)}). A provider prompt cache or Ollama's KV cache can reuse them; only the ${tokens(prefix.new_tokens_est)} added since need prefill.`;
     case 'none': return `Identical to the previous request (${tokens(prefix.reused_tokens_est)}); all of it can be reused.`;
   }

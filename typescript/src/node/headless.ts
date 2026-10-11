@@ -18,7 +18,7 @@ export async function headless(args: string[], load = loadHarness, output = cons
     harness = await load(); process.on('SIGINT', stop);
     if (values.reset) { await harness.reset(); output(harness.memoryText()); return 0; }
     const session = harness.activeSessionRecord();
-    const turn = { message: positionals.join(' '), useMemory: !values['no-memory'], tools: values.tools === undefined ? session.settings.tools : values.tools.split(',').map(name => name.trim()).filter(Boolean), askApproval: true, agent: session.setup.agent, prompt: session.setup.prompt };
+    const turn = { message: positionals.join(' '), useMemory: !values['no-memory'], tools: values.tools === undefined ? session.settings.tools : values.tools.split(',').map(name => name.trim()).filter(Boolean), askApproval: true, goals: session.settings.goals !== false, agent: session.setup.agent, prompt: session.setup.prompt };
     if (values.goal && values.compact) throw new Error('--goal and --compact cannot be combined');
     if (values.goal) await harness.startGoal({ objective: turn.message, turn, ...(values['timeout-ms'] === undefined ? {} : { timeoutMs: Number(values['timeout-ms']) }), ...(values['max-rounds'] === undefined ? {} : { maxRounds: Number(values['max-rounds']) }), ...(values['max-requests'] === undefined ? {} : { maxRequests: Number(values['max-requests']) }) });
     const events = values.goal ? harness.subscribeRun(harness.inspectRun()!.id) : values.compact ? harness.compact() : harness.submit(turn);
