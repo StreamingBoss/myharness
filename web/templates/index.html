@@ -5,6 +5,7 @@
 <title>myharness</title>
 <script src="/static/marked.min.js"></script>
 <script src="/static/purify.min.js"></script>
+<script>try { const t = localStorage.getItem("theme"); document.documentElement.dataset.theme = t === "light" ? "light" : "dark"; } catch { document.documentElement.dataset.theme = "dark"; }</script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -380,7 +381,6 @@
   }
   #explore-note { color: #8a8a8a; font-size: 12px; }
   #explore[hidden], #memory[hidden] { display: none; }
-  #harness-box.mcp-view { height: 45vh; }
   #mcp-config-editor { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; padding: 8px; }
   #mcp-config-editor[hidden] { display: none; }
   #mcp-config-text { display: block; box-sizing: border-box; width: 100%; min-height: 100px; flex: 1; margin: 6px 0; resize: vertical; font: 12px/1.45 ui-monospace, monospace; }
@@ -399,8 +399,6 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-/* token pieces need more room than the default 25vh; the splitter can still make it taller */
-#harness-box:has(#tokenization:not([hidden])) { min-height: 45vh; }
 #tokenization { flex: 1; min-height: 0; overflow: auto; padding: 12px; font: 13px system-ui; }
 #token-intro { margin: 8px 0; color: #aaa; }
 #token-intro summary, #tokenization details summary { cursor: pointer; }
@@ -424,6 +422,60 @@
 .token-colour-0 { background: #234854; color: #b5ecff; }
 .token-colour-1 { background: #443457; color: #f2caff; }
 #token-details { border: 1px solid #666; padding: 8px; }
+
+/* Unified buttons: one look for every button, driven by theme variables */
+:root { --btn-bg: #3a3f47; --btn-fg: #eee; --btn-border: #5a6068; --btn-hover: #4a505a; }
+:root[data-theme="light"] { --btn-bg: #e4e7eb; --btn-fg: #1f2328; --btn-border: #b8bec6; --btn-hover: #d4d9df; }
+button, #settings-bar button, #session-bar button, #browser-buttons button, #browser-buttons #browser-select,
+.change-actions button, .change-actions .approve, .pane-header button, #orchestration button,
+#input-row button, #input-row #reset, #input-row #clear, #input-row #stop, #orchestration-attention {
+  padding: 6px 14px; border: 1px solid var(--btn-border); border-radius: 6px;
+  background: var(--btn-bg); color: var(--btn-fg); cursor: pointer; font: inherit; font-size: 13px;
+}
+button:hover:not(:disabled) { background: var(--btn-hover); }
+button:disabled { opacity: 0.5; cursor: default; }
+#harness-box button { padding: 3px 10px; }
+#theme-toggle { margin-left: auto; }
+
+/* Light theme */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+[data-theme="light"] body { background: #fff; color: #1f2328; }
+[data-theme="light"] #settings-bar, [data-theme="light"] #browser, [data-theme="light"] .change-title,
+[data-theme="light"] .change-actions, [data-theme="light"] .msg.assistant { background: #f3f5f7; }
+[data-theme="light"] #session-bar { background: #eaedf0; }
+[data-theme="light"] #settings-bar, [data-theme="light"] .toggle, [data-theme="light"] .pane-header,
+[data-theme="light"] #token-intro, [data-theme="light"] #vocabulary-intro, [data-theme="light"] #token-about,
+[data-theme="light"] .registry-note, [data-theme="light"] .tool-menu summary { color: #444; }
+[data-theme="light"] #settings-bar select, [data-theme="light"] #settings-bar input,
+[data-theme="light"] #session-bar select, [data-theme="light"] #session-bar input,
+[data-theme="light"] #explore-header select, [data-theme="light"] #input-row #input,
+[data-theme="light"] #browser-runtime select, [data-theme="light"] #browser-runtime input {
+  background: #fff; color: #1f2328; border-color: #b8bec6; }
+[data-theme="light"] #settings-bar, [data-theme="light"] #session-bar, [data-theme="light"] .pane-header,
+[data-theme="light"] #input-row, [data-theme="light"] #browser-path, [data-theme="light"] #browser-buttons {
+  border-color: #cfd4da; }
+[data-theme="light"] #browser-path, [data-theme="light"] .tool-family legend { color: #1f2328; }
+[data-theme="light"] #internals-pane { background: #f7f8fa; }
+[data-theme="light"] #harness-box { background: #eef2f6; }
+[data-theme="light"] #splitter, [data-theme="light"] #vsplitter { background: #d4d9df; }
+[data-theme="light"] .msg.markdown code, [data-theme="light"] .msg.markdown pre,
+[data-theme="light"] .change pre, [data-theme="light"] .registry-option pre { background: #eef0f3; }
+[data-theme="light"] #mcp-registry, [data-theme="light"] .plan { background: #fff; color: #1f2328; }
+[data-theme="light"] .msg.markdown a { color: #0b5cad; }
+[data-theme="light"] .token-empty { background: #fff6e0; }
+[data-theme="light"] #terminal .sent { color: #b35c00; }
+[data-theme="light"] #terminal .received, [data-theme="light"] .diff-add, [data-theme="light"] .plan-done,
+[data-theme="light"] .change-status.approved { color: #1a7f37; }
+[data-theme="light"] #terminal .received b { color: #0b5cad; }
+[data-theme="light"] .diff-del, [data-theme="light"] .change-status.refused,
+[data-theme="light"] #project-error, [data-theme="light"] #orchestration-error { color: #c62828; }
+[data-theme="light"] #lock-note, [data-theme="light"] .change-note { color: #9a6700; }
+[data-theme="light"] #vocabulary-table .vocabulary-piece { color: #0b5cad; }
+[data-theme="light"] .token-colour-0 { background: #cdeaf5; color: #0b3d52; }
+[data-theme="light"] .token-colour-1 { background: #e8d6f5; color: #4a2468; }
+[data-theme="light"] .token-chip:focus { outline-color: #000; }
+[data-theme="light"] #browser-list div:hover { color: #fff; }
 </style>
 </head>
 <body>
@@ -434,6 +486,7 @@
   <button id="export-session" title="Download the active session as JSON, including transcript, memory, instruction snapshots and the project workspace path.">Export session</button>
   <button id="import-session-picker" type="button" title="Choose an exported session JSON file to restore its conversation, memory and project workspace path.">Import Session</button><input id="import-session" type="file" accept="application/json,.json" hidden title="Restore a session from an exported JSON file. Importing a session does not import its project files.">
   <span id="session-status">saved</span>
+  <button id="theme-toggle" type="button" title="Switch between the dark and light theme. Display preference only, stored in this browser."></button>
 </div>
 
 <div id="settings-bar">
@@ -553,6 +606,18 @@ Model: loading…
   <button id="mcp-registry-more" type="button" hidden title="Fetch the next page of matching servers from the selected registry.">More results</button>
 </dialog>
 
+<script>
+(function () {
+  const root = document.documentElement, button = document.getElementById("theme-toggle");
+  const paint = () => { button.textContent = root.dataset.theme === "light" ? "Dark theme" : "Light theme"; };
+  button.addEventListener("click", () => {
+    root.dataset.theme = root.dataset.theme === "light" ? "dark" : "light";
+    try { localStorage.setItem("theme", root.dataset.theme); } catch {}
+    paint();
+  });
+  paint();
+})();
+</script>
 <script src="/error-messages.js"></script>
 <script src="/static/tokenization.js"></script>
 <script src="/static/vocabulary.js"></script>

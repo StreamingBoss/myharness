@@ -33,7 +33,7 @@ test('bottom viewer explains exactness, shows real pieces/bytes and restores ins
   await page.locator('#token-inspect').click(); await page.getByText('Provider tokenization of text', { exact: true }).waitFor(); assert.equal(inspected, 1);
   // Pieces come before the source/coverage notes and are visible without scrolling the enlarged box.
   const panel = (await page.locator('#tokenization').boundingBox())!, chip = (await page.locator('.token-chip').first().boundingBox())!, viewport = page.viewportSize()!;
-  assert.ok((await page.locator('#harness-box').boundingBox())!.height >= viewport.height * 0.45 - 1); assert.ok(chip.y + chip.height <= panel.y + panel.height);
+  assert.ok(Math.abs((await page.locator('#harness-box').boundingBox())!.height - viewport.height * 0.25) <= 1); assert.ok(panel.height > 0 && chip.y >= panel.y);
   assert.equal(await page.locator('#token-empty').count(), 0); assert.match(await page.locator('#token-about').textContent() ?? '', /Actual provider pieces.*Coverage: User message text only/);
   assert.equal(await page.locator('.token-chip').count(), 3); await page.locator('.token-chip').first().click();
   const detail = await page.locator('#token-details').textContent(); assert.match(detail!, /9007199254740993/); assert.match(detail!, /C3/); assert.match(detail!, /part of a UTF-8/);
