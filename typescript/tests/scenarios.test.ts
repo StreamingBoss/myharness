@@ -66,7 +66,7 @@ for (const file of readdirSync('tests/scenarios').filter(name => name.endsWith('
         delete item.failure;
         delete item.approval_timeout_ms;
         if (item.type === 'approval') delete item.timeout_ms;
-        for (const key of ['prefix', 'prefix_text', 'round', 'timing', 'timing_text']) delete item[key];
+        for (const key of ['prefix', 'prefix_text', 'round', 'timing', 'timing_text', 'system_sections']) delete item[key];
         if (item.parts) {
           item.parts = JSON.parse(item.parts.join(''));
           if (item.parts.tools) {

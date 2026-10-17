@@ -260,3 +260,39 @@ test('with memory off the prefix panel explains that models are stateless', asyn
   await prefixText('first', false);
   assert.match(await prefixText('second', false), /^Harness memory is off.*models are stateless/);
 });
+
+test('each request reports the names and sizes of the system message sections', async t => {
+  const { root, harness, model } = await fixture(t);
+  await writeFile(path.join(root, 'work/AGENTS.md'), 'Project rules');
+  const sectionsOf = (events: CoreEvent[]) => (events.find(event => event.type === 'request') as unknown as { system_sections: { name: string; length: number }[] }).system_sections;
+  const full = sectionsOf(await collect(harness.submit(turn({ agent: 'coder', prompt: 'product', tools: ['use_skill'] }))));
+  assert.deepEqual(full.map(section => section.name), ['base prompt', 'agent', 'project instructions', 'skill list']);
+  // the pieces are joined by one blank line, so their sizes add up to the message the model received
+  assert.equal(full.reduce((sum, section) => sum + section.length, 0) + 2 * (full.length - 1), model.requests[0]!.messages[0]!.content.length);
+  const minimal = sectionsOf(await collect(harness.submit(turn({ useMemory: false }))));
+  assert.deepEqual(minimal.map(section => section.name), ['project instructions']);
+  assert.equal(minimal[0]!.length, model.requests.at(-1)!.messages[0]!.content.length);
+});
+
+test('a tool loop sends the model\'s thinking back with its tool call for Ollama, and memory drops it when the turn ends', async t => {
+  const think = (content: string, calls: unknown[] = []): unknown[] => [{ message: { content, thinking: 'plan: list the folder', ...(calls.length ? { tool_calls: calls } : {}) }, done: true }];
+  const listCall = [{ function: { name: 'list_files', arguments: { path: '.' } } }];
+  const { harness, model } = await fixture(t);
+  model.turns = [think('', listCall), think('Here are the files.'), think('Anything else?')];
+  await collect(harness.submit(turn({ message: 'list files', tools: ['list_files'] })));
+  const toolCallMessage = (request: ModelRequest) => request.messages.find(message => message.tool_calls);
+  assert.equal(toolCallMessage(model.requests[1]!)!.thinking, 'plan: list the folder');
+  assert.equal(toolCallMessage(model.requests[0]!), undefined);
+  assert.equal(harness.state.memory.some(message => 'thinking' in message), false);
+  // a final answer carries no tool call, so its thinking is never sent back
+  await collect(harness.submit(turn({ message: 'thanks', tools: ['list_files'] })));
+  assert.equal(model.requests[2]!.messages.some(message => 'thinking' in message), false);
+});
+
+test('thinking is not sent back when the provider does not document it', async t => {
+  const other = new Model(); (other as unknown as { provider: string }).provider = 'other';
+  other.turns = [[{ message: { content: '', thinking: 'plan', tool_calls: [{ function: { name: 'list_files', arguments: { path: '.' } } }] }, done: true }], reply('Done.')];
+  const { harness } = await fixture(t, { ollama: other });
+  await collect(harness.submit(turn({ message: 'list files', tools: ['list_files'] })));
+  assert.equal(other.requests[1]!.messages.some(message => 'thinking' in message), false);
+});

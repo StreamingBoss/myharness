@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { chromium } from 'playwright';
+import { openTools } from './ui-panels.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { SessionStore } from '../src/node/sessions.js';
 import { createHarnessServer } from '../src/node/http.js';
@@ -25,8 +26,8 @@ test('the UI prints prefix reuse, prefill/decode timing and the turn timeline, l
   const browser = await chromium.launch({ executablePath: process.env.MYHARNESS_TEST_CHROMIUM ?? chromium.executablePath(), headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
-  await page.locator('.tool-menu summary').evaluateAll(items => items.forEach(item => (item.parentElement as HTMLDetailsElement).open = true));
-  await page.locator('input.tool-checkbox[value="pwd"]').check();
+  await openTools(page); await page.locator('.tool-menu summary').evaluateAll(items => items.forEach(item => (item.parentElement as HTMLDetailsElement).open = true));
+  await openTools(page); await page.locator('input.tool-checkbox[value="pwd"]').check();
   await page.locator('#input').fill('where am I'); await page.locator('#send').click();
   await page.getByText('all done', { exact: true }).first().waitFor();
   const check = (text: string) => {

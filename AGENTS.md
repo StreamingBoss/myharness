@@ -40,3 +40,18 @@ Browser and Node runtimes must reuse this core rather than put harness logic in 
 - Do not interfere with the owner's running service on port 5000. Use port 5001
   and scratch workspaces/settings for integration checks.
 - Do not commit unless asked.
+
+## The Request tab shows what is really sent
+
+The Request tab teaches by showing the real request, so two rules are binding and have regression tests
+(`typescript/tests/request-view.test.ts`):
+
+- **"As sent" is identical to what is posted to the model**, for Ollama and for each cloud provider: the same
+  fields, values and order (only the display formatting differs). The harness's internal routing label
+  (`provider`) is not part of any posted body and is not shown. A recorded request event is a snapshot and never
+  changes afterwards.
+- **"By section" shows the same content as "As sent"**: the system message, tool schemas, memory messages and this
+  turn's messages are exactly the ones in the sent body, differing only in form. Every text a section shows
+  must be present in the posted body.
+
+Change request building, an adapter body, or `web/static/request-view.js` only together with those tests.

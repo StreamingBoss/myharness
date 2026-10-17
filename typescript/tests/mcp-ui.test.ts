@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { chromium } from 'playwright';
+import { openTools, showLog } from './ui-panels.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { SessionStore } from '../src/node/sessions.js';
 import { createHarnessServer } from '../src/node/http.js';
@@ -39,10 +40,10 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelector('input.tool-checkbox[value="mcp__files__echo"]') !== null);
 
-  assert.equal(await page.locator('.mcp-group').innerText(), 'MCP files:');
-  const checkbox = page.locator('input.tool-checkbox[value="mcp__files__echo"]');
+  await openTools(page); assert.equal(await page.locator('.mcp-group').innerText(), 'MCP files:');
+  await openTools(page); const checkbox = page.locator('input.tool-checkbox[value="mcp__files__echo"]');
   assert.equal(await checkbox.isChecked(), false);
-  await page.locator('.tool-family summary').last().click();
+  await openTools(page); await page.locator('.tool-family summary').last().click();
   await checkbox.check();
   await page.locator('#input').fill('echo something'); await page.locator('#send').click();
   await page.getByText("MCP tool echo on server 'files' wants to run with these arguments:").waitFor();
@@ -50,7 +51,7 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   await page.getByRole('button', { name: 'Approve', exact: true }).click();
   await page.getByText('MCP done', { exact: true }).first().waitFor();
   assert.match(await page.locator('.change').last().innerText(), /echo: from the UI[\s\S]*ran/);
-  assert.match(await page.locator('#terminal').innerText(), /MCP — files\/echo over stdio, protocol 2026-07-28[\s\S]*"method": "tools\/call"/);
+  await showLog(page); assert.match(await page.locator('#terminal').innerText(), /MCP — files\/echo over stdio, protocol 2026-07-28[\s\S]*"method": "tools\/call"/);
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
 
   assert.equal(await page.locator('#mcp-config-editor').isVisible(), false);
@@ -111,7 +112,7 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   const saved = JSON.parse(await readFile(config, 'utf8'));
   assert.ok(saved.mcpServers.files.command);
   assert.deepEqual(saved.mcpServers.weather, { url: 'http://remote.test/mcp', headers: { Authorization: 'Bearer ui-secret' } });
-  assert.equal(await page.locator('input.tool-checkbox[value="mcp__weather__echo"]').count(), 1);
+  await openTools(page); assert.equal(await page.locator('input.tool-checkbox[value="mcp__weather__echo"]').count(), 1);
   await page.locator('#mcp-registry-more').click();
   await page.getByText('io.example/second', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Show configuration' }).last().click();
@@ -126,7 +127,7 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   assert.equal((harness.mcpStatus().servers as unknown[]).length, 2); // only Add persists a server
 
   await page.reload(); await page.getByText('MCP done', { exact: true }).first().waitFor();
-  assert.match(await page.locator('#terminal').innerText(), /MCP — files\/echo over stdio/);
-  assert.equal(await page.locator('input.tool-checkbox[value="mcp__files__echo"]').isChecked(), true);
+  await showLog(page); assert.match(await page.locator('#terminal').innerText(), /MCP — files\/echo over stdio/);
+  await openTools(page); assert.equal(await page.locator('input.tool-checkbox[value="mcp__files__echo"]').isChecked(), true);
   assert.deepEqual(errors, []);
 });

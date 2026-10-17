@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { chromium } from 'playwright';
+import { openTools } from './ui-panels.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { SessionStore } from '../src/node/sessions.js';
 import { createHarnessServer } from '../src/node/http.js';
@@ -41,46 +42,46 @@ test('every tool group has a group checkbox and folds into a drop-down', async t
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelector('input.tool-checkbox[value="mcp__many__tool9"]') !== null);
 
-  const many = page.locator('.tool-family').filter({ has: page.locator('legend', { hasText: 'MCP many:' }) });
-  const group = many.locator('.tool-group-checkbox'), tool = (n: number) => many.locator(`input[value="mcp__many__tool${n}"]`);
-  assert.equal(await many.locator('details.tool-menu').getAttribute('open'), null);
+  await openTools(page); const many = page.locator('.tool-family').filter({ has: page.locator('legend', { hasText: 'MCP many:' }) });
+  await openTools(page); const group = many.locator('.tool-group-checkbox'), tool = (n: number) => many.locator(`input[value="mcp__many__tool${n}"]`);
+  await openTools(page); assert.equal(await many.locator('details.tool-menu').getAttribute('open'), null);
   assert.equal(await tool(0).isVisible(), false);
-  assert.equal(await many.locator('summary').innerText(), '0 of 10 tools ticked');
+  assert.equal(await many.locator('summary').innerText(), '0 of 10 tools active');
   assert.equal(await group.isChecked(), false);
-  assert.equal(await many.locator('.tool-group-cost').innerText(), `≈0 / ≈${total} tokens`);
+  await openTools(page); assert.equal(await many.locator('.tool-group-cost').innerText(), `≈0 / ≈${total} tokens`);
   // built-in groups fold too and start fully ticked
-  const files = page.locator('.tool-family').filter({ has: page.locator('legend', { hasText: 'Files' }) });
+  await openTools(page); const files = page.locator('.tool-family').filter({ has: page.locator('legend', { hasText: 'Files' }) });
   assert.equal(await files.locator('details').count(), 1);
   assert.equal(await files.locator('input[value="read_file"]').isVisible(), false);
   assert.equal(await files.locator('.tool-group-checkbox').isChecked(), true);
 
   await group.check();
-  assert.equal(await many.locator('summary').innerText(), '10 of 10 tools ticked');
-  assert.equal(await many.locator('.tool-group-cost').innerText(), `≈${total} / ≈${total} tokens`);
+  assert.equal(await many.locator('summary').innerText(), '10 of 10 tools active');
+  await openTools(page); assert.equal(await many.locator('.tool-group-cost').innerText(), `≈${total} / ≈${total} tokens`);
   await many.locator('summary').click();
   assert.match((await tool(0).getAttribute('title'))!, new RegExp(`costs ≈${costs[0]} tokens`));
   assert.match((await tool(0).locator('..').getAttribute('title'))!, /context cost/);
   assert.equal(await tool(9).isChecked(), true);
   await tool(3).uncheck();
   assert.equal(await group.evaluate((box: HTMLInputElement) => box.indeterminate), true);
-  assert.equal(await many.locator('summary').innerText(), '9 of 10 tools ticked');
-  assert.equal(await many.locator('.tool-group-cost').innerText(), `≈${total - costs[3]!} / ≈${total} tokens`);
+  assert.equal(await many.locator('summary').innerText(), '9 of 10 tools active');
+  await openTools(page); assert.equal(await many.locator('.tool-group-cost').innerText(), `≈${total - costs[3]!} / ≈${total} tokens`);
   await group.check(); // a partly ticked group ticks everything first
   assert.equal(await tool(3).isChecked(), true);
   await group.uncheck();
   assert.equal(await tool(0).isChecked(), false);
   await tool(0).check(); await tool(1).check();
-  assert.equal(await many.locator('summary').innerText(), '2 of 10 tools ticked');
+  assert.equal(await many.locator('summary').innerText(), '2 of 10 tools active');
 
   // turning Tools off disables the group boxes too
   await page.locator('#use-tools').uncheck();
   assert.equal(await group.isDisabled(), true);
-  assert.equal(await many.locator('.tool-group-cost').innerText(), `≈0 / ≈${total} tokens`);
+  await openTools(page); assert.equal(await many.locator('.tool-group-cost').innerText(), `≈0 / ≈${total} tokens`);
   await page.locator('#use-tools').check();
   assert.equal(await group.isDisabled(), false);
-  assert.equal(await many.locator('.tool-group-cost').innerText(), `≈${costs[0]! + costs[1]!} / ≈${total} tokens`);
+  await openTools(page); assert.equal(await many.locator('.tool-group-cost').innerText(), `≈${costs[0]! + costs[1]!} / ≈${total} tokens`);
   await page.reload();
   await page.waitForFunction(() => document.querySelector('input.tool-checkbox[value="mcp__many__tool9"]') !== null);
-  assert.equal(await many.locator('.tool-group-cost').innerText(), `≈${costs[0]! + costs[1]!} / ≈${total} tokens`);
+  await openTools(page); assert.equal(await many.locator('.tool-group-cost').innerText(), `≈${costs[0]! + costs[1]!} / ≈${total} tokens`);
   assert.deepEqual(errors, []);
 });

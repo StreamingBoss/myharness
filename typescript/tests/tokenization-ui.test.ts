@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { chromium } from 'playwright';
+import { openTools, showLog } from './ui-panels.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { SessionStore } from '../src/node/sessions.js';
 import { createHarnessServer } from '../src/node/http.js';
@@ -27,18 +28,19 @@ test('bottom viewer explains exactness, shows real pieces/bytes and restores ins
   await page.locator('#input').fill('ü'); await page.locator('#send').click(); await page.getByText('hello', { exact: true }).first().waitFor();
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
   await page.locator('#token-inspect').waitFor({ state: 'visible' }); await page.waitForFunction(() => !(document.querySelector('#token-inspect') as HTMLButtonElement).disabled);
-  assert.match(await page.locator('#terminal').textContent() ?? '', /SENT to gemini-vertex/); assert.match(await page.locator('#terminal').textContent() ?? '', /generationConfig/);
+  await showLog(page); assert.match(await page.locator('#terminal').textContent() ?? '', /SENT to gemini-vertex/); assert.match(await page.locator('#terminal').textContent() ?? '', /generationConfig/);
+  await page.locator('#explore-view').selectOption('tokens');
   assert.equal(await page.locator('#token-details').isVisible(), false); assert.equal(await page.locator('#token-intro').getAttribute('open'), null);
   assert.match(await page.locator('#token-inspect').getAttribute('title') ?? '', /may use provider quota/);
   await page.locator('#token-inspect').click(); await page.getByText('Provider tokenization of text', { exact: true }).waitFor(); assert.equal(inspected, 1);
   // Pieces come before the source/coverage notes and are visible without scrolling the enlarged box.
   const panel = (await page.locator('#tokenization').boundingBox())!, chip = (await page.locator('.token-chip').first().boundingBox())!, viewport = page.viewportSize()!;
-  assert.ok(Math.abs((await page.locator('#harness-box').boundingBox())!.height - viewport.height * 0.25) <= 1); assert.ok(panel.height > 0 && chip.y >= panel.y);
+  assert.ok((await page.locator('#inspector').boundingBox())!.height > viewport.height * 0.5); assert.ok(panel.height > 0 && chip.y >= panel.y);
   assert.equal(await page.locator('#token-empty').count(), 0); assert.match(await page.locator('#token-about').textContent() ?? '', /Actual provider pieces.*Coverage: User message text only/);
   assert.equal(await page.locator('.token-chip').count(), 3); await page.locator('.token-chip').first().click();
   const detail = await page.locator('#token-details').textContent(); assert.match(detail!, /9007199254740993/); assert.match(detail!, /C3/); assert.match(detail!, /part of a UTF-8/);
   assert.match(await page.locator('#token-summary').textContent() ?? '', /Input count reported during generation: 12/); assert.equal(await page.locator('#tokenization img').count(), 0);
-  await page.reload(); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0); await page.locator('#explore-view').selectOption('tokens'); await page.locator('.token-chip').first().waitFor(); assert.equal(inspected, 1);
+  await openTools(page); await page.reload(); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0); await page.locator('#explore-view').selectOption('tokens'); await page.locator('.token-chip').first().waitFor(); assert.equal(inspected, 1);
   await page.locator('.token-chip').first().click();
   await page.locator('#token-groups details').first().evaluate(node => node.setAttribute('open', ''));
   const selectedDetails = await page.locator('#token-details').textContent();
@@ -66,7 +68,7 @@ test('bottom viewer explains exactness, shows real pieces/bytes and restores ins
   await page.locator('#explore-view').selectOption('tools');
   await page.getByText(/Could not load this explorer view\.[\s\S]*Technical details: Explorer connection unavailable/).waitFor();
   await page.unroute('**/explore');
-  assert.ok((await page.locator('#harness-box').boundingBox())!.height < page.viewportSize()!.height * 0.45 - 1); assert.deepEqual(errors, []);
+  assert.ok((await page.locator('#inspector').boundingBox())!.height <= page.viewportSize()!.height); assert.deepEqual(errors, []);
 });
 
 test('viewer distinguishes count-only, configured-tokenizer, unavailable and failed inspection and ignores stale responses', async t => {

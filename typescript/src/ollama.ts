@@ -16,6 +16,12 @@ export interface FetchResponse {
 export type FetchLike = (input: string, init: { method: "GET" | "POST"; headers?: Record<string, string>; body?: string; signal?: AbortSignal; redirect?: RequestRedirect }) => Promise<FetchResponse>;
 
 /** Fetch adapter usable in Node and browser Workers for Ollama's newline-delimited `/api/chat` stream. */
+/** The request body for Ollama: the harness's internal provider label is not part of Ollama's API, so it is left out. */
+function wireBody(payload: unknown): Record<string, unknown> {
+  const { provider: _provider, ...body } = payload as Record<string, unknown>;
+  return body;
+}
+
 export class OllamaAdapter {
   readonly provider = 'ollama';
   constructor(private readonly fetch_: FetchLike, private readonly baseUrl: string, private readonly tokenizers: Record<string, TokenizerBinding> = {}, private readonly localTokenizers: Record<string, PromptTokenizer> = {}) {}
@@ -75,7 +81,7 @@ export class OllamaAdapter {
   }
   async *streamChat(payload: ModelRequest, signal?: AbortSignal): AsyncGenerator<string> {
     const response = await this.fetchResponse(`${this.baseUrl}/api/chat`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(wireBody(payload)),
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
     }, 180_000);
     if (!response.ok) throw new Error(`Ollama request failed with HTTP ${response.status}`);
@@ -101,7 +107,7 @@ export class OllamaAdapter {
   }
 
   async request(endpoint: string, payload: unknown, signal?: AbortSignal): Promise<Record<string, unknown>> {
-    const response = await this.fetchResponse(`${this.baseUrl}/api/${endpoint}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000) }, 180_000);
+    const response = await this.fetchResponse(`${this.baseUrl}/api/${endpoint}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(wireBody(payload)), signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000) }, 180_000);
     if (!response.ok) throw new Error(`Ollama request failed with HTTP ${response.status}`);
     return await response.json() as Record<string, unknown>;
   }

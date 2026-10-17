@@ -62,3 +62,12 @@ test('Ollama adapter forwards cancellation to streaming and inspection requests'
   await adapter.request('show', {}, controller.signal);
   controller.abort(); assert.ok(signals.every(signal => signal.aborted));
 });
+
+test("Ollama adapter leaves the harness's internal provider label out of the request body", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const adapter = new OllamaAdapter(async (_input, init) => { bodies.push(JSON.parse(init.body ?? "{}")); return response({ body: stream('{"done":true}\n') }); }, "http://ollama");
+  await collect(adapter.streamChat({ model: "qwen", messages: [], stream: true, options: { num_ctx: 10 }, provider: "ollama" }));
+  await adapter.request("chat", { model: "qwen", messages: [], provider: "ollama" });
+  assert.deepEqual(bodies.map(body => "provider" in body), [false, false]);
+  assert.deepEqual(bodies.map(body => body.model), ["qwen", "qwen"]);
+});

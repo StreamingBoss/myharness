@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { chromium } from 'playwright';
+import { openTools, showLog } from './ui-panels.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { SessionStore } from '../src/node/sessions.js';
 import { createHarnessServer } from '../src/node/http.js';
@@ -29,7 +30,7 @@ test('the UI shows approvals for deletions, moves and git changes, a plan checkl
   const browser = await chromium.launch({ executablePath: process.env.MYHARNESS_TEST_CHROMIUM ?? chromium.executablePath(), headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
-  const offered = await page.locator('.tool-checkbox').evaluateAll(boxes => boxes.map(box => (box as HTMLInputElement).value));
+  await openTools(page); const offered = await page.locator('.tool-checkbox').evaluateAll(boxes => boxes.map(box => (box as HTMLInputElement).value));
   for (const name of ['delete_file', 'move_file', 'update_plan', 'git_status', 'git_commit']) assert.ok(offered.includes(name), name);
   await page.locator('#input').fill('tidy the project'); await page.locator('#send').click();
 
@@ -47,10 +48,10 @@ test('the UI shows approvals for deletions, moves and git changes, a plan checkl
   await page.locator('.change-title', { hasText: 'delete_file wants to delete kept/keep.txt' }).waitFor(); await deny.click();
   await page.locator('.change-status.refused', { hasText: 'refused' }).waitFor(); assert.equal(await exists(path.join(root, 'kept/keep.txt')), true);
   await page.getByText('all finished', { exact: true }).first().waitFor();
-  const live = await page.locator('#terminal').innerText();
+  await showLog(page); const live = await page.locator('#terminal').innerText();
   assert.match(live, /ACTION — delete_file/); assert.match(live, /ACTION — git_commit/); assert.match(live, /ACTION — delete_file \(refused\)/); assert.match(live, /result: ok: committed/);
   await page.reload(); await page.getByText('all finished', { exact: true }).first().waitFor();
-  const replayed = await page.locator('#terminal').innerText(); assert.match(replayed, /ACTION — move_file/); assert.match(replayed, /ACTION — delete_file \(refused\)/);
+  await showLog(page); const replayed = await page.locator('#terminal').innerText(); assert.match(replayed, /ACTION — move_file/); assert.match(replayed, /ACTION — delete_file \(refused\)/);
   assert.deepEqual(await page.locator('.plan-item').allInnerTexts(), ['[~] delete old.txt', '[ ] commit']);
   assert.deepEqual(errors, []);
 });
@@ -65,5 +66,5 @@ test('a plan call that failed shows no checklist', async t => {
   const browser = await chromium.launch({ executablePath: process.env.MYHARNESS_TEST_CHROMIUM ?? chromium.executablePath(), headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
   const page = await browser.newPage(); await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
   await page.locator('#input').fill('plan'); await page.locator('#send').click(); await page.getByText('plan rejected', { exact: true }).first().waitFor();
-  assert.equal(await page.locator('.plan').count(), 0); assert.match(await page.locator('#terminal').innerText(), /error: items must be a list/);
+  await showLog(page); assert.equal(await page.locator('.plan').count(), 0); assert.match(await page.locator('#terminal').innerText(), /error: items must be a list/);
 });

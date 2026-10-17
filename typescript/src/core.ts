@@ -19,6 +19,8 @@ export interface ChatMessage {
   continuation?: { provider: string; items: Record<string, unknown>[] };
   tool_calls?: ToolCall[];
   provider_parts?: Record<string, unknown>[];
+  /** The model's thinking. Kept on a tool-call message only while that turn's tool loop runs, for providers that document it (Ollama). */
+  thinking?: string;
 }
 
 export interface ToolDefinition {
@@ -107,6 +109,7 @@ export interface TurnHost {
   setLastPromptTokens(value: number): void;
   memoryText(): string;
   systemMessages(setup: Turn["setup"], withSkills: boolean, enabledTools?: string[]): ChatMessage[];
+  systemSections?(setup: Turn["setup"], withSkills: boolean, enabledTools?: string[]): { name: string; length: number }[];
   estimateTokens(system: ChatMessage[], conversation: ChatMessage[], tools: ToolDefinition[]): number;
   trimContext(system: ChatMessage[], conversation: ChatMessage[], tools: ToolDefinition[]): CoreEvent | undefined;
   compactContext(conversation: ChatMessage[]): AsyncIterable<CoreEvent>;
@@ -127,6 +130,8 @@ export interface TurnHost {
   /** Terminal goal updates close tool admission after the balanced batch. */
   concludesTurn?(): boolean;
   takeContext?(): ChatMessage[];
+  /** True when the provider's documented tool loop sends the model's thinking back with its tool calls. */
+  keepToolLoopThinking?(): boolean;
   /** Monotonic milliseconds, for timing model calls and tools. Without it only provider-reported timing is shown. */
   now?(): number;
   /** The last request sent to the model, kept by the host across turns to show what a prompt cache could reuse. */
@@ -144,7 +149,11 @@ export class HarnessCore {
 
   async *runTurn(turn: Turn): AsyncGenerator<CoreEvent, TurnOutcome> {
     const rounds: RoundTiming[] = [];
-    const outcome = yield* this.runSteps(turn, rounds);
+    let outcome: TurnOutcome;
+    try { outcome = yield* this.runSteps(turn, rounds); }
+    // Thinking is only needed inside the tool loop; the next turn's template drops it anyway, so memory does not keep it.
+    // Messages are replaced, not edited: requests already emitted or kept for comparison still hold the thinking that was really sent.
+    finally { turn.conversation.forEach((message, index) => { if (message.thinking !== undefined) { const { thinking: _thinking, ...kept } = message; turn.conversation[index] = kept; } }); }
     // One round is already covered by its TIMING block; the timeline shows how an agent loop's cost grows.
     if (rounds.length > 1) yield this.emit({ type: "turn_timing", rounds, totals: turnTotals(rounds), timeline_text: turnTimelineText(rounds) });
     return outcome;
@@ -200,7 +209,9 @@ export class HarnessCore {
       this.host.setPreviousRequest?.(payload);
       yield this.emit({
         ...this.host.requestMetadata?.(payload), ...(prefix ? { prefix, prefix_text: prefixText(prefix) } : {}),
-        ...(payload.provider ? { model_request: payload } : {}),
+        // A snapshot: the Request view must keep showing exactly what was sent, however memory changes later.
+        ...(payload.provider ? { model_request: structuredClone(payload) } : {}),
+        ...(this.host.systemSections ? { system_sections: this.host.systemSections(turn.setup, turn.enabledTools.includes("use_skill"), turn.enabledTools) } : {}),
         type: "request", parts: this.host.splitJson(this.host.prepareModel?.(payload) ?? shown, turn.userMessage), memory: this.host.memoryText(),
         skill_context: this.host.skillContext([...system, ...turn.conversation]),
       });
@@ -237,8 +248,9 @@ export class HarnessCore {
         try { validateToolBatch(toolCalls, turn.selectedTools); }
         catch (error) { throw new DiagnosticError(failureDetails(error, 'model', `${payload.provider} / ${this.host.model()}`, 'Retry the request. The model returned an invalid tool proposal; no tools were executed.')); }
       }
-      turn.conversation.push(assistant);
       const received = { ...assistant, ...(completed.thinking ? { thinking: completed.thinking } : {}) };
+      // Ollama's documented tool loop returns thinking together with the tool calls and their results.
+      turn.conversation.push(toolCalls.length && completed.thinking && this.host.keepToolLoopThinking?.() ? { ...received } : assistant);
       // A KV cache also holds the tokens just generated, thinking included, so the next request is compared with the reply as generated.
       this.host.setPreviousRequest?.({ ...payload, messages: [...payload.messages, received] });
       const tokensIn = completed.usage.input, tokensOut = completed.usage.output;

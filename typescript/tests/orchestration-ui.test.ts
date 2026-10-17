@@ -4,6 +4,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { chromium } from 'playwright';
+import { openTools } from './ui-panels.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { SessionStore } from '../src/node/sessions.js';
 import { createHarnessServer } from '../src/node/http.js';
@@ -32,8 +33,8 @@ test('master chooses parameters; users inspect stable child cards and stop work 
   const server = createHarnessServer(backend); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => server.close());
   const browser = await chromium.launch({ headless: true, executablePath: process.env.MYHARNESS_TEST_CHROMIUM ?? chromium.executablePath(), args: ['--no-sandbox'] }); t.after(() => browser.close());
   const page = await browser.newPage(), errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
-  const agentTools = page.locator('.tool-family').filter({ has: page.locator('legend', { hasText: 'Agents' }) });
+  await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/?goals=1`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
+  await openTools(page); const agentTools = page.locator('.tool-family').filter({ has: page.locator('legend', { hasText: 'Agents' }) });
   assert.equal(await agentTools.locator('.tool-checkbox').count(), 7);
   assert.equal(await agentTools.locator('input[value="spawn_agent"]').count(), 1);
   assert.equal(await page.locator('#orchestration').isVisible(), false);

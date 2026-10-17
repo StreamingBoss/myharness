@@ -607,6 +607,7 @@ export class Harness implements TurnHost {
   stopReason(): string { return this.cancellationReason; }
   stoppedToolResult(): string { return this.cancellationReason === 'stopped by the user' ? STOPPED_RESULT : `stopped: ${this.cancellationReason} This tool did not run.`; }
   modelProvider(): string | undefined { return this.state.provider; }
+  keepToolLoopThinking(): boolean { return (this.state.provider ?? this.modelPort.provider ?? 'ollama') === 'ollama'; }
   maxOutputTokens(): number | undefined { return this.state.maxOutputTokens; }
   model(): string { return this.state.model; }
   contextLength(): number { return this.state.contextLength; }
@@ -625,11 +626,25 @@ export class Harness implements TurnHost {
     return snapshot?.name === name ? snapshot.value : this.catalog.agents()[name] ?? null;
   }
   private effectiveSkills(): Record<string, Skill> { return this.session.snapshots.skills ?? this.catalog.skills(); }
-  systemMessages(setup: Turn['setup'], withSkills: boolean, enabledTools: string[] = []): ChatMessage[] {
+  /** The non-empty pieces of the system message, in the order they are joined. */
+  private systemParts(setup: Turn['setup'], withSkills: boolean, enabledTools: string[]): { name: string; text: string }[] {
     const agent = this.selectedAgent(setup.agent);
     const project = this.session.project_instructions ?? this.catalog.projectInstructions();
-    const text = [this.selectedPrompt(setup.prompt), agent?.prompt, project ? `# Project instructions (${project[0]})\n\n${project[1]}` : '', this.mcp.instructions(enabledTools), withSkills ? skillsSection(this.effectiveSkills()) : ''].filter(Boolean).join('\n\n');
+    return [
+      { name: 'base prompt', text: this.selectedPrompt(setup.prompt) },
+      { name: 'agent', text: agent?.prompt ?? '' },
+      { name: 'project instructions', text: project ? `# Project instructions (${project[0]})\n\n${project[1]}` : '' },
+      { name: 'MCP server notes', text: this.mcp.instructions(enabledTools) },
+      { name: 'skill list', text: withSkills ? skillsSection(this.effectiveSkills()) : '' },
+    ].filter(part => part.text);
+  }
+  systemMessages(setup: Turn['setup'], withSkills: boolean, enabledTools: string[] = []): ChatMessage[] {
+    const text = this.systemParts(setup, withSkills, enabledTools).map(part => part.text).join('\n\n');
     return text ? [{ role: 'system', content: text }] : [];
+  }
+  /** Names and sizes of the pieces, so a UI can explain what the system message holds without parsing it. */
+  systemSections(setup: Turn['setup'], withSkills: boolean, enabledTools: string[] = []): { name: string; length: number }[] {
+    return this.systemParts(setup, withSkills, enabledTools).map(part => ({ name: part.name, length: part.text.length }));
   }
   estimateTokens = estimateTokens;
   splitJson = splitJson;

@@ -22,6 +22,8 @@ const memoryCheckbox = document.getElementById("use-memory");
 const toolsCheckbox = document.getElementById("use-tools");
 const askApprovalCheckbox = document.getElementById("ask-approval");
 const goalsCheckbox = document.getElementById("use-goals");
+const goalsEnabled = new URLSearchParams(location.search).get("goals") === "1";
+document.body.classList.toggle("goals-off", !goalsEnabled);
 const clearBtn = document.getElementById("clear");
 const agentSelect = document.getElementById("agent");
 const promptSelect = document.getElementById("prompt");
@@ -39,6 +41,7 @@ let toolCheckboxes = [];
 let contextLength = 0;
 let initialized = false;
 const tokenViewer = new TokenViewer(document.getElementById('tokenization'), (path, options) => backendFetch(api(path), options), busy => setControlsDisabled(busy));
+const requestView = new RequestView(document.getElementById('request-view'));
 const vocabularyViewer = new VocabularyViewer(document.getElementById('vocabulary'), (path, options) => backendFetch(api(path), options));
 const orchestrationPanel = new OrchestrationPanel(document.getElementById('chat-pane'), (path, options) => backendFetch(api(path), options), () => ({ use_memory: memoryCheckbox.checked, ask_approval: askApprovalCheckbox.checked, goals: goalsCheckbox.checked, tools: toolCheckboxes.filter(box => box.checked).map(box => box.value), agent: agentSelect.value, prompt: promptSelect.value }));
 const sessionSelect = document.getElementById("session-select");
@@ -64,6 +67,8 @@ function fillSessionSelect(items, selected) {
     sessionSelect.add(new Option(item.name + " — " + date + " — " + item.workspace, item.id));
   }
   sessionSelect.value = selected;
+  const active = items.find(item => item.id === selected);
+  document.getElementById("session-title").textContent = active ? active.name : "…";
 }
 function updateContextMeter(used, windowSize = contextLength) {
   const usage = windowSize ? 100 * used / windowSize : 0;
@@ -171,6 +176,7 @@ function printBlock(title, body, className = "") {
 }
 
 function printModelRequest(event, saved) {
+  requestView.addRequest(event);
   if (event.wire_request) printBlock('SENT to ' + event.provider + (saved ? ' (saved)' : ''), nativeRequestParts(event.wire_request), 'sent');
   else printBlock('SENT to model' + (saved ? ' (saved)' : ''), event.parts, 'sent');
   if (event.prefix_text) printBlock('PREFIX REUSE', event.prefix_text);
@@ -181,6 +187,7 @@ function replaySessionEvent(event) {
   if (event.type === "chat_user") renderChatBubble("user", (event.source === "harness" ? "[Harness continuation]\n" : "") + (event.content || ""));
   else if (event.type === "request") printModelRequest(event, true);
   else if (event.type === "response") {
+    requestView.addResponse(event);
     printBlock("RECEIVED from model (saved)", event.parts, "received");
     if (event.tokens) printBlock("TOKENS", event.tokens);
     if (event.timing_text) printBlock("TIMING", event.timing_text);
@@ -228,6 +235,7 @@ function renderGuardEvent(event) {
 function replaySession() {
   messagesEl.replaceChildren();
   terminalEl.textContent = initialTerminal;
+  requestView.reset();
   let assistant = null, assistantText = "", thinking = null, thinkingText = "";
   for (const event of sessionEvents) {
     if (event.type === "chunk") {
@@ -353,6 +361,7 @@ async function sendMessage() {
         } else if (event.type === "response") {
           [assistantDiv, replyText] = completeReply(event, assistantDiv, replyText);
           updateContextMeter(event.tokens_in, event.context_length);
+          requestView.addResponse(event);
           printBlock("RECEIVED from model", event.parts, "received");
           printBlock("TOKENS", event.tokens);
           if (event.timing_text) printBlock("TIMING", event.timing_text);
@@ -437,7 +446,7 @@ async function sendMessage() {
 let changeBox = null;  // the diff box of the file change being handled
 
 const chatPane = document.getElementById("chat-pane");
-const harnessBox = document.getElementById("harness-box");
+const inspectorEl = document.getElementById("inspector");
 
 // both apply a size in % (clamped) and return what they applied
 function setChatWidth(percent) {
@@ -446,11 +455,6 @@ function setChatWidth(percent) {
   return percent;
 }
 
-function setMemoryHeight(percent) {
-  percent = Math.min(70, Math.max(8, percent));
-  harnessBox.style.height = percent + "vh";
-  return percent;
-}
 
 // a draggable divider; its position is remembered in this browser
 function setupDivider(handle, storageKey, apply, percentFromPointer) {
@@ -477,8 +481,6 @@ setupDivider(document.getElementById("splitter"), "chatWidth", setChatWidth, (e)
   const panes = document.getElementById("panes").getBoundingClientRect();
   return 100 * (e.clientX - panes.left) / panes.width;
 });
-setupDivider(document.getElementById("vsplitter"), "memoryHeight", setMemoryHeight,
-             (e) => 100 * (window.innerHeight - e.clientY) / window.innerHeight);
 
 const exploreView = document.getElementById("explore-view");
 const exploreEl = document.getElementById("explore");
@@ -509,7 +511,7 @@ document.getElementById("mcp-registry-close").addEventListener("click", () => re
 document.getElementById("mcp-registry-more").addEventListener("click", () => searchRegistry(true));
 
 const EXPLORE_NOTES = {
-  memory: "The messages list the harness keeps: the model's only memory, re-sent with every request. Tool calls and results are stored too; the system message and the thinking are not.",
+  memory: "The messages the harness keeps and re-sends with every request. The model keeps nothing itself. Tool calls and results are stored too; the system message is not. The model's thinking is kept only while a tool loop runs (Ollama) and is dropped when the turn ends.",
   system: "The library prompt chosen at the top. It's the first part of the system message, at the very start of every request.",
   agent: "The agent's instructions, added after the system prompt in the same system message. Its tools line presets the tool checkboxes.",
   project: "AGENTS.md from the project folder root, added after the agent and before the skills. Read again for every model call: edits and project-folder changes apply immediately, even while the agent and system prompt are locked. Only AGENTS.md is used.",
@@ -736,12 +738,16 @@ async function refreshExplorer() {
   const view = exploreView.value;
   const showMemory = view === "memory";
   const showMcp = view === "mcp";
-  document.getElementById("harness-box").classList.toggle("mcp-view", showMcp);
+  inspectorEl.classList.toggle("mcp-view", showMcp);
   mcpConfigEditor.hidden = view !== "mcp";
   mcpServerDetails.hidden = !showMcp;
   mcpReloadBtn.hidden = mcpFindBtn.hidden = view !== "mcp";
   document.getElementById('tokenization').hidden = view !== 'tokens';
   document.getElementById('vocabulary').hidden = view !== 'vocabulary';
+  document.getElementById('internals-pane').hidden = view !== 'log';
+  document.getElementById('request-view').hidden = view !== 'request';
+  if (view === 'request') { memoryEl.hidden = true; exploreEl.hidden = true; exploreNote.textContent = ''; return; }
+  if (view === 'log') { memoryEl.hidden = true; exploreEl.hidden = true; exploreNote.textContent = ''; return; }
   if (view === 'vocabulary') {
     memoryEl.hidden = true; exploreEl.hidden = true;
     exploreNote.textContent = 'Every token the selected model can read or write, in ID order. Search for a word to see whether it is one token or several.';
@@ -846,6 +852,27 @@ async function refreshExplorer() {
 }
 
 exploreView.addEventListener("change", refreshExplorer);
+// Inspector tabs: a skin over the view select, so the chosen view lives in one place.
+const inspectorTabs = [...document.querySelectorAll('#inspector [role="tab"]')];
+function syncInspectorTabs() {
+  for (const tab of inspectorTabs) {
+    const on = tab.dataset.view === exploreView.value;
+    tab.setAttribute("aria-selected", String(on)); tab.tabIndex = on ? 0 : -1;
+  }
+}
+function chooseInspectorView(view) { exploreView.value = view; exploreView.dispatchEvent(new Event("change")); }
+inspectorTabs.forEach((tab, i) => {
+  tab.addEventListener("click", () => chooseInspectorView(tab.dataset.view));
+  tab.addEventListener("keydown", (e) => {
+    const next = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? inspectorTabs.length - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    const target = inspectorTabs[(next + inspectorTabs.length) % inspectorTabs.length];
+    chooseInspectorView(target.dataset.view); target.focus();
+  });
+});
+exploreView.addEventListener("change", syncInspectorTabs);
+syncInspectorTabs();
 // deferred, so it runs after the other change handlers (choosing an agent ticks its tools)
 for (const el of [promptSelect, agentSelect, toolsCheckbox, memoryCheckbox, ...toolCheckboxes]) {
   el.addEventListener("change", () => setTimeout(refreshExplorer));
@@ -1128,6 +1155,7 @@ async function clearConversation() {
   updateContextMeter(null);
   messagesEl.replaceChildren();
   terminalEl.textContent = initialTerminal;
+  requestView.reset();
   unlockConversation();
   refreshExplorer();
   input.focus();
@@ -1146,6 +1174,7 @@ function renderTools(tools) {
   ];
   const groups = new Map();
   for (const tool of tools) {
+    if (!goalsEnabled && [...families[4][1], ...families[5][1]].includes(tool.name)) continue;
     const family = tool.source === "mcp" ? (tool.server ? "MCP " + tool.server + ":" : "MCP resources:")
       : families.find(([, names]) => names.includes(tool.name))?.[0] || "Other";
     if (!groups.has(family)) {
@@ -1155,7 +1184,7 @@ function renderTools(tools) {
       const groupBox = document.createElement("input");
       groupBox.type = "checkbox";
       groupBox.className = "tool-group-checkbox";
-      groupBox.title = "Tick or untick every tool in '" + family + "' at once. Each tool's description is sent with every request, so fewer ticked tools means fewer input tokens.";
+      groupBox.title = "Turn every tool in '" + family + "' on or off at once. Each active tool's description is sent with every request, so fewer active tools means fewer input tokens.";
       groupBox.addEventListener("change", () => {
         for (const box of column.querySelectorAll(".tool-checkbox")) box.checked = groupBox.checked;
         syncToolGroups();
@@ -1214,6 +1243,7 @@ function renderTools(tools) {
   for (const [family] of families) if (groups.has(family)) list.append(groups.get(family));
   for (const [family, column] of groups) if (!families.some(([name]) => name === family)) list.append(column);
   toolCheckboxes = [...list.querySelectorAll(".tool-checkbox")];
+  requestView.setToolTokens(new Map(toolCheckboxes.map(box => [box.value, Number(box.dataset.tokens)])));
   syncToolGroups();
 }
 
@@ -1230,8 +1260,16 @@ function syncToolGroups() {
     const selectedTokens = boxes.filter(box => toolsCheckbox.checked && box.checked).reduce((sum, box) => sum + Number(box.dataset.tokens), 0);
     column.querySelector(".tool-group-cost").textContent = "≈" + selectedTokens + " / ≈" + totalTokens + " tokens";
     const summary = column.querySelector("summary");
-    if (summary) summary.textContent = ticked + " of " + boxes.length + " tools ticked";
+    if (summary) summary.textContent = ticked + " of " + boxes.length + " tools active";
   }
+  updateActiveTools();
+}
+function updateActiveTools() {
+  const boxes = [...document.querySelectorAll("#tool-list .tool-checkbox")];
+  const active = boxes.filter(box => toolsCheckbox.checked && box.checked);
+  const tokens = active.reduce((sum, box) => sum + Number(box.dataset.tokens), 0);
+  document.getElementById("active-tools-count").textContent = active.length + " of " + boxes.length + " active";
+  document.getElementById("active-tools-tokens").textContent = "≈" + tokens.toLocaleString("en") + " tokens sent with every request";
 }
 
 function initialize(data) {
@@ -1246,6 +1284,7 @@ function initialize(data) {
   document.getElementById("model-name").textContent = data.model;
   initialTerminal = "----------------------------------------\nMODEL\n----------------------------------------\nModel: " + data.model + "  (working context: " + data.context_length + " tokens)\n\n";
   terminalEl.textContent = initialTerminal;
+  requestView.reset();
   memoryEl.textContent = data.memory;
   renderTools(data.tools);
   fillSessionSelect(data.sessions, session.id);
@@ -1273,7 +1312,7 @@ function initialize(data) {
   syncToolGroups();
   askApprovalCheckbox.checked = session.settings?.ask_approval ?? true;
   memoryCheckbox.checked = session.settings?.use_memory ?? true;
-  goalsCheckbox.checked = session.settings?.goals !== false;
+  goalsCheckbox.checked = goalsEnabled && session.settings?.goals !== false;
   initialized = true;
   updateContextMeter(data.last_prompt_tokens || null);
   replaySession();
@@ -1288,6 +1327,10 @@ Promise.resolve(window.MYHARNESS_READY).then(() => {
   terminalEl.textContent = initialTerminal + "\nBackend unavailable: " + displayError(error);
 });
 
+document.getElementById("show-thinking").addEventListener("change", (e) => {
+  const hide = document.getElementById("hide-thinking");
+  hide.checked = !e.target.checked; hide.dispatchEvent(new Event("change"));
+});
 document.getElementById("hide-thinking").addEventListener("change", (e) => {
   messagesEl.classList.toggle("hide-thinking", e.target.checked);
   try { localStorage.setItem("hideThinking", e.target.checked ? "1" : ""); } catch {}
@@ -1341,7 +1384,7 @@ document.getElementById("import-session").addEventListener("change", async (e) =
 // Hydrate the session only after all renderer and control helpers exist.
 if (session.settings) {
   memoryCheckbox.checked = session.settings.use_memory !== false;
-  goalsCheckbox.checked = session.settings.goals !== false;
+  goalsCheckbox.checked = goalsEnabled && session.settings.goals !== false;
   askApprovalCheckbox.checked = session.settings.ask_approval !== false;
   for (const checkbox of toolCheckboxes) checkbox.checked = (session.settings.tools || []).includes(checkbox.value);
   toolsCheckbox.checked = toolCheckboxes.some(c => c.checked);
@@ -1349,8 +1392,9 @@ if (session.settings) {
   try {
     const hideThinking = localStorage.getItem("hideThinking") === "1";
     document.getElementById("hide-thinking").checked = hideThinking;
+    document.getElementById("show-thinking").checked = !hideThinking;
     messagesEl.classList.toggle("hide-thinking", hideThinking);
-    exploreView.value = localStorage.getItem("exploreView") || "memory";
+    exploreView.value = localStorage.getItem("exploreView") || "request"; syncInspectorTabs();
   } catch {}
   replaySession();
 }
@@ -1360,7 +1404,10 @@ stopBtn.addEventListener("click", () => {
   stopBtn.disabled = true;
   backendFetch(api("/stop"), { method: "POST" });
 });
-clearBtn.addEventListener("click", clearConversation);
+const confirmClear = document.getElementById("confirm-clear");
+clearBtn.addEventListener("click", () => { confirmClear.hidden = false; document.getElementById("clear-cancel").focus(); });
+document.getElementById("clear-cancel").addEventListener("click", () => { confirmClear.hidden = true; clearBtn.focus(); });
+document.getElementById("clear-yes").addEventListener("click", () => { confirmClear.hidden = true; clearConversation(); });
 resetBtn.addEventListener("click", () => resetMemory("— memory reset —"));
 memoryCheckbox.addEventListener("change", () => {
   compactBtn.disabled = !memoryCheckbox.checked;
@@ -1382,4 +1429,35 @@ input.addEventListener("keydown", (e) => {
   } else {
     sendMessage();
   }
+});
+
+// Header menus: the sessions list and the settings drawer open next to their buttons and close with Escape.
+const sessionsBtn = document.getElementById("sessions-btn");
+const sessionsPanel = document.getElementById("sessions-panel");
+const settingsBtn = document.getElementById("open-settings");
+const settingsDrawer = document.getElementById("settings-drawer");
+function placeSessionsPanel() {
+  const r = sessionsBtn.getBoundingClientRect(), vw = document.documentElement.clientWidth;
+  sessionsPanel.style.top = Math.round(r.bottom + 6) + "px";
+  if (vw < 760) { sessionsPanel.style.left = "16px"; sessionsPanel.style.right = "16px"; sessionsPanel.style.width = "auto"; }
+  else { sessionsPanel.style.left = "auto"; sessionsPanel.style.width = ""; sessionsPanel.style.right = Math.max(16, Math.round(vw - r.right)) + "px"; }
+}
+function setSessionsOpen(open) {
+  if (open) placeSessionsPanel();
+  sessionsPanel.hidden = !open; sessionsBtn.setAttribute("aria-expanded", String(open));
+  if (open) document.getElementById("close-sessions").focus(); else sessionsBtn.focus();
+}
+function setSettingsOpen(open) {
+  settingsDrawer.hidden = !open; settingsBtn.setAttribute("aria-expanded", String(open));
+  if (open) document.getElementById("close-settings").focus(); else settingsBtn.focus();
+}
+sessionsBtn.addEventListener("click", () => setSessionsOpen(sessionsPanel.hidden));
+document.getElementById("close-sessions").addEventListener("click", () => setSessionsOpen(false));
+settingsBtn.addEventListener("click", () => setSettingsOpen(settingsDrawer.hidden));
+document.getElementById("close-settings").addEventListener("click", () => setSettingsOpen(false));
+window.addEventListener("resize", () => { if (!sessionsPanel.hidden) placeSessionsPanel(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!sessionsPanel.hidden) setSessionsOpen(false);
+  else if (!settingsDrawer.hidden) setSettingsOpen(false);
 });

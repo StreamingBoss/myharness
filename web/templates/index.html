@@ -10,16 +10,37 @@
 </head>
 <body>
 
-<div id="session-bar" title="Sessions are saved locally after each event. They retain the transcript, model memory, selected tools, approval choice and frozen prompt, agent and skills. Export contains the session but never project files. Display preferences stay in this browser.">
-  <label for="session-select">Session:</label><select id="session-select" title="Choose a saved conversation. Use Load session to restore its transcript, memory, tools and instruction snapshots."></select><button id="load-session" title="Restore the selected saved session. Wait for the current turn to finish before switching sessions.">Load session</button>
-  <button id="new-session" title="Create and activate an empty conversation. Other saved sessions remain available.">New Session</button><button id="rename-session" title="Change the name of the active saved session; its conversation and memory stay the same.">Rename</button>
-  <button id="export-session" title="Download the active session as JSON, including transcript, memory, instruction snapshots and the project workspace path.">Export session</button>
-  <button id="import-session-picker" type="button" title="Choose an exported session JSON file to restore its conversation, memory and project workspace path.">Import Session</button><input id="import-session" type="file" accept="application/json,.json" hidden title="Restore a session from an exported JSON file. Importing a session does not import its project files.">
-  <span id="session-status">saved</span>
-  <button id="theme-toggle" type="button" title="Switch between the light and dark theme. Without a choice, the theme follows your system setting. Display preference only, stored in this browser."></button>
+<header id="app-header">
+  <div class="brand">MyHarness <span>·</span> lab</div>
+  <span class="chip" id="model-chip" title="The model this session sends requests to."><span class="dot"></span><span id="model-name"></span></span>
+  <div class="header-actions">
+    <button id="sessions-btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="sessions-panel" title="Open the list of saved sessions: load one to continue it, start a new one, rename, export or import.">Session: <strong id="session-title">…</strong> ▾</button>
+    <button id="open-settings" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="settings-drawer" title="Open the settings: model, instructions, project folder and connections.">Settings</button>
+    <button id="theme-toggle" type="button" title="Switch between the light and dark theme. Without a choice, the theme follows your system setting. Display preference only, stored in this browser."></button>
+  </div>
+</header>
+<div id="context-line"><span id="context-meter" title="Input tokens measured by the last provider response; unavailable counts are unknown. The working context is a harness budget, separate from the provider limit. Amber at 75%: old tool outputs are trimmed. Red at 90%: older messages are summarized. Ollama can silently drop the START of an overflowing prompt, including the system message. Until the next response, this shows the last measured request.">context: — / —<progress id="context-bar" max="100" value="0"></progress></span></div>
+
+<div id="sessions-panel" class="popover" role="dialog" aria-label="Sessions" hidden>
+  <h2>Sessions in this browser <button id="close-sessions" type="button" title="Close the sessions list without changing anything.">Close</button></h2>
+  <div id="session-bar" title="Sessions are saved locally after each event. They retain the transcript, model memory, selected tools, approval choice and frozen prompt, agent and skills. Export contains the session but never project files. Display preferences stay in this browser.">
+    <label for="session-select">Saved sessions</label>
+    <div class="session-pick"><select id="session-select" title="Choose a saved conversation. Use Load session to restore its transcript, memory, tools and instruction snapshots."></select><button id="load-session" title="Restore the selected saved session. Wait for the current turn to finish before switching sessions.">Load session</button></div>
+    <div class="session-actions">
+      <button id="new-session" title="Create and activate an empty conversation. Other saved sessions remain available.">New Session</button><button id="rename-session" title="Change the name of the active saved session; its conversation and memory stay the same.">Rename</button>
+      <button id="export-session" title="Download the active session as JSON, including transcript, memory, instruction snapshots and the project workspace path.">Export session</button>
+      <button id="import-session-picker" type="button" title="Choose an exported session JSON file to restore its conversation, memory and project workspace path.">Import Session</button><input id="import-session" type="file" accept="application/json,.json" hidden title="Restore a session from an exported JSON file. Importing a session does not import its project files.">
+    </div>
+    <span id="session-status">saved</span>
+  </div>
+  <p class="note">Load opens a conversation so you can continue it. Import adds a session file to this list; use Export and Import to move a session to another device.</p>
 </div>
 
-<div id="settings-bar">
+<aside id="settings-drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Settings" hidden>
+  <h2>Settings <button id="close-settings" type="button" title="Close the settings drawer and return to the chat.">Close</button></h2>
+  <section id="settings-model" aria-label="Model and connections"></section>
+  <div id="settings-bar">
+    <h3>Instructions and project</h3>
   <span class="setting" title="Choose the base system instructions sent with every model request. The selection freezes after the first message; reset memory or start a new conversation to change it.">
     <label for="prompt" class="help">System prompt:</label>
     <select id="prompt" title="Choose the base system instructions sent with every model request. The selection freezes after the first message; reset memory or start a new conversation to change it."></select>
@@ -36,7 +57,8 @@
   <button id="browse" title="Pick the project folder by browsing the folders on this machine.">Browse…</button>
   <button id="set-project" title="Use the path typed in the field as the project folder.">Set</button>
   <span id="project-error"></span>
-</div>
+  </div>
+</aside>
 
 <div id="browser" hidden>
   <div id="browser-path"></div>
@@ -49,45 +71,65 @@
 
 <div id="panes">
 <div id="chat-pane">
-  <div class="pane-header" title="What a chat app shows you: your messages and the model's answers. Everything else the harness does is hidden here, and shown on the right and at the bottom.">Chat — <span id="model-name"></span><span id="context-meter" title="Input tokens measured by the last provider response; unavailable counts are unknown. The working context is a harness budget, separate from the provider limit. Amber at 75%: old tool outputs are trimmed. Red at 90%: older messages are summarized. Ollama can silently drop the START of an overflowing prompt, including the system message. Until the next response, this shows the last measured request.">context: — / —<progress id="context-bar" max="100" value="0"></progress></span></div>
+  <div class="pane-header" id="chat-header"></div>
   <div id="messages"></div>
   <div id="input-row">
-    <textarea id="input" rows="1" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line, /skill-name to use a skill)" autofocus title="Message sent to the model with enabled tools and harness instructions. Enter sends; Ctrl+Enter inserts a new line. Use /skill-name to request a skill."></textarea>
-    <label class="toggle" title="The model remembers nothing between requests. Checked: the harness keeps the conversation (the messages list at the bottom) and re-sends ALL of it with every request, which is why the 'in' token count grows each turn. Unchecked: only your new message is sent and nothing is kept, so the model can't refer to earlier messages."><input id="use-memory" type="checkbox" checked title="Keep conversation memory and send it again on later requests. Turning this off sends only the new message and does not retain that turn in model memory."> <span class="help">Harness memory</span></label>
-    <label class="toggle" title="Goals are an extra loop on top of the usual tool loop. Checked: the harness offers get_orchestration, configure_goal, get_goal and update_goal (about 400 tokens on every request). If the model calls configure_goal, the harness keeps sending it follow-up rounds until it reports the goal complete or blocked, or a limit is reached. Unchecked: these tools are not sent and the model cannot start or finish a goal; a goal already running stops at its limits or when you press Stop."><input id="use-goals" type="checkbox" checked title="Offer the goal tools to the model so it can start autonomous multi-round work."> <span class="help">Goals</span></label>
-    <label class="toggle" title="Only changes what the chat shows: the model still thinks before answering (which takes time and output tokens), and the RECEIVED blocks on the right still contain its thinking. Applies to the thinking already in the chat too."><input id="hide-thinking" type="checkbox" title="Hide thinking in the chat, including earlier thinking. This display preference does not change model generation or the Internals view."> <span class="help">Hide thinking</span></label>
-    <button id="reset" title="Empty the harness memory: the model forgets the conversation, but the chat stays visible. Also unlocks the system prompt and agent.">Reset memory</button>
-    <button id="compact" title="Ask the model to summarize older messages (under 300 words), retaining at least the last 4 messages and complete tool-call batches. Costs a model request; the request and summary appear in Internals. Memory changes only if the summary succeeds and saves space.">Compact</button>
-    <button id="clear" title="Start over: empty the memory and all three panels, and unlock the system prompt and agent.">Clear conversation</button>
-    <button id="send" title="Send your message and run one backend turn, including any requested tool calls and approval waits.">Send</button>
-    <button id="stop" hidden title="Cancel the current turn and pending approvals. Abort model requests and commands; preserve partial output and settle unfinished tool calls.">Stop</button>
+    <textarea id="input" rows="2" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line, /skill-name to use a skill)" autofocus title="Message sent to the model with enabled tools and harness instructions. Enter sends; Ctrl+Enter inserts a new line. Use /skill-name to request a skill."></textarea>
+    <div id="input-controls">
+      <div class="switches">
+        <label class="toggle" title="The model remembers nothing between requests. Checked: the harness keeps the conversation (the messages list at the bottom) and re-sends ALL of it with every request, which is why the 'in' token count grows each turn. Unchecked: only your new message is sent and nothing is kept, so the model can't refer to earlier messages."><input id="use-memory" type="checkbox" role="switch" checked title="Keep conversation memory and send it again on later requests. Turning this off sends only the new message and does not retain that turn in model memory."> <span class="help">Memory</span></label>
+        <label class="toggle" title="Tools let the model ask the harness to run a function (read a file, get the time...). The model never runs anything itself: it replies with a tool call, the harness runs it and sends the result back in a new request. Unchecked: no tools are described to the model, so it doesn't know they exist."><input id="use-tools" type="checkbox" role="switch" checked title="Offer the checked tools to the model. The harness executes requested calls and sends results back. Turning this off omits tool descriptions from requests."> <span class="help">Tools</span></label>
+        <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added); before run_command runs, it shows the command; before an MCP tool runs, it shows the server, the tool and its arguments; before a file is deleted or moved, or git creates a branch, switches branch or commits, it shows what will happen. The harness then waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written, and commands and MCP tools run, immediately. Careful: the project-folder limit only applies to the file tools; a shell command can do anything your user account can (cd .., rm...), so approval is the real protection."><input id="ask-approval" type="checkbox" role="switch" checked title="Require approval before file changes, shell commands, MCP calls and git changes. Without an approval response, the action is denied. Turning this off executes these effects immediately."> <span class="help">Ask before changes</span></label>
+        <label class="toggle" title="Show the model's thinking in the chat. The model still thinks when this is off; thinking is not kept in memory: with Ollama it is sent back with a tool call during that turn only, then dropped."><input id="show-thinking" type="checkbox" role="switch" checked title="Show the model's thinking in the chat, including earlier thinking. This display preference does not change model generation or the Log."> <span class="help">Show thinking</span></label>
+        <label class="toggle goals-control" title="Goals are an extra loop on top of the usual tool loop. Checked: the harness offers get_orchestration, configure_goal, get_goal and update_goal (about 400 tokens on every request). If the model calls configure_goal, the harness keeps sending it follow-up rounds until it reports the goal complete or blocked, or a limit is reached. Unchecked: these tools are not sent and the model cannot start or finish a goal; a goal already running stops at its limits or when you press Stop."><input id="use-goals" type="checkbox" role="switch" title="Offer the goal tools to the model so it can start autonomous multi-round work."> <span class="help">Goals</span></label>
+        <input id="hide-thinking" type="checkbox" hidden title="Hide thinking in the chat, including earlier thinking. Kept for compatibility; use the Show thinking switch.">
+      </div>
+      <div class="buttons">
+        <button id="reset" title="Empty the harness memory: the model forgets the conversation, but the chat stays visible. Also unlocks the system prompt and agent.">Reset memory</button>
+        <button id="clear" class="danger" title="Start over: empty the memory and all three panels, and unlock the system prompt and agent.">Clear conversation</button>
+        <span class="spacer"></span>
+        <button id="compact" title="Ask the model to summarize older messages (under 300 words), retaining at least the last 4 messages and complete tool-call batches. Costs a model request; the request and summary appear in Internals. Memory changes only if the summary succeeds and saves space.">Compact</button>
+        <button id="send" class="primary" title="Send your message and run one backend turn, including any requested tool calls and approval waits.">Send</button>
+        <button id="stop" hidden title="Cancel the current turn and pending approvals. Abort model requests and commands; preserve partial output and settle unfinished tool calls.">Stop</button>
+      </div>
+    </div>
+    <div id="confirm-clear" class="confirm" role="alertdialog" aria-label="Clear conversation" hidden>
+      <span><strong>Clear this conversation?</strong> Its messages are removed from memory and from the screen. This cannot be undone.</span>
+      <span class="buttons"><button id="clear-cancel" type="button" title="Keep the conversation and close this question.">Cancel</button><button id="clear-yes" class="danger" type="button" title="Empty the memory and all panels, and unlock the system prompt and agent.">Clear</button></span>
+    </div>
   </div>
-  <div id="tools-row">
-    <label class="toggle" title="Tools let the model ask the harness to run a function (read a file, get the time...). The model never runs anything itself: it replies with a tool call, the harness runs it and sends the result back in a new request. Unchecked: no tools are described to the model, so it doesn't know they exist."><input id="use-tools" type="checkbox" checked title="Offer the checked tools to the model. The harness executes requested calls and sends results back. Turning this off omits tool descriptions from requests."> <span class="help">Tools:</span></label>
+  <details id="active-tools">
+    <summary title="The tools the model is told about. Each active tool adds its definition to every request."><strong>Active tools</strong> <span id="active-tools-count">…</span> <span id="active-tools-tokens"></span></summary>
     <span id="tool-list"></span>
-    <label class="toggle" title="Checked: before write_file or edit_file changes a file, the chat shows the diff (red removed, green added); before run_command runs, it shows the command; before an MCP tool runs, it shows the server, the tool and its arguments; before a file is deleted or moved, or git creates a branch, switches branch or commits, it shows what will happen. The harness then waits for your Approve or Deny. Deny is sent back to the model as the tool's result, so it can adjust. Unchecked: changes are written, and commands and MCP tools run, immediately. Careful: the project-folder limit only applies to the file tools; a shell command can do anything your user account can (cd .., rm...), so approval is the real protection."><input id="ask-approval" type="checkbox" checked title="Require approval before file changes, shell commands, MCP calls and git changes. Without an approval response, the action is denied. Turning this off executes these effects immediately."> <span class="help">Ask before changes and commands</span></label>
+    <p class="note">Each active tool adds its definition to every request. Cost is estimated at about four characters per token and excludes call arguments and results. To read a definition, open the Tools tab.</p>
+  </details>
+</div>
+
+<div id="splitter" title="Drag to resize the chat and inspector panes"></div>
+
+<aside id="inspector" aria-label="Inspector">
+  <div class="tabbar" role="tablist" aria-label="Inspector views">
+    <div class="tabs">
+      <button class="tab" role="tab" data-view="request" id="tab-request" aria-selected="true" title="Exactly what the model receives with a request: the system message, the tool schemas, memory and what was added this turn.">Request</button>
+      <button class="tab" role="tab" data-view="system" id="tab-system" aria-selected="false" title="The base prompt chosen in Settings: the first section of the system message.">Base prompt</button>
+      <button class="tab" role="tab" data-view="agent" id="tab-agent" aria-selected="false" title="The agent persona selected in Settings, if any.">Agent</button>
+      <button class="tab" role="tab" data-view="project" id="tab-project" aria-selected="false" title="The project instructions file (AGENTS.md) read for this session.">Project file</button>
+      <button class="tab" role="tab" data-view="mcp" id="tab-mcp" aria-selected="false" title="Connected MCP servers, their tools and the configuration editor.">MCP</button>
+      <button class="tab" role="tab" data-view="skills" id="tab-skills" aria-selected="false" title="Every skill: its name and description go in each request; the full text only after the model loads it.">Skills</button>
+      <button class="tab" role="tab" data-view="memory" id="tab-memory" aria-selected="false" title="The messages the harness keeps and sends again with every request. The model keeps nothing itself.">Memory</button>
+      <button class="tab" role="tab" data-view="tools" id="tab-tools" aria-selected="false" title="The definition of every tool the model can call: name, description and parameters.">Tools</button>
+      <span class="tab-sep" aria-hidden="true"></span>
+      <button class="tab" role="tab" data-view="template" id="tab-template" aria-selected="false" title="The model's chat template, which turns the messages into the final prompt text.">Template</button>
+      <button class="tab" role="tab" data-view="final" id="tab-final" aria-selected="false" title="The full prompt text as the model sees it after the template is applied.">Final prompt</button>
+      <button class="tab" role="tab" data-view="tokens" id="tab-tokens" aria-selected="false" title="A saved request split into the model's tokens.">Tokens</button>
+      <button class="tab" role="tab" data-view="vocabulary" id="tab-vocabulary" aria-selected="false" title="Browse the model's vocabulary and how a word splits into tokens.">Vocabulary</button>
+    </div>
+    <div class="tabs-pin"><button class="tab" role="tab" data-view="log" id="tab-log" aria-selected="false" title="The log of every model request and response, with tokens and timing.">Log</button></div>
   </div>
-</div>
-
-<div id="splitter" title="Drag to resize the chat and Internals panes"></div>
-
-<div id="internals-pane">
-  <div class="pane-header" title="Model API exchanges. SENT (orange): the full request, rebuilt every time; your new message is in red. RECEIVED (green): the model's response with its statistics; the model's message is in blue. TOKENS: input + output tokens out of the context window. PREFIX REUSE: how much of this request is identical to the previous one; a provider prompt cache or Ollama's KV cache can reuse that part, while trimming, compaction and system-prompt changes break it. TIMING: prefill reads the whole prompt in parallel (compute-bound, repeated every round), decode writes one token at a time (memory-bandwidth-bound); an Ollama prefill that looks implausibly fast reused its KV cache. TURN TIMELINE: every round of a tool-using turn sends the whole conversation again. TOOL and FILE CHANGE: what the harness ran for the model.">Internals</div>
-  <pre id="terminal">----------------------------------------
-MODEL
-----------------------------------------
-Model: loading…
-
-</pre>
-</div>
-</div>
-
-<div id="vsplitter" title="Drag to give the memory box more or less space"></div>
-
-<div id="harness-box">
-  <div class="pane-header" id="explore-header">
-    <label for="explore-view" class="help" title="Explore each piece that goes into a request: what the harness keeps and adds, what comes with the model, and the final text the model reads.">Explore:</label>
-    <select id="explore-view" title="Choose which part of the harness to inspect: memory, instructions, tools, MCP servers, skills, model template, saved-request tokens or the model's vocabulary. Inspection does not advance a chat turn.">
+  <div id="explore-header" class="pane-header">
+    <label for="explore-view" class="visually-hidden">Inspector view</label>
+    <select id="explore-view" class="visually-hidden" title="Choose which part of the harness to inspect. The tabs above set this too. Inspection does not advance a chat turn.">
+      <option value="request">request sent to the model</option>
       <option value="memory">harness memory</option>
       <option value="system">harness system prompt</option>
       <option value="agent">harness agent</option>
@@ -99,12 +141,23 @@ Model: loading…
       <option value="tokens">tokenization of a saved request</option>
       <option value="vocabulary">model vocabulary</option>
       <option value="final">prompt reconstruction (Qwen)</option>
+      <option value="log">log of model requests</option>
     </select>
-    <button id="mcp-reload" hidden title="Ask the backend to re-read its MCP configuration file and reconnect every server. The tool list below the chat is rebuilt from what the servers report.">Reload MCP servers</button>
+    <button id="mcp-reload" hidden title="Ask the backend to re-read its MCP configuration file and reconnect every server. The tool list is rebuilt from what the servers report.">Reload MCP servers</button>
     <button id="mcp-find" hidden title="Search an MCP registry: GitHub's (the one VS Code uses) or the official one. It lists servers, not tools: a server's tools are only known once the harness connects to it. Preview connects to a remote server once; Show configuration lets you review and edit an entry, then Add to harness saves it and reloads servers.">Find MCP servers…</button>
     <span id="explore-note"></span>
   </div>
-  <pre id="memory"></pre>
+  <div id="request-view" hidden></div>
+  <div id="internals-pane" hidden>
+    <div class="pane-header" id="internals-header" title="Model API exchanges. SENT (orange): the full request, rebuilt every time; your new message is in red. RECEIVED (green): the model's response with its statistics; the model's message is in blue. TOKENS: input + output tokens out of the context window. PREFIX REUSE: how much of this request is identical to the previous one; a provider prompt cache or Ollama's KV cache can reuse that part, while trimming, compaction and system-prompt changes break it. TIMING: prefill reads the whole prompt in parallel (compute-bound, repeated every round), decode writes one token at a time (memory-bandwidth-bound); an Ollama prefill that looks implausibly fast reused its KV cache. TURN TIMELINE: every round of a tool-using turn sends the whole conversation again. TOOL and FILE CHANGE: what the harness ran for the model.">Internals: every model request (SENT) and response (RECEIVED), with tokens and timing. Hover for what each block means.</div>
+    <pre id="terminal">----------------------------------------
+MODEL
+----------------------------------------
+Model: loading…
+
+</pre>
+  </div>
+<pre id="memory"></pre>
   <pre id="explore" hidden></pre>
   <details id="mcp-server-details" hidden>
     <summary>Server status, warnings and protocol log</summary>
@@ -119,6 +172,7 @@ Model: loading…
   </section>
   <div id="tokenization" hidden></div>
   <div id="vocabulary" hidden></div>
+</aside>
 </div>
 
 <dialog id="mcp-registry" aria-label="MCP Registry">
@@ -140,6 +194,7 @@ Model: loading…
 <script src="/static/tokenization.js"></script>
 <script src="/static/vocabulary.js"></script>
 <script src="/static/orchestration.js"></script>
+<script src="/static/request-view.js"></script>
 <script src="/static/app.js" defer></script>
 
 </body>

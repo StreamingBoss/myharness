@@ -207,3 +207,20 @@ check expires a scratch bridge connection and verifies that Guide marks it
 disconnected, retains the model configuration, and updates the harness tool list.
 The bridge lease regression checks both sides of the centralized 120-second
 boundary without waiting two minutes or touching the owner's services.
+
+
+## Request tab verification
+
+`request-view.test.ts` keeps the Request tab honest. It loads the real `web/static/request-view.js` and runs
+real harness turns with a tool loop against recorded transports:
+
+- Ollama (with and without the harness's `provider` label, including a thinking model's tool loop) and
+  OpenAI, Anthropic and Gemini: for every request of the turn, the body that "As sent" shows
+  (`RequestView.sentBody`) is identical, byte for byte and in the same field order, to the JSON that the adapter
+  posted.
+- "By section" holds the same content: for Ollama the system, memory and this-turn messages and the tools equal
+  the posted `messages` and `tools`; for the cloud providers every text the sections show appears in the
+  provider's own body.
+- A browser test sends two messages, one with a tool call, and compares the rendered rows of "By section" with
+  the rendered "As sent" JSON.
+

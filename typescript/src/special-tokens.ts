@@ -16,7 +16,7 @@ const TABLE: Record<string, SpecialToken> = {
   '<|im_end|>': entry('end of message', END, 'ChatML: Qwen and others'),
   '<|im_sep|>': entry('role separator', 'Separates the role name from the message text.', 'Phi-4'),
   '<|endoftext|>': entry('end of text', STOP, 'Qwen, GPT-2 family, Phi'),
-  '<think>': entry('start of thinking', 'The model writes its reasoning between <think> and </think> before the answer. The reasoning is generated, and costs time like any output, but the harness does not send it back with later requests.', 'Qwen3, DeepSeek-R1'),
+  '<think>': entry('start of thinking', 'The model writes its reasoning between <think> and </think> before the answer. The reasoning is generated, and costs time like any output, but the harness sends it back only with a tool call while a tool loop runs (Ollama) and drops it when the turn ends.', 'Qwen3, DeepSeek-R1'),
   '</think>': entry('end of thinking', 'The reasoning is finished; the answer follows.', 'Qwen3, DeepSeek-R1'),
   '<tool_call>': entry('start of tool call', 'The model writes a tool call (its name and arguments as JSON) between <tool_call> and </tool_call>. The harness reads the call, applies its approval policy and only then runs the tool.', 'Qwen'),
   '</tool_call>': entry('end of tool call', 'The tool call is complete.', 'Qwen'),
