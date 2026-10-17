@@ -52,7 +52,7 @@ test('Worker and fetch preserve diagnostic source, reason and recovery', async (
 });
 
 test('chat diagnostics render the same details in live errors and replay without labeling user stops as errors', async () => {
-  const html = await readFile('web/templates/index.html', 'utf8');
+  const html = await readFile('web/static/app.js', 'utf8');
   const helper = html.slice(html.indexOf('function formatFailure('), html.indexOf('async function sendMessage('));
   const output: string[] = [];
   const context = { formatFailure: undefined as unknown as (failure: unknown, fallback: string) => string, responseError: undefined as unknown as (data: unknown) => Error, displayError: undefined as unknown as (error: Error) => string,

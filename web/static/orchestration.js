@@ -3,7 +3,7 @@ class OrchestrationPanel {
   constructor(parent, request) {
     this.request = request; this.cursors = new Map(); this.pending = false; this.sessionId = '';
     this.root = document.createElement('section'); this.root.id = 'orchestration'; this.root.hidden = true;
-    this.root.style.cssText = 'padding:10px;border-bottom:1px solid #555;font:13px system-ui;max-height:55vh;overflow:auto';
+    this.root.style.cssText = 'padding:10px;border-bottom:1px solid var(--border-strong);font:13px system-ui;max-height:55vh;overflow:auto';
     this.root.innerHTML = `<h3>Goals and subagents</h3>
       <p>The master chooses tasks, models and limits within host permissions. These values are shown for inspection.</p>
       <button id="close-orchestration" type="button" title="Hide the inspector. Running work continues.">Close inspector</button>

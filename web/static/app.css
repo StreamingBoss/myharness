@@ -1,0 +1,461 @@
+  /* Colour tokens. Light is the default; dark follows the system, and an explicit data-theme choice overrides both. */
+  :root {
+    color-scheme: light;
+    --bg: #ffffff; --surface: #f3f5f7; --surface-2: #f3f5f7; --surface-3: #eaedf0; --panel: #f7f8fa; --harness: #eef2f6;
+    --input-bg: #ffffff; --input-border: #b8bec6; --border: #cfd4da; --border-strong: #b8bec6; --splitter: #d4d9df;
+    --fg: #1f2328; --fg-muted: #444444; --fg-faint: #8a8a8a; --fg-dim: #999999;
+    --accent: #0b5cad; --accent-fg: #ffffff; --link: #0b5cad;
+    --ok: #1a7f37; --ok-soft: #1a7f37; --ok-strong: #2e7d32; --warn: #9a6700; --warn-alt: #9a6700; --warn-bg: #fff6e0;
+    --danger: #c62828; --danger-soft: #c62828; --danger-strong: #c62828; --sent: #b35c00; --received-b: #0b5cad;
+    --code: #eef0f3; --focus: #000000; --focus-bg: #e8d6f5; --vocab-fg: #0b5cad; --mcp: #7a3fa0;
+    --tc0-bg: #cdeaf5; --tc0-fg: #0b3d52; --tc1-bg: #e8d6f5; --tc1-fg: #4a2468;
+    --btn-bg: #e4e7eb; --btn-fg: #1f2328; --btn-border: #b8bec6; --btn-hover: #d4d9df;
+    --shadow: rgba(0, 0, 0, 0.5); --backdrop: rgba(0, 0, 0, 0.6);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #1e1e1e; --surface: #252525; --surface-2: #2a2a2a; --surface-3: #1a1a1a; --panel: #141414; --harness: #101820;
+      --input-bg: #2a2a2a; --input-border: #444444; --border: #444444; --border-strong: #555555; --splitter: #333333;
+      --fg: #dddddd; --fg-muted: #aaaaaa; --fg-faint: #888888; --fg-dim: #999999;
+      --accent: #2b5797; --accent-fg: #ffffff; --link: #5cb3ff;
+      --ok: #6fcf6f; --ok-soft: #80d890; --ok-strong: #2e7d32; --warn: #e0b050; --warn-alt: #ffb86c; --warn-bg: #2a2418;
+      --danger: #ff6b6b; --danger-soft: #f08080; --danger-strong: #c62828; --sent: #f0a050; --received-b: #5cb3ff;
+      --code: #1b1b1b; --focus: #ffffff; --focus-bg: #443457; --vocab-fg: #b5ecff; --mcp: #c792ea;
+      --tc0-bg: #234854; --tc0-fg: #b5ecff; --tc1-bg: #443457; --tc1-fg: #f2caff;
+      --btn-bg: #3a3f47; --btn-fg: #eeeeee; --btn-border: #5a6068; --btn-hover: #4a505a;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #1e1e1e; --surface: #252525; --surface-2: #2a2a2a; --surface-3: #1a1a1a; --panel: #141414; --harness: #101820;
+    --input-bg: #2a2a2a; --input-border: #444444; --border: #444444; --border-strong: #555555; --splitter: #333333;
+    --fg: #dddddd; --fg-muted: #aaaaaa; --fg-faint: #888888; --fg-dim: #999999;
+    --accent: #2b5797; --accent-fg: #ffffff; --link: #5cb3ff;
+    --ok: #6fcf6f; --ok-soft: #80d890; --ok-strong: #2e7d32; --warn: #e0b050; --warn-alt: #ffb86c; --warn-bg: #2a2418;
+    --danger: #ff6b6b; --danger-soft: #f08080; --danger-strong: #c62828; --sent: #f0a050; --received-b: #5cb3ff;
+    --code: #1b1b1b; --focus: #ffffff; --focus-bg: #443457; --vocab-fg: #b5ecff; --mcp: #c792ea;
+    --tc0-bg: #234854; --tc0-fg: #b5ecff; --tc1-bg: #443457; --tc1-fg: #f2caff;
+    --btn-bg: #3a3f47; --btn-fg: #eeeeee; --btn-border: #5a6068; --btn-hover: #4a505a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--fg);
+  }
+  #settings-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 13px;
+    color: var(--fg-muted);
+  }
+  #settings-bar select, #settings-bar input {
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--fg);
+    font-size: 13px;
+  }
+  #settings-bar input {
+    flex: 1;
+    max-width: 600px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  #settings-bar .setting { display: flex; align-items: center; gap: 10px; }
+  #settings-bar .setting:has(#project) { flex: 1; max-width: 700px; }
+  #settings-bar .setting + .setting, #lock-note + .setting { margin-left: 20px; }
+  .help, .pane-header[title] { text-decoration: underline dotted var(--fg-faint); cursor: help; }
+  #session-bar { display: flex; align-items: center; gap: 7px; padding: 6px 16px; background: var(--surface-3); border-bottom: 1px solid var(--border); font-size: 12px; }
+  #session-bar select, #session-bar input, #session-bar button { padding: 5px 7px; border-radius: 5px; border: 1px solid var(--border-strong); background: var(--input-bg); color: var(--fg); }
+  .pane-header button, #orchestration button {
+    margin-left: 8px; padding: 5px 8px; border-radius: 5px;
+    border: 1px solid var(--border-strong); background: var(--input-bg); color: var(--fg); cursor: pointer;
+  }
+  #orchestration-attention { border-color: var(--warn); color: var(--warn); }
+  #orchestration-error { color: var(--danger); margin-left: 8px; white-space: normal; }
+  #orchestration h3 { margin: 0 0 8px; }
+  #orchestration .child-agent { padding: 8px 0; border-top: 1px solid var(--border); }
+  #session-status { color: var(--ok-soft); min-width: 52px; }
+  #settings-bar :disabled { opacity: 0.5; cursor: default; }
+  #project-error { color: var(--danger); max-width: 300px; min-width: 0; max-height: 64px; overflow: auto; }
+  #project-error:not(:empty) { min-width: 200px; }
+  #lock-note { color: var(--warn); cursor: help; }
+  #lock-note[hidden] { display: none; }
+  #browser {
+    position: fixed;
+    top: 46px;
+    left: 160px;
+    width: 560px;
+    max-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px var(--shadow);
+    z-index: 10;
+    font-size: 13px;
+  }
+  #browser[hidden] { display: none; }
+  #browser-path {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    color: var(--fg);
+    word-break: break-all;
+  }
+  #browser-list { overflow-y: auto; padding: 4px 0; }
+  #browser-list div {
+    padding: 5px 14px;
+    cursor: pointer;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  #browser-list div:hover { background: var(--accent); color: var(--accent-fg); }
+  #browser-list .empty { color: var(--fg-faint); cursor: default; }
+  #browser-list .empty:hover { background: none; color: var(--fg-faint); }
+  #browser-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+  }
+  #browser-buttons button {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    cursor: pointer;
+  }
+  #browser-buttons #browser-select { background: var(--accent); color: var(--accent-fg); }
+  #panes {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+  #chat-pane, #internals-pane {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #chat-pane {
+    flex: 0 0 50%;
+    min-width: 0;
+  }
+  #splitter {
+    flex: 0 0 6px;
+    cursor: col-resize;
+    background: var(--splitter);
+    touch-action: none;
+  }
+  #vsplitter {
+    flex: 0 0 6px;
+    cursor: row-resize;
+    background: var(--splitter);
+    touch-action: none;
+  }
+  #splitter:hover, #splitter.dragging,
+  #vsplitter:hover, #vsplitter.dragging { background: var(--accent); }
+  #internals-pane {
+    flex: 1;
+    background: var(--panel);
+  }
+  .pane-header {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--fg-muted);
+    flex-shrink: 0;
+  }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .msg {
+    max-width: 80%;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    white-space: pre-wrap;
+    line-height: 1.4;
+  }
+  .msg.user {
+    margin-left: auto;
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  .msg.assistant {
+    margin-right: auto;
+    background: var(--surface-2);
+  }
+  .msg.markdown { white-space: normal; }
+  .msg.markdown > :first-child { margin-top: 0; }
+  .msg.markdown > :last-child { margin-bottom: 0; }
+  .msg.markdown p, .msg.markdown ul, .msg.markdown ol { margin: 0.5em 0; }
+  .msg.markdown code {
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 0.9em;
+    background: var(--code);
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
+  .msg.markdown pre {
+    background: var(--code);
+    padding: 10px;
+    border-radius: 6px;
+    overflow-x: auto;
+  }
+  .msg.markdown pre code { padding: 0; background: none; }
+  .msg.markdown a { color: var(--link); }
+  .change {
+    margin: 12px 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .change-title {
+    padding: 8px 12px;
+    background: var(--surface-2);
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  .change pre {
+    margin: 0;
+    padding: 8px 12px;
+    max-height: 300px;
+    overflow: auto;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    background: var(--code);
+  }
+  .change-note {
+    margin-top: 4px;
+    color: var(--warn);
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    font-size: 12px;
+  }
+  .change pre.command-output { border-top: 1px solid var(--border); color: var(--fg-muted); }
+  .diff-add { color: var(--ok); }
+  .diff-del { color: var(--danger); }
+  .diff-hunk { color: var(--fg-faint); }
+  .change-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface-2);
+  }
+  .change-actions button {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    color: var(--btn-fg);
+    cursor: pointer;
+    background: var(--btn-bg);
+  }
+  .change-actions .approve { background: var(--ok-strong); color: #ffffff; }
+  .plan { border: 1px solid var(--border-strong); border-radius: 6px; padding: 8px 12px; margin: 8px 0; background: var(--bg); color: var(--fg); font-size: 13px; }
+  .plan-title { font-weight: 600; margin-bottom: 4px; }
+  .plan-item { font-family: ui-monospace, "SF Mono", Consolas, monospace; white-space: pre-wrap; }
+  .plan-done { color: var(--ok); }
+  .plan-in_progress { color: var(--warn-alt); }
+  .change-status.approved { color: var(--ok); }
+  .change-status.refused { color: var(--danger); }
+  .msg.thinking {
+    margin-right: auto;
+    border-left: 3px solid var(--border-strong);
+    border-radius: 0;
+    color: var(--fg-faint);
+    font-size: 13px;
+    font-style: italic;
+  }
+  #messages.hide-thinking .msg.thinking { display: none; }
+  .msg.thinking::before {
+    content: "Thinking";
+    display: block;
+    font-style: normal;
+    font-weight: bold;
+    color: var(--fg-faint);
+    margin-bottom: 4px;
+  }
+  #input-row {
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 8px;
+    border-top: 1px solid var(--border);
+    padding: 10px;
+  }
+  #input-row #input {
+    flex: 1;
+    min-width: 180px;
+    padding: 10px;
+    border-radius: 6px;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--fg);
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1.4;
+    resize: none;
+    max-height: 9em;
+    overflow-y: auto;
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 10px;
+    font-size: 13px;
+    color: var(--fg-muted);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  #tools-row {
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 0 10px 10px 0;
+  }
+  .toggle.tool { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
+  #tool-list { display: flex; align-items: flex-start; gap: 18px; flex: 1 1 100%; order: 1; min-width: 0; overflow-x: auto; padding: 6px 10px; }
+  .tool-family { display: flex; flex-direction: column; gap: 3px; flex: 0 0 auto; border: 0; padding: 0; margin: 0; }
+  .tool-family legend { font-size: 12px; font-weight: bold; color: var(--fg); margin-bottom: 5px; padding: 0; }
+  .tool-family .toggle.tool { margin-left: 0; }
+  .tool-family .mcp-group { color: var(--mcp); white-space: nowrap; cursor: help; }
+  .tool-family legend label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .tool-menu { display: flex; flex-direction: column; gap: 3px; }
+  .tool-menu summary { font-size: 12px; color: var(--fg-muted); cursor: pointer; margin-bottom: 3px; }
+  .tool-menu-items { display: flex; flex-direction: column; gap: 3px; max-height: 190px; overflow-y: auto; padding-right: 8px; }
+  #mcp-reload, #mcp-find { margin-left: 8px; }
+  #mcp-registry { width: min(900px, 92vw); max-height: 85vh; background: var(--bg); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 6px; padding: 14px; }
+  #mcp-registry::backdrop { background: var(--backdrop); }
+  #mcp-registry form { display: flex; gap: 8px; margin-bottom: 8px; }
+  #mcp-registry input[type=search] { flex: 1; }
+  .registry-note { font-size: 12px; color: var(--fg-muted); margin: 4px 0 10px; }
+  .registry-server { border-top: 1px solid var(--border); padding: 8px 0; }
+  .registry-server h3 { margin: 0; font-size: 14px; }
+  .registry-server .registry-name { font: 12px ui-monospace, "SF Mono", Consolas, monospace; color: var(--fg-dim); }
+  .registry-option { margin: 6px 0 0 12px; font-size: 12px; }
+  .registry-option button { margin-left: 6px; font-size: 12px; }
+  .registry-option pre { white-space: pre-wrap; background: var(--code); padding: 6px; margin: 4px 0; max-height: 300px; overflow: auto; }
+  .toggle:has(input:disabled) { opacity: 0.5; cursor: default; }
+  #input-row button {
+    margin-left: 8px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    cursor: pointer;
+  }
+  #input-row button:disabled { opacity: 0.5; cursor: default; }
+  #input-row #reset, #input-row #clear { background: var(--btn-bg); color: var(--btn-fg); }
+  #input-row #stop { background: var(--danger-strong); color: #ffffff; }
+  #input-row button[hidden] { display: none; }
+  .reset-divider {
+    text-align: center;
+    font-size: 12px;
+    color: var(--fg-faint);
+    margin: 12px 0;
+  }
+
+  #terminal .sent { color: var(--sent); }
+  #terminal .received { color: var(--ok); }
+  #terminal .sent b { color: var(--danger); }
+  #terminal .received b { color: var(--received-b); }
+  #harness-box {
+    height: 25vh;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--harness);
+  }
+  #context-meter { margin-left: auto; font-size: 12px; font-weight: normal; }
+  #context-bar { width: 90px; height: 7px; accent-color: var(--ok-soft); margin-left: 8px; }
+  #context-meter.amber { color: var(--warn); }
+  #context-meter.red { color: var(--danger-soft); }
+  #context-meter.amber #context-bar { accent-color: var(--warn); }
+  #context-meter.red #context-bar { accent-color: var(--danger-soft); }
+  #chat-pane > .pane-header { display: flex; align-items: center; gap: 8px; }
+  #explore-header { display: flex; align-items: center; gap: 10px; }
+  #explore-header select {
+    padding: 3px 6px;
+    border-radius: 6px;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--fg);
+    font-size: 13px;
+  }
+  #explore-note { color: var(--fg-faint); font-size: 12px; }
+  #explore[hidden], #memory[hidden] { display: none; }
+  #mcp-config-editor { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; padding: 8px; }
+  #mcp-config-editor[hidden] { display: none; }
+  #mcp-config-text { display: block; box-sizing: border-box; width: 100%; min-height: 100px; flex: 1; margin: 6px 0; resize: vertical; font: 12px/1.45 ui-monospace, monospace; }
+  #mcp-server-details { flex: 0 0 auto; max-height: 10vh; overflow: auto; padding: 4px 8px; font-size: 12px; }
+  #mcp-server-status { max-height: 8vh; overflow: auto; white-space: pre-wrap; }
+  #mcp-config-source, #mcp-config-message { color: var(--fg-faint); font-size: 12px; }
+  #explore .token { color: var(--warn); font-weight: bold; }
+  #explore .skill-loaded { color: var(--ok-soft); }
+  #terminal, #memory, #explore {
+    flex: 1;
+    overflow-y: auto;
+    margin: 0;
+    padding: 16px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+#tokenization { flex: 1; min-height: 0; overflow: auto; padding: 12px; font: 13px system-ui; }
+#token-intro { margin: 8px 0; color: var(--fg-muted); }
+#token-intro summary, #tokenization details summary { cursor: pointer; }
+.token-empty { border-left: 4px solid var(--warn); background: var(--warn-bg); padding: 8px 12px; margin: 8px 0; }
+#token-about { color: var(--fg-muted); border-top: 1px solid var(--border); margin-top: 12px; }
+#tokenization p, #tokenization li { line-height: 1.5; }
+#tokenization pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.vocabulary-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+#vocabulary-intro { margin: 8px 0; color: var(--fg-muted); }
+#vocabulary p { line-height: 1.5; margin: 4px 0; }
+#vocabulary-table { border-collapse: collapse; font: 13px monospace; margin: 8px 0; }
+#vocabulary-table caption { text-align: left; color: var(--fg-muted); padding-bottom: 4px; }
+#vocabulary-table th, #vocabulary-table td { text-align: left; padding: 2px 12px 2px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+#vocabulary-table .vocabulary-piece { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--vocab-fg); }
+#vocabulary-table .vocabulary-focus { background: var(--focus-bg); }
+.token-controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.token-controls select { max-width: 400px; }
+.token-chips { display: flex; flex-wrap: wrap; gap: 3px; margin: 12px 0; }
+.token-chip { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; font: 13px monospace; border: 1px solid transparent; padding: 4px; cursor: pointer; }
+.token-chip:focus { outline: 2px solid var(--focus); }
+.token-colour-0 { background: var(--tc0-bg); color: var(--tc0-fg); }
+.token-colour-1 { background: var(--tc1-bg); color: var(--tc1-fg); }
+#token-details { border: 1px solid var(--border-strong); padding: 8px; }
+
+/* Unified buttons: one look for every button, driven by theme variables */
+button, #settings-bar button, #session-bar button, #browser-buttons button, #browser-buttons #browser-select,
+.change-actions button, .change-actions .approve, .pane-header button, #orchestration button,
+#input-row button, #input-row #reset, #input-row #clear, #input-row #stop, #orchestration-attention {
+  padding: 6px 14px; border: 1px solid var(--btn-border); border-radius: 6px;
+  background: var(--btn-bg); color: var(--btn-fg); cursor: pointer; font: inherit; font-size: 13px;
+}
+button:hover:not(:disabled) { background: var(--btn-hover); }
+button:disabled { opacity: 0.5; cursor: default; }
+#harness-box button { padding: 3px 10px; }
+#theme-toggle { margin-left: auto; }
+
+#browser-runtime { padding: 12px; border-bottom: 1px solid var(--border); font: 13px system-ui; } #browser-runtime button, #browser-runtime input, #browser-runtime select { margin: 4px; } #browser-runtime-status { color: var(--warn-alt); margin-left: 8px; } .browser-import input { max-width: 160px; }

@@ -36,6 +36,8 @@ async function stream(response: ServerResponse, events: AsyncGenerator<CoreEvent
   } finally { response.off('close', cancel); await events.return(undefined); }
 }
 
+function staticType(route: string): string { return path.extname(route) === '.css' ? 'text/css; charset=utf-8' : 'application/javascript'; }
+
 export function createHarnessServer(harness: NodeHarness, options: { projectRoot?: string; uiOrigins?: string } = {}): Server {
   const root = options.projectRoot ?? process.cwd();
   const allowed = new Set((options.uiOrigins ?? '').split(',').map(origin => origin.trim()).filter(Boolean));
@@ -51,7 +53,7 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
       if (request.method === 'GET' && (route === '/' || /^\/static\/[\w.-]+$/.test(route))) {
         const file = route === '/' ? path.join(root, 'web/templates/index.html') : path.join(root, 'web', route);
         if (!existsSync(file)) throw new BackendError('Not found', 404);
-        response.writeHead(200, { 'content-type': route === '/' ? 'text/html; charset=utf-8' : 'application/javascript' }); response.end(await readFile(file)); return;
+        response.writeHead(200, { 'content-type': route === '/' ? 'text/html; charset=utf-8' : staticType(route) }); response.end(await readFile(file)); return;
       }
       const browserAssets: Record<string, string> = { '/error-messages.js': 'application/javascript', '/guide.html': 'text/html; charset=utf-8', '/index.html': 'text/html; charset=utf-8', '/guide-ui.js': 'application/javascript', '/managed-worker.js': 'application/javascript', '/library.json': 'application/json', '/browser-ui.js': 'application/javascript', '/backend-worker.js': 'application/javascript', '/browser-backend.js': 'application/javascript' };
       if (request.method === 'GET' && browserAssets[route]) {

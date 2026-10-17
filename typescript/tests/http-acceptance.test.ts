@@ -19,8 +19,10 @@ test('all UI routes, static assets, CORS preflight and session lifecycle use the
   const request = async (route: string, method = 'GET', value?: unknown, expected = 200) => {
     const response = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, ...(value === undefined ? {} : { body: JSON.stringify(value) }) }); assert.equal(response.status, expected, await response.clone().text()); return response;
   };
-  assert.match(await (await request('/')).text(), /bootstrap/);
-  assert.match(await (await request('/static/marked.min.js')).text(), /marked/); await request('/static/missing.js', 'GET', undefined, 404);
+  const page = await (await request('/')).text(); assert.match(page, /static\/app\.js/); assert.match(page, /static\/app\.css/);
+  assert.match(await (await request('/static/app.js')).text(), /\/bootstrap/);
+  const css = await request('/static/app.css'); assert.equal(css.headers.get('content-type'), 'text/css; charset=utf-8'); assert.match(await css.text(), /box-sizing/);
+  assert.equal((await request('/static/marked.min.js')).headers.get('content-type'), 'application/javascript'); assert.match(await (await request('/static/marked.min.js')).text(), /marked/); await request('/static/missing.js', 'GET', undefined, 404);
   const cors = await fetch(base + '/bootstrap', { headers: { Origin: 'http://localhost:8000' } }); assert.equal(cors.headers.get('Access-Control-Allow-Origin'), 'http://localhost:8000');
   assert.equal((await fetch(base + '/bootstrap', { headers: { Origin: 'http://unlisted' } })).headers.get('Access-Control-Allow-Origin'), null);
   assert.equal((await fetch(base + '/chat', { method: 'OPTIONS', headers: { Origin: 'http://localhost:8000' } })).status, 204);

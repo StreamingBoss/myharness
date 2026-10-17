@@ -72,8 +72,9 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   await page.context().route('http://localhost:11434/api/tags', route => route.fulfill({ json: { models: [{ name: 'qwen3:8b' }] } }));
   page.on('pageerror', error => errors.push(error.message)); page.on('request', request => requests.push(request.url()));
   await page.goto(base + '/?database=distribution'); await ready(page);
-  assert.equal(await page.locator('#browser-model-mode').inputValue(), 'ollama');
-  assert.equal(await page.locator('#browser-model-mode option[value=demo], #browser-examples').count(), 0);
+  assert.equal(await page.locator('#browser-model-mode').inputValue(), 'demo');
+  assert.equal(await page.locator('#browser-model-mode option[value=demo]').count(), 1);
+  assert.equal(await page.locator('#browser-examples').count(), 0);
   assert.equal(await page.locator('#browser-context-limit').inputValue(), '8192');
   assert.equal(await page.getByText('How this version works', { exact: true }).count(), 0);
   assert.equal(await page.locator('#browser-token-budgets').isVisible(), false);

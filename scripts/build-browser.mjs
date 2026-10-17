@@ -14,11 +14,15 @@ for (const [folder, key] of [['agents', 'agents'], ['prompts', 'prompts']]) for 
 for (const folder of (await readdir('skills')).sort()) library.skills[folder] = await readFile(path.join('skills', folder, 'SKILL.md'), 'utf8');
 await writeFile(path.join(output, 'library.json'), JSON.stringify(library));
 let html = await readFile('web/templates/index.html', 'utf8');
-html = html.replace('<head>', '<head>\n<link rel="icon" href="data:,">');
-html = html.replaceAll('src="/static/', 'src="./static/');
-html = html.replace('src="/error-messages.js"', 'src="./error-messages.js"');
-html = html.replace('<script>\nconst messagesEl', '<script type="module">\nimport { mountBrowser } from "./browser-ui.js";\ntry { await mountBrowser(); } catch (error) { document.body.prepend(Object.assign(document.createElement("p"), { textContent: "Browser backend unavailable: " + MyHarnessErrors.failureText(error, error.message) })); throw error; }\nconst messagesEl');
-html = html.replace('</style>', '#browser-runtime { padding: 12px; border-bottom: 1px solid #444; font: 13px system-ui; } #browser-runtime button, #browser-runtime input, #browser-runtime select { margin: 4px; } #browser-runtime-status { color: #ffb86c; margin-left: 8px; } .browser-import input { max-width: 160px; }\n</style>');
+const replaceOnce = (text, search, replacement) => {
+  if (!text.includes(search)) throw new Error(`Browser build anchor not found in index.html: ${search.slice(0, 60)}`);
+  return text.replace(search, replacement);
+};
+html = replaceOnce(html, '<head>', '<head>\n<link rel="icon" href="data:,">');
+if (!html.includes('src="/static/') || !html.includes('href="/static/')) throw new Error('Browser build anchor not found in index.html: /static/ references');
+html = html.replaceAll('src="/static/', 'src="./static/').replaceAll('href="/static/', 'href="./static/');
+html = replaceOnce(html, 'src="/error-messages.js"', 'src="./error-messages.js"');
+html = replaceOnce(html, '<script src="./static/app.js" defer></script>', '<script type="module">\nimport { mountBrowser } from "./browser-ui.js";\nwindow.MYHARNESS_READY = mountBrowser().catch(error => { document.body.prepend(Object.assign(document.createElement("p"), { textContent: "Browser backend unavailable: " + MyHarnessErrors.failureText(error, error.message) })); throw error; });\n</script>\n<script src="./static/app.js" defer></script>');
 await writeFile(path.join(output, 'index.html'), html);
 await writeFile(path.join(output, 'headless.html'), '<!doctype html><meta charset="utf-8"><title>Headless browser backend</title><script type="module">import { WorkerClient } from "./browser-backend.js"; const url = new URL("backend-worker.js", location.href); url.search = location.search; window.harness = new WorkerClient(new Worker(url, {type:"module"}));</script>');
 await cp('web/guide.html', path.join(output, 'guide.html'));

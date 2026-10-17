@@ -74,7 +74,7 @@ test('model and bridge network failures report their configured request limits w
   await paired.close(); await failing.close();
 });
 test('the browser uses the shared explanations and hides technical diagnostics behind a disclosure', async () => {
-  const html = await readFile('web/templates/index.html', 'utf8');
+  const html = await readFile('web/static/app.js', 'utf8');
   const source = html.slice(html.indexOf('function addDivider('), html.indexOf('async function resetMemory('));
   class Element { className = ''; textContent = ''; children: Element[] = []; append(...elements: Element[]) { this.children.push(...elements); } }
   const messages = { children: [] as Element[], scrollTop: 0, scrollHeight: 100, appendChild(element: Element) { this.children.push(element); } };

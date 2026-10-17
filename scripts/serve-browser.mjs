@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const root = path.resolve('dist/browser'), port = Number(process.env.MYHARNESS_PORT ?? '5001');
-const types = { '.html': 'text/html', '.js': 'application/javascript', '.json': 'application/json', '.map': 'application/json', '.txt': 'text/plain' };
+const types = { '.html': 'text/html', '.js': 'application/javascript', '.json': 'application/json', '.map': 'application/json', '.txt': 'text/plain', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 const server = createServer(async (request, response) => {
   try {
     if (request.method === 'POST' && new URL(request.url, 'http://localhost').pathname === '/__debug/mcp-config') {

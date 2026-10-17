@@ -159,6 +159,7 @@ test('HTTPS guide connects a real loopback bridge and Ollama fixture, opens unch
   const secondServer = createBridgeServer(secondBridge); await new Promise<void>(resolve => secondServer.listen(0, '127.0.0.1', resolve));
   t.after(() => { secondBridge.close(); secondServer.closeAllConnections(); secondServer.close(); });
   failModelDescription = false; await page.locator('#connect-model').click();
+  await page.waitForFunction(() => !(document.getElementById('connect-model') as HTMLButtonElement).disabled);
   await page.locator('#bridge-url').fill(`http://127.0.0.1:${(secondServer.address() as { port: number }).port}`);
   await page.locator('#bridge-code').fill(secondBridge.code); await page.locator('#connect-bridge').click();
   await page.waitForFunction(() => document.getElementById('bridge-status')!.textContent!.includes('connected') || document.getElementById('bridge-status')!.textContent!.includes('Connected'));

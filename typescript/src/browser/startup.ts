@@ -1,6 +1,7 @@
 import { BrowserStorage, MemoryStorage } from './storage.js';
 import { BrowserHarness } from './harness.js';
 import type { Library } from './catalog.js';
+import { DEMO_MODEL } from './demo.js';
 
 export async function loadBrowserHarness(database: string, libraryURL: string, temporary = false): Promise<BrowserHarness> {
   const response = await fetch(libraryURL);
@@ -8,13 +9,8 @@ export async function loadBrowserHarness(database: string, libraryURL: string, t
   const library = await response.json() as Library & { workspace: Record<string, string> };
   const storage = temporary ? new MemoryStorage() : await BrowserStorage.open(database);
   try {
-    const harness = await BrowserHarness.open({ storage, library, seed: library.workspace });
-    if (harness.state.model === 'scripted-demo') {
-      harness.state.provider = 'ollama'; harness.state.model = 'qwen3:8b'; harness.state.contextLength = 8192;
-      delete harness.state.maxOutputTokens;
-      await harness.newSession();
-    }
-    return harness;
+    // The scripted demo is the default: visitors can explore with no model setup. Users connect a real model from the toolbar.
+    return await BrowserHarness.open({ storage, library, seed: library.workspace, model: DEMO_MODEL });
   }
   catch (error) { storage.close(); throw error; }
 }

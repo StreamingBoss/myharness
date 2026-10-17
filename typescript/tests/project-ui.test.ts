@@ -4,7 +4,7 @@ import { Script } from 'node:vm';
 import test from 'node:test';
 
 test('project controls render refreshed backend state and report rejected projects or failed refreshes', async () => {
-  const html = await readFile('web/templates/index.html', 'utf8');
+  const html = await readFile('web/static/app.js', 'utf8');
   const source = html.slice(html.indexOf('async function setProject('), html.indexOf('\nconst browseBtn'));
   for (const outcome of ['success', 'rejected', 'refresh-failed']) {
     const state = { project: '/new-project', session: { id: 'current' }, tools: [{ name: 'read_file' }] };
