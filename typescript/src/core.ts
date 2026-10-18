@@ -1,5 +1,5 @@
 import { DiagnosticError, failureDetails, type FailureDetails } from './failure.js';
-import { legacyEvents, validateToolBatch, type ModelEvent, type ModelResult } from './model.js';
+import { legacyEvents, toolCallProblems, type ModelEvent, type ModelResult } from './model.js';
 import { RepeatGuard, type RepeatReminder } from './guard.js';
 import { prefixReuse, prefixText, timingSummary, timingText, turnTimelineText, turnTotals, type MeasuredTiming, type RoundTiming } from './timing.js';
 /** Transport-free agent loop shared by Node and a future browser host. */
@@ -142,6 +142,14 @@ export interface TurnHost {
 export type TurnOutcome = 'completed' | 'cancelled' | 'step-limit' | 'context-limit' | 'output-limit' | 'error';
 
 export const STOPPED_RESULT = "stopped: the user stopped the turn before this tool ran";
+export const BATCH_NOT_RUN = "not run: another call in this batch was invalid, so no tool in this batch was run. Send this call again together with the corrected one.";
+
+/** The tool result for one call of a rejected batch: its own problem, or why a valid call did not run. */
+function rejectedResult(problem: string | undefined, proposer: string): ToolResult {
+  if (problem === undefined) return { kind: "text", text: BATCH_NOT_RUN };
+  return { kind: "text", text: `error: ${problem}. No tool in this batch was run; send the corrected calls again.`,
+    failure: failureDetails(`The model proposed an invalid tool call: ${problem}.`, 'model', proposer, 'The model was given this error as the tool result and can correct the call in its next round.') };
+}
 const MARKER = "@@HIGHLIGHT@@";
 
 export class HarnessCore {
@@ -244,10 +252,11 @@ export class HarnessCore {
         yield this.emit({ type: 'stopped', reason: `Model response ${completed.status}; no tools were executed.`, failure: failureDetails(`Model response ${completed.status}; no tools were executed.`, 'model', this.host.model(), 'Check the provider response and output limit, then retry.'), memory: this.host.memoryText() });
         return completed.status === 'length' ? 'output-limit' : 'error';
       }
-      if (payload.provider && !['demo', 'ollama', 'vertex'].includes(payload.provider)) {
-        try { validateToolBatch(toolCalls, turn.selectedTools); }
-        catch (error) { throw new DiagnosticError(failureDetails(error, 'model', `${payload.provider} / ${this.host.model()}`, 'Retry the request. The model returned an invalid tool proposal; no tools were executed.')); }
-      }
+      // The whole batch is checked against the tools that were sent before any of it runs, for every provider.
+      // One invalid call means no call runs, but each call still gets a tool result so the model can correct itself.
+      const problems = toolCallProblems(toolCalls, turn.selectedTools);
+      const rejected = problems.some(problem => problem !== undefined);
+      const proposer = payload.provider ? `${payload.provider} / ${this.host.model()}` : this.host.model();
       const received = { ...assistant, ...(completed.thinking ? { thinking: completed.thinking } : {}) };
       // Ollama's documented tool loop returns thinking together with the tool calls and their results.
       turn.conversation.push(toolCalls.length && completed.thinking && this.host.keepToolLoopThinking?.() ? { ...received } : assistant);
@@ -274,7 +283,7 @@ export class HarnessCore {
 
       const reminders: RepeatReminder[] = [];
       const toolsStarted = this.host.now?.();
-      for (const call of toolCalls) {
+      for (const [index, call] of toolCalls.entries()) {
         const name = call.function.name;
         const arguments_ = call.function.arguments ?? {};
         if (!this.host.stopped()) {
@@ -283,6 +292,7 @@ export class HarnessCore {
         }
         const result = this.host.stopped()
           ? { kind: "text", text: this.host.stoppedToolResult?.() ?? STOPPED_RESULT } as ToolResult
+          : rejected ? rejectedResult(problems[index], proposer)
           : await this.host.runTool(name, arguments_, turn.enabledTools);
         const text = yield* this.resolveToolResult(name, result);
         turn.conversation.push({ role: "tool", tool_name: name, content: text, ...(call.id ? { tool_call_id: call.id } : {}) });

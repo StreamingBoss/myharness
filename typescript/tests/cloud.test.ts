@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CloudAdapter, type CloudProvider } from '../src/cloud.js';
 import { readSSE } from '../src/sse.js';
-import { LegacyModelAdapter, legacyEvents, validateCalls, validateToolBatch } from '../src/model.js';
+import { LegacyModelAdapter, legacyEvents, toolCallProblems, validateCalls } from '../src/model.js';
 import { ProviderRouter, configuredModel, modelConfiguration, providerName } from '../src/providers.js';
 import type { ModelRequest, ChatMessage } from '../src/core.js';
 import type { ModelEvent } from '../src/model.js';
@@ -176,13 +176,14 @@ test('invalid JSON, missing terminal events and unknown usage fail safely', asyn
 });
 
 
-test('whole tool batches validate required and optional arguments before effects', () => {
+test('tool batches report one problem per call against the schemas that were sent', () => {
   const definitions = [{ type: 'function' as const, function: { name: 'edit', description: '', parameters: { required: ['path'], properties: { path: { type: 'string' }, count: { type: 'integer' } } } } }];
-  validateToolBatch([{ function: { name: 'edit', arguments: { path: 'file', count: 1, extra: true } } }], definitions);
-  assert.throws(() => validateToolBatch([{ function: { name: 'edit' } }], definitions), /Missing required argument 'path' for tool 'edit'/);
-  for (const args of [{}, { path: 3 }, { path: 'file', count: 1.5 }]) assert.throws(() => validateToolBatch([{ function: { name: 'edit', arguments: args } }], definitions), /argument.*tool 'edit'/);
-  assert.throws(() => validateToolBatch([{ function: { name: 'unknown' } }], definitions));
-  validateToolBatch([{ function: { name: 'empty' } }, { function: { name: 'empty', arguments: { extra: true } } }], [{ type: 'function', function: { name: 'empty', description: '', parameters: {} } }]);
+  assert.deepEqual(toolCallProblems([{ function: { name: 'edit', arguments: { path: 'file', count: 1, extra: true } } }], definitions), [undefined]);
+  assert.deepEqual(toolCallProblems([{ function: { name: 'edit' } }], definitions), ["missing required argument 'path' for tool 'edit'"]);
+  assert.deepEqual(toolCallProblems([{ function: { name: 'edit', arguments: { path: 3 } } }, { function: { name: 'edit', arguments: { path: 'file', count: 1.5 } } }], definitions),
+    ["invalid argument 'path' for tool 'edit': expected string", "invalid argument 'count' for tool 'edit': expected integer"]);
+  assert.deepEqual(toolCallProblems([{ function: { name: 'edit', arguments: { path: 'file' } } }, { function: { name: 'unknown' } }], definitions), [undefined, "unknown tool 'unknown': it is not one of the tools in this request"]);
+  assert.deepEqual(toolCallProblems([{ function: { name: 'empty' } }, { function: { name: 'empty', arguments: { extra: true } } }], [{ type: 'function', function: { name: 'empty', description: '', parameters: {} } }]), [undefined, undefined]);
 });
 
 test('Gemini documented arguments_delta fragments survive a partial completion resource', async () => {
@@ -196,7 +197,7 @@ test('Gemini documented arguments_delta fragments survive a partial completion r
   const adapter = new CloudAdapter('gemini', async () => sse(events, 1), 'key');
   const result = (await collect(adapter.stream(request()))).at(-1) as Extract<ModelEvent, { type: 'completed' }>;
   assert.deepEqual(result.result.message.tool_calls![0]!.function.arguments, { path: 'README.md' });
-  validateToolBatch(result.result.message.tool_calls!, TOOLS);
+  assert.deepEqual(toolCallProblems(result.result.message.tool_calls!, TOOLS), [undefined]);
   const replay = adapter.prepare({ ...request(), messages: [result.result.message, { role: 'tool', tool_name: 'read_file', tool_call_id: 'read', content: 'hello' }] });
   assert.match(JSON.stringify(replay), /README.md/);
 });

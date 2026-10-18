@@ -7,6 +7,9 @@ import { NodeHarness, type ModelPort, type TurnAction } from '../src/node/harnes
 import { HarnessCore, type ApprovalOutcome, type ChatMessage, type CoreEvent, type ModelRequest } from '../src/core.js';
 import { ARGUMENT_PREVIEW_CHARS, REPEAT_THRESHOLDS, RepeatGuard, canonicalArguments } from '../src/guard.js';
 
+/** Schemas for the tools a test turn sends, so the core's batch check accepts its calls. */
+const schemas = (names: string[]) => names.map(name => ({ type: 'function' as const, function: { name, description: '', parameters: {} } }));
+
 const turn = (overrides: Partial<TurnAction> = {}): TurnAction => ({ message: 'hello', useMemory: true, tools: [], askApproval: true, agent: '', prompt: '', ...overrides });
 const reply = (content = 'done'): unknown[] => [{ message: { role: 'assistant', content }, done: true, prompt_eval_count: 12, eval_count: 2 }];
 const call = (name: string, args: Record<string, unknown> = {}): unknown[] => [{ message: { content: '', tool_calls: [{ function: { name, arguments: args } }] }, done: true }];
@@ -105,7 +108,7 @@ test('Stop during a batch skips the remaining calls and queues no reminder', asy
     async *applyChange() { return ''; }, async *executeCommand() { return ''; }, recordEvent(event: CoreEvent) { events.push(event); },
   };
   const user: ChatMessage = { role: 'user', content: 'go' }; messages.push(user);
-  for await (const event of new HarnessCore(host).runTurn({ userMessage: user, conversation: messages, setup: { agent: '', prompt: '' }, enabledTools: ['pwd'], selectedTools: [], useMemory: false })) void event;
+  for await (const event of new HarnessCore(host).runTurn({ userMessage: user, conversation: messages, setup: { agent: '', prompt: '' }, enabledTools: ['pwd'], selectedTools: schemas(['pwd']), useMemory: false })) void event;
   assert.equal(ran, 2);
   assert.equal(events.some(event => event.type === 'guard'), false);
   assert.equal(events.at(-1)!.type, 'stopped');

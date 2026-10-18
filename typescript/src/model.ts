@@ -38,20 +38,24 @@ export function validateCalls(calls: ToolCall[]): void {
   }
 }
 
-/** Validate the whole cloud tool batch before applying any effects. */
-export function validateToolBatch(calls: ToolCall[], tools: ToolDefinition[]): void {
-  validateCalls(calls);
-  for (const call of calls) {
+/**
+ * Check every call of a tool batch against the tool schemas that were sent, before any effect runs.
+ * Returns one entry per call: the problem, or undefined when that call is valid.
+ */
+export function toolCallProblems(calls: ToolCall[], tools: ToolDefinition[]): (string | undefined)[] {
+  return calls.map(call => {
     const definition = tools.find(tool => tool.function.name === call.function.name);
-    if (!definition) throw new Error('The model requested an unavailable tool; no tools were executed.');
+    if (!definition) return `unknown tool '${call.function.name}': it is not one of the tools in this request`;
     const schema = definition.function.parameters as { required?: string[]; properties?: Record<string, { type: string }> };
     const args = call.function.arguments ?? {};
-    for (const name of schema.required ?? []) if (args[name] === undefined) throw new Error(`Missing required argument '${name}' for tool '${call.function.name}'; no tools were executed. Send another message to retry.`);
+    const missing = (schema.required ?? []).find(name => args[name] === undefined);
+    if (missing !== undefined) return `missing required argument '${missing}' for tool '${call.function.name}'`;
     for (const [name, value] of Object.entries(args)) {
       const type = schema.properties?.[name]?.type;
-      if ((type === 'string' && typeof value !== 'string') || (type === 'integer' && !Number.isInteger(value))) throw new Error(`Invalid argument '${name}' for tool '${call.function.name}': expected ${type}; no tools were executed.`);
+      if ((type === 'string' && typeof value !== 'string') || (type === 'integer' && !Number.isInteger(value))) return `invalid argument '${name}' for tool '${call.function.name}': expected ${type}`;
     }
-  }
+    return undefined;
+  });
 }
 
 /** Compatibility for existing Ollama, Vertex, scripted and injected model ports. */

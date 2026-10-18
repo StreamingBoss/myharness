@@ -73,17 +73,32 @@ test('chat diagnostics render the same details in live errors and replay without
 });
 
 
-test('invalid model tool proposals are attributed to the model before any tool executes', async t => {
+test('an invalid tool call rejects its whole batch, answers every call and lets the model correct itself', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'harness-invalid-proposal-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const harness = new NodeHarness({ workspace: root, provider: 'openai', model: 'fixture', contextLength: 1000, ollama: {
-    async *streamChat() { yield JSON.stringify({ message: { tool_calls: [{ function: { name: 'read_file', arguments: {} } }] }, done: true }); }
-  } });
-  const events = []; for await (const event of harness.submit({ ...action, tools: ['read_file'] })) events.push(event);
-  const failure = events.at(-1)!.failure as ReturnType<typeof failureDetails>;
-  assert.equal(failure.source, 'model'); assert.match(failure.reason, /Missing required argument/);
-  assert.match(failure.recovery, /no tools were executed/);
-  assert.equal(events.some(event => event.type === 'tool'), false);
-  await harness.close();
+  for (const provider of ['openai', undefined] as const) {
+    const requests: { messages: { role: string; content: string; tool_name?: string }[] }[] = [];
+    const harness = new NodeHarness({ workspace: root, ...(provider ? { provider } : {}), model: 'fixture', contextLength: 1000, ollama: {
+      async *streamChat(payload: { messages: { role: string; content: string; tool_name?: string }[] }) {
+        requests.push(structuredClone(payload));
+        yield JSON.stringify(requests.length === 1
+          ? { message: { tool_calls: [{ function: { name: 'pwd', arguments: {} } }, { function: { name: 'read_file', arguments: {} } }] }, done: true }
+          : { message: { content: 'Fixed.' }, done: true });
+      }
+    } });
+    const runTool = t.mock.method(harness, 'runTool');
+    const events = []; for await (const event of harness.submit({ ...action, tools: ['pwd', 'read_file'] })) events.push(event);
+    assert.equal(runTool.mock.callCount(), 0);
+    const tools = events.filter(event => event.type === 'tool');
+    assert.deepEqual(tools.map(event => event.name), ['pwd', 'read_file']);
+    assert.match(String(tools[0]!.result), /^not run: another call in this batch was invalid/); assert.equal(tools[0]!.failure, undefined);
+    assert.match(String(tools[1]!.result), /^error: missing required argument 'path' for tool 'read_file'\. No tool in this batch was run/);
+    const failure = tools[1]!.failure as ReturnType<typeof failureDetails>;
+    assert.equal(failure.source, 'model'); assert.equal(failure.component, provider ? `${provider} / fixture` : 'fixture'); assert.match(failure.recovery, /next round/);
+    assert.equal(requests.length, 2);
+    assert.deepEqual(requests[1]!.messages.slice(-3).map(message => [message.role, message.tool_name]), [['assistant', undefined], ['tool', 'pwd'], ['tool', 'read_file']]);
+    const answer = events.filter(event => event.type === 'response').at(-1)!; assert.equal(answer.content, 'Fixed.'); assert.equal(events.at(-1)!.type, 'turn_timing');
+    await harness.close();
+  }
 });
 
 test('harness execution faults are attributed to the harness, including non-Error exceptions', async t => {

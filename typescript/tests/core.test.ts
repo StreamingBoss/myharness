@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { HarnessCore, type ChatMessage, type CoreEvent, type ModelRequest, type ToolResult, type TurnHost } from "../src/core.js";
 
+/** Schemas for the tools a test turn sends, so the core's batch check accepts its calls. */
+const schemas = (names: string[]) => names.map(name => ({ type: 'function' as const, function: { name, description: '', parameters: {} } }));
+
 class FakeHost implements TurnHost {
   maxSteps = 1;
   readonly events: CoreEvent[] = [];
@@ -108,7 +111,7 @@ test("core forwards command actions and reports the max-step limit", async () =>
   host.chunks = [{ message: { tool_calls: [{ function: { name: "run_command" } }] }, done: true }];
   const message: ChatMessage = { role: "user", content: "run" };
   const events = [];
-  for await (const event of new HarnessCore(host).runTurn({ userMessage: message, conversation: [message], setup: { agent: "", prompt: "" }, enabledTools: ["run_command"], selectedTools: [], useMemory: false })) events.push(event.type);
+  for await (const event of new HarnessCore(host).runTurn({ userMessage: message, conversation: [message], setup: { agent: "", prompt: "" }, enabledTools: ["run_command"], selectedTools: schemas(["run_command"]), useMemory: false })) events.push(event.type);
   assert.deepEqual(events, ["request", "response", "command", "tool", "stopped"]);
 });
 
@@ -118,7 +121,7 @@ test("core emits a final stop when cancellation follows a tool batch", async () 
   host.chunks = [{ message: { tool_calls: [{ function: { name: "pwd" } }, { function: { name: "pwd" } }] }, done: true }];
   const message: ChatMessage = { role: "user", content: "stop after tool" };
   const events = [];
-  for await (const event of new HarnessCore(host).runTurn({ userMessage: message, conversation: [message], setup: { agent: "", prompt: "" }, enabledTools: ["pwd"], selectedTools: [], useMemory: false })) events.push(event.type);
+  for await (const event of new HarnessCore(host).runTurn({ userMessage: message, conversation: [message], setup: { agent: "", prompt: "" }, enabledTools: ["pwd"], selectedTools: schemas(["pwd"]), useMemory: false })) events.push(event.type);
   assert.deepEqual(events, ["request", "response", "tool", "tool", "stopped"]);
   assert.match(String(host.events.filter(event => event.type === 'tool')[1]!.result), /stopped/);
 });
@@ -131,7 +134,7 @@ test('core carries the runtime cancellation cause through the remaining tool bat
   host.stopAfterTool = true;
   host.chunks = [{ message: { tool_calls: [{ function: { name: 'pwd' } }, { function: { name: 'pwd' } }] }, done: true }];
   const message: ChatMessage = { role: 'user', content: 'two tools' };
-  for await (const _event of new HarnessCore(host).runTurn({ userMessage: message, conversation: [message], setup: { agent: '', prompt: '' }, enabledTools: ['pwd'], selectedTools: [], useMemory: false })) { /* Consume the backend without UI. */ }
+  for await (const _event of new HarnessCore(host).runTurn({ userMessage: message, conversation: [message], setup: { agent: '', prompt: '' }, enabledTools: ['pwd'], selectedTools: schemas(['pwd']), useMemory: false })) { /* Consume the backend without UI. */ }
   assert.equal(host.events.filter(event => event.type === 'tool')[1]!.result, host.stoppedToolResult());
   assert.equal(host.events.at(-1)!.reason, host.stopReason());
 });

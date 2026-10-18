@@ -137,7 +137,8 @@ test('Node: approvals off, Stop during a call, timeouts, disabled tools and disc
   const stopped = await run(harness, turn('stop', ['mcp__files__echo']), 'stop');
   assert.equal(stopped.find(event => event.type === 'tool')!.result, 'stopped: the user stopped the turn before this tool ran');
   const unknown = await run(harness, turn('not enabled', ['read_file']));
-  assert.equal(unknown.find(event => event.type === 'tool')!.result, "error: unknown tool 'mcp__files__echo'");
+  assert.equal(unknown.find(event => event.type === 'tool')!.result, "error: unknown tool 'mcp__files__echo': it is not one of the tools in this request. No tool in this batch was run; send the corrected calls again.");
+  assert.deepEqual(await harness.runTool('mcp__files__echo', { text: 'x' }, ['read_file']), { kind: 'text', text: "error: unknown tool 'mcp__files__echo'" });
 
   const hanging = await nodeFixture(t, new ScriptedModel([callTool('mcp__files__echo', { text: 'slow' }), done]), { hangCalls: true });
   const pending = run(hanging.harness, turn('slow', ['mcp__files__echo'], false));
@@ -153,7 +154,7 @@ test('Node: approvals off, Stop during a call, timeouts, disabled tools and disc
   await offline.initialize();
   const disconnected = await run(offline, turn('gone', ['mcp__files__echo', 'list_mcp_resources']));
   assert.deepEqual(after.payloads[0]!.tools!.map(tool => tool.function.name), ['get_orchestration', 'configure_goal', 'get_goal', 'update_goal']);
-  assert.equal(disconnected.find(event => event.type === 'tool')!.result, "error: unknown tool 'mcp__files__echo'");
+  assert.equal(disconnected.find(event => event.type === 'tool')!.result, "error: unknown tool 'mcp__files__echo': it is not one of the tools in this request. No tool in this batch was run; send the corrected calls again.");
   assert.deepEqual(offline.activeSessionRecord().settings.tools, ['mcp__files__echo', 'list_mcp_resources']);
 });
 

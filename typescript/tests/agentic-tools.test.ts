@@ -30,6 +30,8 @@ async function run(harness: NodeHarness, model: Model, name: string, args: Recor
   }
   return { events, result: lastTool(harness) };
 }
+/** Calls runTool directly. The core rejects these arguments before runTool, which keeps its own checks as a second line of defence. */
+const direct = async (harness: NodeHarness, name: string, args: Record<string, unknown>): Promise<string> => (await harness.runTool(name, args, [name]) as { text: string }).text;
 async function project(t: { after(fn: () => unknown): void }, options: Record<string, unknown> = {}, root?: string) {
   const dir = root ?? await mkdtemp(path.join(tmpdir(), 'myharness-agentic-')); if (!root) t.after(() => rm(dir, { recursive: true, force: true }));
   const model = new Model(), harness = new NodeHarness({ workspace: dir, model: 'qwen3:8b', contextLength: 100_000, ollama: model, ...options });
@@ -72,7 +74,8 @@ test('update_plan checks the list and returns it as a checklist, with no approva
   assert.deepEqual(planItems([{ step: ' trimmed ', status: 'pending' }]), [{ step: 'trimmed', status: 'pending' }]);
   for (const bad of [undefined, [], 'x', Array.from({ length: 31 }, () => items[0]), [null], [{ status: 'done' }], [{ step: ' ', status: 'done' }], [{ step: 'x'.repeat(201), status: 'done' }], [{ step: 'ok' }], [{ step: 'ok', status: 'finished' }], [{ step: 'ok', status: 3 }]])
     assert.throws(() => planText(bad), /items must be|step 1 needs/);
-  assert.match((await run(harness, model, 'update_plan', {})).result, /^error: items must be a list/);
+  assert.match((await run(harness, model, 'update_plan', {})).result, /^error: missing required argument 'items' for tool 'update_plan'\. No tool in this batch was run/);
+  assert.match(await direct(harness, 'update_plan', {}), /^error: items must be a list/);
   assert.equal(await exists(path.join(dir, 'plan')), false);
 });
 
@@ -101,10 +104,11 @@ test('delete_file and move_file: nobody answered, Stop, approvals off, races, an
   assert.match(String(((await run(harness, model, 'delete_file', { path: 'empty.txt' }, { decide: () => false })).events.find(event => event.type === 'approval') as CoreEvent).detail), /^empty\.txt \(an empty file\)$/);
   assert.match(String(((await run(harness, model, 'delete_file', { path: 'bin.dat' }, { decide: () => false })).events.find(event => event.type === 'approval') as CoreEvent).detail), /binary or unreadable file/);
   for (const [name, args, message] of [
-    ['delete_file', { path: 'missing.txt' }, /does not exist/], ['delete_file', { path: 'folder' }, /is a folder; delete_file deletes one file/], ['delete_file', { path: '../outside.txt' }, /outside the project folder/], ['delete_file', {}, /bad arguments for 'path'/],
+    ['delete_file', { path: 'missing.txt' }, /does not exist/], ['delete_file', { path: 'folder' }, /is a folder; delete_file deletes one file/], ['delete_file', { path: '../outside.txt' }, /outside the project folder/],
     ['move_file', { from: 'missing.txt', to: 'x' }, /does not exist/], ['move_file', { from: 'folder', to: 'x' }, /is a folder; move_file moves one file/], ['move_file', { from: 'bin.dat', to: 'bin.dat' }, /same as the source/],
-    ['move_file', { from: 'bin.dat', to: 'deep/er/g.txt' }, /already exists/], ['move_file', { from: 'bin.dat', to: '../out' }, /outside the project folder/], ['move_file', { from: 'bin.dat' }, /bad arguments for 'to'/],
+    ['move_file', { from: 'bin.dat', to: 'deep/er/g.txt' }, /already exists/], ['move_file', { from: 'bin.dat', to: '../out' }, /outside the project folder/],
   ] as [string, Record<string, unknown>, RegExp][]) assert.match((await run(harness, model, name, args)).result, new RegExp(`^error: .*${message.source}`));
+  assert.match(await direct(harness, 'delete_file', {}), /^error: bad arguments for 'path'/); assert.match(await direct(harness, 'move_file', { from: 'bin.dat' }), /^error: bad arguments for 'to'/);
   assert.equal(await exists(path.join(dir, 'bin.dat')), true);
 });
 
@@ -128,7 +132,7 @@ test('git tools: read-only ones answer directly; branch, checkout and commit sho
   assert.match((await run(harness, model, 'git_diff', { path: 'a.txt' })).result, /\+two/); assert.match((await run(harness, model, 'git_diff', { path: '.' })).result, /\+two/);
   assert.match((await run(harness, model, 'git_diff', { staged: 'yes' })).result, /^error: bad arguments for 'staged'/); assert.match((await run(harness, model, 'git_diff', { path: '../x' })).result, /outside the project folder/);
   assert.match((await run(harness, model, 'git_log', {})).result, /^[0-9a-f]{7} \d{4}-\d\d-\d\d Tester: first$/); assert.match((await run(harness, model, 'git_log', { limit: 500, path: 'a.txt' })).result, /first/);
-  assert.match((await run(harness, model, 'git_log', { limit: 'many' })).result, /^error: bad arguments for 'limit'/);
+  assert.match((await run(harness, model, 'git_log', { limit: 'many' })).result, /^error: invalid argument 'limit' for tool 'git_log': expected integer/); assert.match(await direct(harness, 'git_log', { limit: 'many' }), /^error: bad arguments for 'limit'/);
   assert.equal((await run(harness, model, 'git_branch', {})).result, '* main');
 
   // branch creation
@@ -166,7 +170,7 @@ test('git tools are not offered or run when the runtime has no git for the folde
   const boot = await harness.bootstrap(), offered = (boot.tools as { name: string }[]).map(tool => tool.name);
   assert.equal(offered.some(name => name.startsWith('git_')), false); assert.equal(offered.includes('delete_file'), true);
   assert.deepEqual(boot.unavailable_tools, { git_status: 'not available in this runtime', git_diff: 'not available in this runtime', git_log: 'no repository here', git_branch: 'not available in this runtime', git_checkout: 'not available in this runtime', git_commit: 'not available in this runtime' });
-  assert.equal((await run(harness, model, 'git_log', {})).result, "error: unknown tool 'git_log'");
+  assert.equal((await run(harness, model, 'git_log', {})).result, "error: unknown tool 'git_log': it is not one of the tools in this request. No tool in this batch was run; send the corrected calls again.");
   const direct = async (name: string) => (await harness.runTool(name, {}, [name]) as { text: string }).text;
   assert.equal(await direct('git_log'), "unsupported: 'git_log' is unavailable in the Node runtime: no repository here"); assert.equal(await direct('git_status'), "unsupported: 'git_status' is unavailable in the Node runtime");
   assert.equal((await harness.explore(turn(['git_status', 'delete_file'], { goals: false }))).tools, JSON.stringify([(await import('../src/tools.js')).TOOLS.find(tool => tool.function.name === 'delete_file')], null, 2));

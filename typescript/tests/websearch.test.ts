@@ -94,7 +94,8 @@ test('web_search tells the model when it cannot run: bad arguments, empty query,
   const { harness, model } = await fixture(t);
   await harness.initialize();
   const run = async (args: Record<string, unknown>) => { model.turns = [call(args), answer]; await collect(harness.submit(turn())); return toolText(model); };
-  assert.match(await run({}), /^error: bad arguments for 'query'/);
+  assert.match(await run({}), /^error: missing required argument 'query' for tool 'web_search'/);
+  assert.match(await harness.runTool('web_search', {}, ['web_search']).then(result => (result as { text: string }).text), /^error: bad arguments for 'query'/);
   assert.match(await run({ query: 'x', extra: 1 }), /^error: bad arguments for 'web_search'/);
   assert.match(await run({ query: '   ' }), /^error: query is empty/);
   assert.match(await run({ query: 'x' }), /^error: DuckDuckGo answered HTTP 500/);
