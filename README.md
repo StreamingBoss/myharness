@@ -542,3 +542,7 @@ Use another unused bridge port when the static site already uses 5001. The brows
 backend still owns approvals and the agent loop. Commands run with account permissions.
 See [setup, privacy and lifecycle details](docs/browser-guide-implementation.md) and
 [Copilot feasibility](docs/copilot-feasibility.md). Copilot is not yet a provider.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
