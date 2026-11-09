@@ -24,7 +24,7 @@ test('the token viewer explains a special token on hover and click, and leaves o
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
   await page.locator('#input').fill('hi'); await page.locator('#send').click(); await page.getByText('hello', { exact: true }).first().waitFor();
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   await page.locator('#explore-view').selectOption('tokens'); await page.waitForFunction(() => !(document.querySelector('#token-inspect') as HTMLButtonElement).disabled);
   await page.locator('#token-inspect').click(); await page.locator('.token-chip').first().waitFor();
   const chips = page.locator('.token-chip');

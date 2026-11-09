@@ -17,22 +17,24 @@
     if (literal) return '<span class="jl">' + literal + '</span>';
     return '<span class="jn">' + number + '</span>';
   });
-  // Each line is {text, kind}. Lines added during the current turn get a kind: 'sent' (the harness sends it: your message, tool results) is purple, 'model' (the model answered it) is blue.
+  // Each line is {text, kind}. 'sent' (purple) marks what this turn added to the request: the harness sends all of it, the model's
+  // earlier tool calls included. 'model' (blue) marks the response, what comes back from the model.
   const jsonPre = lines => {
     const pre = h('pre', { class: 'json' });
     pre.innerHTML = lines.map(line => line.kind ? '<span class="' + (line.kind === 'model' ? 'j-model' : 'j-sent') + '">' + paint(line.text) + '</span>' : paint(line.text)).join('\n');
     return pre;
   };
   const prettyLines = (value, kind = '') => (JSON.stringify(value, null, 2) ?? 'null').split('\n').map(text => ({ text, kind }));
-  const kindOf = message => message.role === 'assistant' ? 'model' : 'sent';
 
   const textOf = content => typeof content === 'string' ? content : JSON.stringify(content);
+  // A one-line preview; the ellipsis says the full text is inside the row.
+  const shorten = text => text.length > 90 ? text.slice(0, 90) + '…' : text;
   const preview = message => {
     const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
     if (calls.length) return 'tool call ' + calls.map(call => call.function.name + '(' + JSON.stringify(call.function.arguments ?? {}).slice(1, -1) + ')').join(', ');
     const text = textOf(message.content ?? '').replace(/\s+/g, ' ').trim();
     const label = message.role === 'tool' && message.tool_name ? message.tool_name + ': ' : '';
-    return label + (text.length > 90 ? text.slice(0, 90) + '…' : text);
+    return label + shorten(text);
   };
 
   const SECTION_HELP = {
@@ -65,9 +67,10 @@
     }
     // The body shown as "As sent": the provider's own wire body when it reports one, otherwise the harness request without its
     // internal routing label. Tests hold this to be identical to what is posted to the model (typescript/tests/request-view.test.ts).
-    static sentBody(event) {
+    // Pass the body already read for this event: an Ollama request is parsed from text, and re-parsing it would give new
+    // message objects that no longer match the sections, so this turn's messages would lose their colour.
+    static sentBody(event, body = RequestView.harnessBody(event)) {
       if (event.wire_request) return event.wire_request;
-      const body = RequestView.harnessBody(event);
       if (!body) return null;
       const { provider, ...sent } = body;
       return sent;
@@ -87,7 +90,11 @@
       this.render();
     }
     render() {
+      const scrolled = this.body ? this.body.scrollTop : 0;
       this.root.replaceChildren();
+      // The header (view switch, request picker, notes, Copy request) stays in place; only the body below it scrolls.
+      this.head = h('div', { class: 'request-head' }); this.body = h('div', { class: 'request-body' });
+      this.root.append(this.head, this.body);
       const controls = h('div', { class: 'request-controls' });
       const seg = h('span', { class: 'seg', role: 'group', 'aria-label': 'Request view' });
       for (const [mode, label, help] of [['section', 'By section', 'Read the request one part at a time. Each part opens to its exact text.'], ['raw', 'As sent', 'Read the whole request body exactly as it is sent, in one block.']]) {
@@ -106,21 +113,23 @@
         select.addEventListener('change', () => { this.selected = Number(select.value); this.render(); });
         controls.append(select);
       }
-      this.root.append(controls);
+      this.head.append(controls);
       if (!this.requests.length) {
-        this.root.append(h('p', { class: 'note', text: 'No request yet. Send a message and the exact request appears here. The model keeps nothing between requests, so every request sends everything again; this view shows that.' }));
+        this.head.append(h('p', { class: 'note', text: 'No request yet. Send a message and the exact request appears here. The model keeps nothing between requests, so every request sends everything again; this view shows that.' }));
         return;
       }
       const item = this.requests[this.selected], body = RequestView.harnessBody(item.event), sections = RequestView.sections(body);
-      this.root.append(h('p', { class: 'note', text: 'Exactly what the model receives. The model keeps nothing between requests: with memory on, every request sends the system message, the tool schemas and all remembered messages again. A grey header means that part is empty and nothing from it is sent. With Ollama, the model’s thinking is sent back with its tool call while a tool loop runs, as Ollama’s documentation shows, and dropped when the turn ends. What was added during this turn is coloured: purple is what the harness sends (your message and tool results), blue is what the model answered (its tool calls and answers).' }));
-      if (!body) { this.root.append(h('p', { class: 'note', text: 'This request could not be read.' })); return; }
-      this.root.append(this.mode === 'raw' ? this.asSent(item, body, sections) : this.bySection(item, sections));
+      this.head.append(h('p', { class: 'note', text: 'Exactly what the model receives. The model keeps nothing between requests: with memory on, every request sends the system message, the tool schemas and all remembered messages again. A grey header means that part is empty and nothing from it is sent. With Ollama, the model’s thinking is sent back with its tool call while a tool loop runs, as Ollama’s documentation shows, and dropped when the turn ends. What this turn added to the request is purple: the harness sends all of it (your message, the model’s tool calls sent back to it, and the tool results). The response, what comes back from the model, is blue.' }));
+      if (!body) { this.head.append(h('p', { class: 'note', text: 'This request could not be read.' })); return; }
+      this.body.append(this.mode === 'raw' ? this.asSent(item, body, sections) : this.bySection(item, sections));
+      this.body.scrollTop = scrolled;
     }
-    row(role, message, fresh) {
+    // kind: '' (no colour), 'sent' (added to the request this turn) or 'model' (the response).
+    row(role, message, kind) {
       const open = false;
       const details = h('details', open ? { open: '' } : {});
-      details.append(h('summary', {}, h('span', { class: 'role' + (fresh ? ' role-' + kindOf(message) : ''), text: message.role }), h('span', { text: preview(message) }), h('span', { class: 'tok', text: '≈' + fmt(tokensOf(message)) + ' tokens' })));
-      details.append(h('div', { class: 'inner' }, jsonPre(prettyLines(message, fresh ? kindOf(message) : ''))));
+      details.append(h('summary', {}, h('span', { class: 'role' + (kind ? ' role-' + kind : ''), text: message.role }), h('span', { text: preview(message) }), h('span', { class: 'tok', text: '≈' + fmt(tokensOf(message)) + ' tokens' })));
+      details.append(h('div', { class: 'inner' }, jsonPre(prettyLines(message, kind))));
       return details;
     }
     // key picks the block's colour; an empty block is shown grey, so what is sent stands out from what is not.
@@ -140,7 +149,7 @@
         [h('pre', { class: 'plain', text: String(Array.isArray(item.response.parts) ? item.response.parts.join('') : item.response.parts ?? '') })], true);
       const asksTool = Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
       const stats = [parsed.prompt_eval_count !== undefined ? 'input ' + fmt(parsed.prompt_eval_count) + ' tokens' : '', parsed.eval_count !== undefined ? 'output ' + fmt(parsed.eval_count) + ' tokens' : ''].filter(Boolean).join(' · ');
-      const children = [this.row('', { ...message, role: message.role ?? 'assistant' }, true)];
+      const children = [this.row('', { ...message, role: message.role ?? 'assistant' }, 'model')];
       if (stats) children.push(h('p', { class: 'note', text: 'Counted by the model: ' + stats + '.' }));
       return this.block('response', 'response', false, asksTool ? 'the model asked for a tool' : 'the model’s answer', 'comes back after this request, not part of it', parsed.eval_count ?? tokensOf(message), children, true);
     }
@@ -167,14 +176,14 @@
       wrap.append(this.block('system message', 'system', !systemText, systemText ? 'the harness’s instructions, built fresh for every request' : 'none', 'sent with every request', systemTokens, this.systemChildren(item, systemText)));
       const toolTokens = sections.tools.reduce((sum, tool) => sum + (this.toolTokens.get(tool.function?.name) ?? tokensOf(tool)), 0);
       wrap.append(this.block('tool schemas', 'tools', !sections.tools.length, sections.tools.length + (sections.tools.length === 1 ? ' tool' : ' tools'), 'sent with every request', toolTokens, sections.tools.length
-        ? sections.tools.map(tool => { const d = h('details'); d.append(h('summary', {}, h('span', { class: 'role', text: tool.function?.name ?? 'tool' }), h('span', { text: (tool.function?.description ?? '').slice(0, 90) }), h('span', { class: 'tok', text: '≈' + fmt(this.toolTokens.get(tool.function?.name) ?? tokensOf(tool)) + ' tokens' }))); d.append(h('div', { class: 'inner' }, jsonPre(prettyLines(tool)))); return d; })
+        ? sections.tools.map(tool => { const d = h('details'); d.append(h('summary', {}, h('span', { class: 'role', text: tool.function?.name ?? 'tool' }), h('span', { text: shorten(tool.function?.description ?? '') }), h('span', { class: 'tok', text: '≈' + fmt(this.toolTokens.get(tool.function?.name) ?? tokensOf(tool)) + ' tokens' }))); d.append(h('div', { class: 'inner' }, jsonPre(prettyLines(tool)))); return d; })
         : [h('p', { class: 'note', text: 'No tools are active, so the request has no tools field.' })]));
       const memoryTokens = sections.memory.reduce((sum, message) => sum + tokensOf(message), 0);
       wrap.append(this.block('memory', 'memory', !sections.memory.length, sections.memory.length + (sections.memory.length === 1 ? ' message' : ' messages') + ' kept from earlier turns', 'sent with every request', memoryTokens, sections.memory.length
-        ? sections.memory.map(message => this.row('', message, false)) : [h('p', { class: 'note', text: 'Empty. With memory off, or at the start of a session, only your new message is sent.' })]));
+        ? sections.memory.map(message => this.row('', message, '')) : [h('p', { class: 'note', text: 'Empty. With memory off, or at the start of a session, only your new message is sent.' })]));
       const turnTokens = sections.thisTurn.reduce((sum, message) => sum + tokensOf(message), 0);
       wrap.append(this.block('this turn', 'turn', !sections.thisTurn.length, sections.thisTurn.length + (sections.thisTurn.length === 1 ? ' message' : ' messages') + ' added this turn: yours' + (sections.thisTurn.length > 1 ? ', tool calls and their results' : ''), 'sent again by later requests, then kept in memory', turnTokens,
-        sections.thisTurn.map((message, index) => this.row('', message, true)), true));
+        sections.thisTurn.map(message => this.row('', message, 'sent')), true));
       wrap.append(this.responseBlock(item));
       const total = systemTokens + toolTokens + memoryTokens + turnTokens;
       const counted = item.response && item.response.tokens_in !== undefined ? ' The model counted ' + fmt(item.response.tokens_in) + ' input tokens for this request.' : '';
@@ -188,7 +197,7 @@
       const fresh = new Set(sections.thisTurn);
       const lines = [];
       if (sameShape) {
-        const sent = RequestView.sentBody(item.event);
+        const sent = RequestView.sentBody(item.event, body);
         const keys = Object.keys(sent);
         lines.push({ text: '{' });
         keys.forEach((key, index) => {
@@ -199,7 +208,7 @@
             value.forEach((message, i) => {
               const text = JSON.stringify(message, null, 2).split('\n').map(line => '    ' + line);
               text[text.length - 1] += i < value.length - 1 ? ',' : '';
-              text.forEach(line => lines.push({ text: line, kind: fresh.has(message) ? kindOf(message) : '' }));
+              text.forEach(line => lines.push({ text: line, kind: fresh.has(message) ? 'sent' : '' }));
             });
             lines.push({ text: '  ]' + comma });
           } else {
@@ -212,11 +221,12 @@
         });
         lines.push({ text: '}' });
       } else prettyLines(native).forEach(line => lines.push(line));
-      const top = h('div', { class: 'request-toolbar' }, h('span', { class: 'note', text: sameShape ? 'The same content as is sent to the model, reformatted for reading (the transmitted JSON is compact). Nothing is summarised, reordered or hidden. The id and tool_call_id fields match a tool result to its call. Added this turn: purple is sent by the harness, blue is the model’s answer.' : 'The request as sent to ' + (item.event.provider ?? 'the provider') + ', in that provider’s own format, reformatted for reading. The colours are available in the By section view.' }));
+      const top = h('div', { class: 'request-toolbar' }, h('span', { class: 'note', text: sameShape ? 'The same content as is sent to the model, reformatted for reading (the transmitted JSON is compact). Nothing is summarised, reordered or hidden. The id and tool_call_id fields match a tool result to its call. Added this turn is purple: the harness sends it. The response below, what comes back from the model, is blue.' : 'The request as sent to ' + (item.event.provider ?? 'the provider') + ', in that provider’s own format, reformatted for reading. The colours are available in the By section view.' }));
       const copy = h('button', { type: 'button', text: 'Copy request', title: 'Copy the request body shown below to the clipboard.' });
       copy.addEventListener('click', async () => { const text = lines.map(line => line.text).join('\n'); try { await navigator.clipboard.writeText(text); copy.textContent = 'Copied'; } catch { copy.textContent = 'Copy not available'; } setTimeout(() => { copy.textContent = 'Copy request'; }, 1500); });
       top.append(copy);
-      wrap.append(top, jsonPre(lines));
+      this.head.append(top);
+      wrap.append(jsonPre(lines));
       if (item.response) {
         wrap.append(h('p', { class: 'note', text: 'Response to this request (the model’s answer):' }));
         let responseLines;

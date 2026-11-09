@@ -62,7 +62,7 @@ Layout and behaviour
 Request inspector
 - Tabs follow the order in which the harness builds the request: Request, base prompt, agent, project file, MCP, skills, memory, tools. Debug tabs (template, final prompt, tokens, vocabulary) come after a separator, and Log is at the far right.
 - The request is shown both by section (collapsed rows that expand to the exact text) and as sent (the raw body). All raw content is visible, as in a debugger.
-- JSON is syntax-coloured. What was added during the current turn is coloured by who produced it: purple for what the harness sends (the user's message and tool results), blue for what the model answered (its tool calls and answers). Never red, which reads as an error. System message, tools, memory and skills are not coloured this way.
+- JSON is syntax-coloured. What was added to the request during the current turn is purple, because the harness sends all of it: the user's message, the model's earlier tool calls sent back to it, and the tool results. Blue is only for the response, what comes back from the model. Never red, which reads as an error. System message, tools, memory and skills are not coloured this way.
 - Label each part with when it is sent ("sent with every request"). Use the terms request, response, turn, memory, system message, skill list. Never "front matter". Memory is what the harness keeps and re-sends; the model keeps nothing.
 - Show real token costs from the harness's own estimate (about four characters per token), not invented ones.
 

@@ -75,6 +75,7 @@
   <div id="messages"></div>
   <div id="input-row">
     <textarea id="input" rows="2" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line, /skill-name to use a skill)" autofocus title="Message sent to the model with enabled tools and harness instructions. Enter sends; Ctrl+Enter inserts a new line. Use /skill-name to request a skill."></textarea>
+    <p id="queue-note" aria-live="polite" hidden></p>
     <div id="input-controls">
       <div class="switches">
         <label class="toggle" title="The model remembers nothing between requests. Checked: the harness keeps the conversation (the messages list at the bottom) and re-sends ALL of it with every request, which is why the 'in' token count grows each turn. Unchecked: only your new message is sent and nothing is kept, so the model can't refer to earlier messages."><input id="use-memory" type="checkbox" role="switch" checked title="Keep conversation memory and send it again on later requests. Turning this off sends only the new message and does not retain that turn in model memory."> <span class="help">Memory</span></label>
@@ -89,7 +90,7 @@
         <button id="clear" class="danger" title="Start over: empty the memory and all three panels, and unlock the system prompt and agent.">Clear conversation</button>
         <span class="spacer"></span>
         <button id="compact" title="Ask the model to summarize older messages (under 300 words), retaining at least the last 4 messages and complete tool-call batches. Costs a model request; the request and summary appear in Internals. Memory changes only if the summary succeeds and saves space.">Compact</button>
-        <button id="send" class="primary" title="Send your message and run one backend turn, including any requested tool calls and approval waits.">Send</button>
+        <button id="send" class="primary" title="Send your message and run one backend turn, including any requested tool calls and approval waits. While the model is still answering, Send queues the message: it is sent when the current turn ends. Stop holds queued messages back in the message box.">Send</button>
         <button id="stop" hidden title="Cancel the current turn and pending approvals. Abort model requests and commands; preserve partial output and settle unfinished tool calls.">Stop</button>
       </div>
     </div>

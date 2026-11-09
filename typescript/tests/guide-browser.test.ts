@@ -63,7 +63,7 @@ test('HTTPS guide connects a real loopback bridge and Ollama fixture, opens unch
   await page.locator('#connect-model').click(); await page.waitForFunction(() => document.getElementById('status')!.textContent!.includes('Model connected'));
   const childPromise = context.waitForEvent('page'); await page.locator('#open-harness').click(); const child = await childPromise;
   child.on('pageerror', error => errors.push(error.message));
-  await child.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0 && !(document.getElementById('send') as HTMLButtonElement).disabled);
+  await child.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0 && !(document.getElementById('send') as HTMLButtonElement).disabled && (document.getElementById('stop') as HTMLButtonElement).hidden);
   await openTools(child); for (const name of ['web_search', 'run_command', 'git_status']) assert.equal(await child.locator(`.tool-checkbox[value="${name}"]`).count(), 0);
   await page.locator('#bridge-url').fill(`http://127.0.0.1:${(server.address() as { port: number }).port}`); await page.locator('#bridge-code').fill(bridge.code); await page.locator('#connect-bridge').click();
   await page.waitForFunction(() => document.getElementById('status')!.textContent!.includes('Native workspace connected'), undefined, { timeout: 5000 }).catch(async () => { throw new Error((await page.locator('#status').innerText()) + ' requests: ' + requests.join(', ') + ' errors: ' + errors.join(', ')); });
@@ -78,7 +78,7 @@ test('HTTPS guide connects a real loopback bridge and Ollama fixture, opens unch
   await child.locator('#input').fill('Write browser-approved.txt: hello'); await child.locator('#send').click();
   await child.getByRole('button', { name: 'Approve', exact: true }).waitFor();
   const buttons = child.getByRole('button', { name: /Allow once|Approve|Allow/ }); await buttons.first().click();
-  await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled);
+  await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled && (document.getElementById('stop') as HTMLButtonElement).hidden);
   assert.equal(await readFile(path.join(scratch, 'browser-approved.txt'), 'utf8'), 'hello\n');
   await child.locator('#explore-view').selectOption('tokens');
   await child.locator('#token-inspect').click();
@@ -89,13 +89,13 @@ test('HTTPS guide connects a real loopback bridge and Ollama fixture, opens unch
   assert.equal(tokenizations, 1);
   await child.locator('#explore-view').selectOption('memory');
   await child.reload();
-  await child.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0 && !(document.getElementById('send') as HTMLButtonElement).disabled, undefined, { timeout: 12_000 });
+  await child.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0 && !(document.getElementById('send') as HTMLButtonElement).disabled && (document.getElementById('stop') as HTMLButtonElement).hidden, undefined, { timeout: 12_000 });
   await openSettings(child); assert.match(await child.locator('#browser-mode-label').innerText(), /paired local workspace/);
   assert.match(await page.locator('#bridge-status').innerText(), /Native workspace connected|Connected to your local computer/);
   assert.match(await child.locator('#messages').innerText(), /browser-approved.txt/);
   await child.locator('#input').fill('Write after-reload.txt: still connected'); await child.locator('#send').click();
   await child.getByRole('button', { name: 'Approve', exact: true }).click();
-  await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled);
+  await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled && (document.getElementById('stop') as HTMLButtonElement).hidden);
   assert.equal(await readFile(path.join(scratch, 'after-reload.txt'), 'utf8'), 'still connected\n');
   // Inspect a fresh request after reload; cached evidence alone cannot prove bridge handoff.
   await child.locator('#explore-view').selectOption('tokens');
@@ -125,7 +125,7 @@ test('HTTPS guide connects a real loopback bridge and Ollama fixture, opens unch
   await openSettings(child); assert.match(await child.locator('#browser-mode-label').innerText(), /paired local workspace/);
   await child.locator('#input').fill('Write after-project-change.txt: connected'); await child.locator('#send').click();
   await child.getByRole('button', { name: 'Approve', exact: true }).click();
-  await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled);
+  await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled && (document.getElementById('stop') as HTMLButtonElement).hidden);
   assert.equal(await readFile(path.join(scratch, 'after-project-change.txt'), 'utf8'), 'connected\n');
   assert.deepEqual(await page.evaluate(async () => (await indexedDB.databases()).map(database => database.name)), []);
   assert.deepEqual(await context.cookies(), []);
@@ -140,7 +140,7 @@ test('HTTPS guide connects a real loopback bridge and Ollama fixture, opens unch
   await openTools(child); assert.equal(await child.locator('.tool-checkbox[value="git_status"]').count(), 1);
   await child.locator('#input').fill('Run printf CHOSEN_REPO > cwd-check.txt'); await child.locator('#send').click();
   await child.getByRole('button', { name: 'Approve', exact: true }).click();
-  await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled);
+  await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled && (document.getElementById('stop') as HTMLButtonElement).hidden);
   assert.equal(await readFile(path.join(other, 'cwd-check.txt'), 'utf8'), 'CHOSEN_REPO');
   await assert.rejects(readFile(path.join(scratch, 'cwd-check.txt')));
   await page.locator('#disconnect-bridge').click();
@@ -150,7 +150,7 @@ test('HTTPS guide connects a real loopback bridge and Ollama fixture, opens unch
   await openSettings(child); assert.match(await child.locator('#browser-mode-label').innerText(), /ready.*virtual workspace/);
   await child.locator('#input').fill('Write after-unpair.txt: browser file'); await child.locator('#send').click();
   await child.getByRole('button', { name: 'Approve', exact: true }).click();
-  await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled);
+  await child.waitForFunction(() => !(document.getElementById('send') as HTMLButtonElement).disabled && (document.getElementById('stop') as HTMLButtonElement).hidden);
   const exported = await child.evaluate(async () => (window as unknown as { harness: { call(action: string): Promise<{ files: Record<string, string> }> } }).harness.call('exportProject'));
   assert.equal(exported.files['after-unpair.txt'], 'browser file\n');
   await child.close(); await page.waitForFunction(() => document.getElementById('status')!.textContent!.includes('Session ended'), undefined, { timeout: 5000 }).catch(async () => { throw new Error('After closure: ' + (await page.locator('#status').innerText()) + ' ' + requests.join(', ') + ' ' + errors.join(', ')); });

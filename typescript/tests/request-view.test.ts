@@ -125,9 +125,9 @@ async function staticServer(t: { after(callback: () => unknown): void }) {
   });
 }
 async function send(page: Page, message: string) {
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   await page.locator('#input').fill(message); await page.locator('#send').click();
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
 }
 
 test('the rendered Request view: "As sent" equals the sent body, and "By section" shows the same content', async t => {
@@ -144,7 +144,8 @@ test('the rendered Request view: "As sent" equals the sent body, and "By section
     const part = (name: string) => parts.find(element => element.querySelector(':scope > summary .tag')!.textContent!.trim() === name)!;
     const rows = (element: Element) => [...element.querySelectorAll(':scope > .inner > details')].map(row => JSON.parse(row.querySelector('pre.json')!.textContent!));
     const system = [...part('system message').querySelectorAll('pre.plain')].map(pre => pre.textContent!).join('\n\n');
-    return { system, memory: rows(part('memory')), thisTurn: rows(part('this turn')), tools: rows(part('tool schemas')) };
+    const toolSummaries = [...part('tool schemas').querySelectorAll(':scope > .inner > details > summary')].map(summary => summary.children[1]!.textContent!);
+    return { system, memory: rows(part('memory')), thisTurn: rows(part('this turn')), tools: rows(part('tool schemas')), toolSummaries };
   });
   await page.locator('#request-view .seg button', { hasText: 'As sent' }).click();
   const shown = JSON.parse(await page.locator('#request-view pre.json').first().textContent() ?? '{}');
@@ -153,8 +154,35 @@ test('the rendered Request view: "As sent" equals the sent body, and "By section
   assert.equal(sections.memory.length, 2); assert.equal(sections.thisTurn.length, 3);
   assert.deepEqual(shown.messages, [{ role: 'system', content: sections.system }, ...sections.memory, ...sections.thisTurn]);
   assert.deepEqual(shown.tools, sections.tools);
+  // A long tool description is cut with an ellipsis in its row, never silently.
+  sections.tools.forEach((tool, index) => { const description = tool.function.description as string, summary = sections.toolSummaries[index]!;
+    assert.equal(summary, description.length > 90 ? description.slice(0, 90) + '…' : description); });
+  assert.ok(sections.toolSummaries.some(summary => summary.endsWith('…')));
+
+  // Added this turn is coloured in "As sent" too, also for an Ollama request, which carries only its JSON text (no snapshot).
+  const coloured = await page.evaluate(() => {
+    const body = { model: 'qwen3:8b', messages: [{ role: 'system', content: 'rules '.repeat(400) }, { role: 'user', content: 'earlier' }, { role: 'assistant', content: 'ok' },
+      { role: 'user', content: 'list my files' }, { role: 'assistant', content: '', tool_calls: [{ function: { name: 'list_files', arguments: { path: '.' } } }] },
+      { role: 'tool', tool_name: 'list_files', content: 'README.md' }], stream: true };
+    requestView.addRequest({ type: 'request', parts: [JSON.stringify(body)] });
+    requestView.selected = requestView.requests.length - 1; requestView.render();
+    const text = (selector: string) => [...document.querySelectorAll('#request-view pre.json')][0]!.querySelectorAll(selector);
+    return { sent: [...text('.j-sent')].map(span => span.textContent).join('\n'), model: [...text('.j-model')].map(span => span.textContent).join('\n') };
+  });
+  // The harness sends everything added this turn, the model's own tool call included, so all of it is purple; blue is only the response.
+  assert.match(coloured.sent, /list my files/); assert.match(coloured.sent, /README\.md/); assert.match(coloured.sent, /list_files/); assert.doesNotMatch(coloured.sent, /earlier|"ok"/);
+  assert.equal(coloured.model, '');
+  // The header (switch, picker, notes, Copy request) stays put; only the body scrolls, and it keeps its position when the view redraws.
+  await page.setViewportSize({ width: 1200, height: 420 });
+  const scrolling = await page.evaluate(() => {
+    const root = document.getElementById('request-view')!, head = root.querySelector('.request-head') as HTMLElement, body = root.querySelector('.request-body') as HTMLElement;
+    const before = head.getBoundingClientRect().top, scrollable = body.scrollHeight > body.clientHeight; body.scrollTop = 150; requestView.render();
+    const newHead = root.querySelector('.request-head') as HTMLElement, newBody = root.querySelector('.request-body') as HTMLElement;
+    return { scrollable, rootScrolls: root.scrollHeight > root.clientHeight, movedHead: newHead.getBoundingClientRect().top - before, after: newBody.scrollTop, copyInHead: !!newHead.querySelector('button') };
+  });
+  assert.deepEqual(scrolling, { scrollable: true, rootScrolls: false, movedHead: 0, after: 150, copyInHead: true });
   assert.deepEqual(errors, []);
 });
 
 declare const RequestView: { sentBody(event: unknown): unknown };
-declare const requestView: { requests: { event: unknown }[] };
+declare const requestView: { requests: { event: unknown }[]; selected: number; addRequest(event: unknown): void; render(): void };

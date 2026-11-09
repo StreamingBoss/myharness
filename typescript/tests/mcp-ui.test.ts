@@ -52,7 +52,7 @@ test('the UI offers MCP tools, renders an MCP approval and result, explores serv
   await page.getByText('MCP done', { exact: true }).first().waitFor();
   assert.match(await page.locator('.change').last().innerText(), /echo: from the UI[\s\S]*ran/);
   await showLog(page); assert.match(await page.locator('#terminal').innerText(), /MCP — files\/echo over stdio, protocol 2026-07-28[\s\S]*"method": "tools\/call"/);
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
 
   assert.equal(await page.locator('#mcp-config-editor').isVisible(), false);
   let exploreRequests = 0;

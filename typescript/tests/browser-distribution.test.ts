@@ -23,7 +23,7 @@ async function staticServer(t: { after(callback: () => unknown): void }) {
   return { base, child };
 }
 async function send(page: Page, message: string) {
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   await page.locator('#input').fill(message); await page.locator('#send').click();
 }
 async function ready(page: Page) { await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 12); }
@@ -168,15 +168,15 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   // The imported configuration persists (without header values); clear it so later steps see the ten harness tools.
   await page.evaluate(() => (window as unknown as { harness: { call(action: string, payload: unknown): Promise<unknown> } }).harness.call('configureMcp', { mcpServers: {} }));
   await send(page, 'Remember 42'); await page.getByText('Received: 42.', { exact: false }).first().waitFor();
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   await closePanels(page); await page.locator('#explore-view').selectOption('tokens'); await page.waitForFunction(() => !(document.querySelector('#token-inspect') as HTMLButtonElement).disabled);
   await closePanels(page); await page.locator('#token-inspect').click(); await page.getByText('Token sequence unavailable', { exact: true }).waitFor();
   await closePanels(page); assert.match(await page.locator('#token-summary').innerText(), /No token pieces to show for this request/);
   await closePanels(page); assert.equal(await page.locator('.token-chip').count(), 0);
   await page.reload(); await ready(page); await send(page, 'What do you remember?'); await page.locator('#messages').getByText('Remember 42', { exact: true }).last().waitFor();
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   await send(page, 'Write browser.txt: persisted'); await page.getByRole('button', { name: 'Approve', exact: true }).click();
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   await page.reload(); await ready(page);
   assert.equal(await page.evaluate(async () => {
     const client = (window as unknown as { harness: { call(action: string): Promise<{ files: Record<string, string> }> } }).harness;
@@ -219,7 +219,7 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   }); assert.ok(headlessEvents.includes('tool'));
   child.kill('SIGTERM'); await new Promise<void>(resolve => child.once('exit', () => resolve()));
   await send(page, 'Read browser.txt'); await page.locator('#messages').getByText('persisted', { exact: false }).last().waitFor();
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   assert.deepEqual(errors, []);
 });
 
@@ -264,7 +264,7 @@ test('browser Worker connects to Ollama and reads/edits native filesystem handle
   assert.equal(await disk(), 'print("hello")\n'); await page.getByRole('button', { name: 'Approve', exact: true }).click();
   await page.getByText('Local code updated through the browser harness', { exact: true }).first().waitFor(); assert.equal(await disk(), 'print("updated")\n');
   assert.ok(requests.some(request => request.messages?.some(message => message.role === 'tool' && message.content.includes('main.py'))));
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled); await page.reload(); await ready(page);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden); await page.reload(); await ready(page);
   await openSettings(page); assert.match(await page.locator('#browser-mode-label').innerText(), /Real model.*direct disk access/); assert.equal(await disk(), 'print("updated")\n');
   await openSettings(page); assert.equal(await page.locator('#browser-ollama-url').inputValue(), 'http://127.0.0.1:' + address.port);
   assert.deepEqual(errors, []);

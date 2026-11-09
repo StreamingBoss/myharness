@@ -21,7 +21,7 @@ test('browser hydrates the existing UI, streams a terminal reply, and restores s
   await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
   await page.locator('#input').fill('hello'); await page.locator('#send').click();
   await page.getByText('Hello from TypeScript', { exact: true }).first().waitFor();
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   assert.equal(await page.locator('#terminal .sent b').first().evaluate(element => getComputedStyle(element).color), 'rgb(198, 40, 40)');
   await page.evaluate(() => {
     // Exercise native cloud display without credentials or network inference.
@@ -36,7 +36,7 @@ test('browser hydrates the existing UI, streams a terminal reply, and restores s
   await openSettings(page); assert.equal(await page.locator('#project-error').innerText(), '');
   assert.match(await page.locator('#messages').innerText(), /Hello from TypeScript/);
   await page.locator('#input').fill('hello from the next project'); await page.locator('#send').click();
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   assert.equal(harness.activeSessionRecord().workspace, nextProject);
   await page.reload(); await page.getByText('Hello from TypeScript', { exact: true }).first().waitFor();
   assert.deepEqual(errors, []);
@@ -57,7 +57,7 @@ test('a separately served UI approves a write and exports the backend session', 
   await page.goto(origin + '/?api=' + encodeURIComponent(base)); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 14);
   await page.locator('#input').fill('write'); await page.locator('#send').click(); await page.getByRole('button', { name: 'Approve', exact: true }).click();
   await page.getByText('Write completed', { exact: true }).first().waitFor(); assert.equal(await readFile(path.join(root, 'approved.txt'), 'utf8'), 'approved in browser');
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   await openSessions(page); const download = page.waitForEvent('download'); await page.locator('#export-session').click(); const exported = await download;
   assert.equal(exported.url(), base + '/sessions/' + harness.activeSessionRecord().id + '/export');
   assert.match(await readFile((await exported.path())!, 'utf8'), /approved in browser/);

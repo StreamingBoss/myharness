@@ -26,7 +26,7 @@ test('bottom viewer explains exactness, shows real pieces/bytes and restores ins
   await page.goto(`http://127.0.0.1:${address.port}`); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
   await page.locator('#explore-view').selectOption('tokens'); await page.getByText('Send a message first; no saved request is available.').waitFor(); assert.equal(inspected, 0);
   await page.locator('#input').fill('ü'); await page.locator('#send').click(); await page.getByText('hello', { exact: true }).first().waitFor();
-  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled);
+  await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
   await page.locator('#token-inspect').waitFor({ state: 'visible' }); await page.waitForFunction(() => !(document.querySelector('#token-inspect') as HTMLButtonElement).disabled);
   await showLog(page); assert.match(await page.locator('#terminal').textContent() ?? '', /SENT to gemini-vertex/); assert.match(await page.locator('#terminal').textContent() ?? '', /generationConfig/);
   await page.locator('#explore-view').selectOption('tokens');

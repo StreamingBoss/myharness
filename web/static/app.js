@@ -15,6 +15,7 @@ const memoryEl = document.getElementById("memory");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
 const stopBtn = document.getElementById("stop");
+const queueNote = document.getElementById("queue-note");
 const compactBtn = document.getElementById("compact");
 const contextMeter = document.getElementById("context-meter");
 const resetBtn = document.getElementById("reset");
@@ -282,12 +283,45 @@ function displayError(error) {
   return formatFailure(error.failure, "The request could not be completed. Check the connection and try again.\n\nTechnical details: " + error.message);
 }
 
+// A message sent while a turn runs waits here, in order, and is sent when that turn ends.
+// Stop holds the queue back: the messages return to the message box instead of being sent.
+const queuedMessages = [];
+let turnRunning = false;
+let stopRequested = false;
+
+function showQueue() {
+  queueNote.hidden = !queuedMessages.length;
+  queueNote.textContent = queuedMessages.length === 1
+    ? "1 message queued. It is sent when the current answer ends."
+    : queuedMessages.length + " messages queued. They are sent one after another when the current answer ends.";
+}
+
+// After Stop, queued messages go back into the message box, oldest first, so nothing is sent without the user.
+function holdQueue() {
+  input.value = [...queuedMessages.splice(0), input.value.trim()].filter(Boolean).join("\n\n");
+  fitInput();
+  showQueue();
+}
+
 async function sendMessage() {
   const text = input.value.trim();
   if (!text) return;
 
   input.value = "";
   fitInput();
+  if (turnRunning) { queuedMessages.push(text); showQueue(); return; }
+  let next = text;
+  while (next) {
+    await runTurn(next);
+    if (stopRequested) { holdQueue(); break; }
+    next = queuedMessages.shift();
+    showQueue();
+  }
+}
+
+async function runTurn(text) {
+  turnRunning = true;
+  stopRequested = false;
   // with memory on, this message starts (or continues) a conversation: lock its setup
   if (memoryCheckbox.checked) conversationLocked = true;
   setControlsDisabled(true);
@@ -436,6 +470,7 @@ async function sendMessage() {
     printBlock("STOPPED", "Chat request failed:\n" + displayError(error));
     addDivider("Chat request failed:\n" + displayError(error));
   } finally {
+    turnRunning = false;
     setControlsDisabled(false);
     activeSkillContext = null;
     refreshExplorer();
@@ -977,13 +1012,15 @@ function setControlsDisabled(disabled) {
                     askApprovalCheckbox, projectInput, setProjectBtn, browseBtn, mcpReloadBtn]) {
     el.disabled = disabled;
   }
+  // While a turn runs, the message box and Send stay usable: Send then queues the message.
+  if (turnRunning) input.disabled = sendBtn.disabled = false;
   compactBtn.disabled = disabled || !memoryCheckbox.checked;
   for (const c of toolCheckboxes) c.disabled = disabled || !toolsCheckbox.checked;
   syncToolGroups();
   agentSelect.disabled = promptSelect.disabled = disabled || conversationLocked;
   lockNote.hidden = !conversationLocked;
-  // while a turn runs, Stop takes the place of Send
-  sendBtn.hidden = disabled;
+  // while a turn runs, Stop appears next to Send; when busy otherwise, Stop takes the place of Send
+  sendBtn.hidden = disabled && !turnRunning;
   stopBtn.hidden = !disabled;
   stopBtn.disabled = false;
 }
@@ -1402,6 +1439,7 @@ if (session.settings) {
 sendBtn.addEventListener("click", sendMessage);
 stopBtn.addEventListener("click", () => {
   stopBtn.disabled = true;
+  stopRequested = true;
   backendFetch(api("/stop"), { method: "POST" });
 });
 const confirmClear = document.getElementById("confirm-clear");
