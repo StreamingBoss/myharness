@@ -1,40 +1,40 @@
   /* Colour tokens. Light is the default; dark follows the system, and an explicit data-theme choice overrides both. */
   :root {
     color-scheme: light;
-    --bg: #ffffff; --surface: #f3f5f7; --surface-2: #f3f5f7; --surface-3: #eaedf0; --panel: #f7f8fa; --harness: #eef2f6;
-    --input-bg: #ffffff; --input-border: #b8bec6; --border: #cfd4da; --border-strong: #b8bec6; --splitter: #d4d9df;
-    --fg: #1f2328; --fg-muted: #444444; --fg-faint: #8a8a8a; --fg-dim: #999999;
+    --bg: #f7f7f4; --surface: #eeeee8; --surface-2: #eeeee8; --surface-3: #e6e6df; --panel: #f2f2ee; --harness: #eef2f6;
+    --input-bg: #ffffff; --input-border: #b8bec6; --border: #d4d4cb; --border-strong: #b8bec6; --splitter: #d4d4cb;
+    --fg: #16181d; --fg-muted: #5b6170; --fg-faint: #6f6f6f; --fg-dim: #999999;
     --accent: #0f766e; --accent-fg: #ffffff; --link: #0b5cad; --user-bg: #e3f1ef; --tool-bg: #f1efe8; --jk: #0b5cad; --js: #1a7f37; --jn: #9a6700; --jl: #8250df; --c-sent: #8a2be2; --c-model: #0a63ff; --blk-system: #4f46e5; --blk-tools: #c2410c; --blk-memory: #a16207; --blk-turn: #0f766e; --sys-base: #15803d; --sys-agent: #c2410c; --sys-project: #a16207; --sys-mcp: #0e7490; --sys-skills: #be185d;
     --ok: #1a7f37; --ok-soft: #1a7f37; --ok-strong: #2e7d32; --warn: #9a6700; --warn-alt: #9a6700; --warn-bg: #fff6e0;
     --danger: #c62828; --danger-soft: #c62828; --danger-strong: #c62828; --sent: #b35c00; --received-b: #0b5cad;
-    --code: #eef0f3; --focus: #000000; --focus-bg: #e8d6f5; --vocab-fg: #0b5cad; --mcp: #7a3fa0;
+    --code: #efefe9; --focus: #000000; --focus-bg: #e8d6f5; --vocab-fg: #0b5cad; --mcp: #7a3fa0;
     --tc0-bg: #cdeaf5; --tc0-fg: #0b3d52; --tc1-bg: #e8d6f5; --tc1-fg: #4a2468;
-    --btn-bg: #e4e7eb; --btn-fg: #1f2328; --btn-border: #b8bec6; --btn-hover: #d4d9df;
+    --btn-bg: #e8e8e1; --btn-fg: #1f2328; --btn-border: #b8bec6; --btn-hover: #d9d9d1;
     --shadow: rgba(0, 0, 0, 0.5); --backdrop: rgba(0, 0, 0, 0.6);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       color-scheme: dark;
-      --bg: #1e1e1e; --surface: #252525; --surface-2: #2a2a2a; --surface-3: #1a1a1a; --panel: #141414; --harness: #101820;
-      --input-bg: #2a2a2a; --input-border: #444444; --border: #444444; --border-strong: #555555; --splitter: #333333;
-      --fg: #dddddd; --fg-muted: #aaaaaa; --fg-faint: #888888; --fg-dim: #999999;
+      --bg: #0f1115; --surface: #161920; --surface-2: #1b1f27; --surface-3: #0b0d11; --panel: #0b0d11; --harness: #101820;
+      --input-bg: #1b1f27; --input-border: #444444; --border: #343a46; --border-strong: #444b59; --splitter: #262a33;
+      --fg: #e9eaee; --fg-muted: #9aa0ad; --fg-faint: #7d8493; --fg-dim: #8b919e;
       --accent: #2dd4bf; --accent-fg: #06201c; --link: #5cb3ff; --user-bg: #15292a; --tool-bg: #1b1e26; --jk: #5cb3ff; --js: #6fcf6f; --jn: #e0b050; --jl: #c792ea; --c-sent: #d58bff; --c-model: #5aa9ff; --blk-system: #a5b4fc; --blk-tools: #fb923c; --blk-memory: #e0b050; --blk-turn: #2dd4bf; --sys-base: #4ade80; --sys-agent: #fb923c; --sys-project: #facc15; --sys-mcp: #22d3ee; --sys-skills: #f472b6;
       --ok: #6fcf6f; --ok-soft: #80d890; --ok-strong: #2e7d32; --warn: #e0b050; --warn-alt: #ffb86c; --warn-bg: #2a2418;
       --danger: #ff6b6b; --danger-soft: #f08080; --danger-strong: #c62828; --sent: #f0a050; --received-b: #5cb3ff;
-      --code: #1b1b1b; --focus: #ffffff; --focus-bg: #443457; --vocab-fg: #b5ecff; --mcp: #c792ea;
+      --code: #161920; --focus: #ffffff; --focus-bg: #443457; --vocab-fg: #b5ecff; --mcp: #c792ea;
       --tc0-bg: #234854; --tc0-fg: #b5ecff; --tc1-bg: #443457; --tc1-fg: #f2caff;
       --btn-bg: #3a3f47; --btn-fg: #eeeeee; --btn-border: #5a6068; --btn-hover: #4a505a;
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --bg: #1e1e1e; --surface: #252525; --surface-2: #2a2a2a; --surface-3: #1a1a1a; --panel: #141414; --harness: #101820;
-    --input-bg: #2a2a2a; --input-border: #444444; --border: #444444; --border-strong: #555555; --splitter: #333333;
-    --fg: #dddddd; --fg-muted: #aaaaaa; --fg-faint: #888888; --fg-dim: #999999;
+    --bg: #0f1115; --surface: #161920; --surface-2: #1b1f27; --surface-3: #0b0d11; --panel: #0b0d11; --harness: #101820;
+    --input-bg: #1b1f27; --input-border: #444444; --border: #343a46; --border-strong: #444b59; --splitter: #262a33;
+    --fg: #e9eaee; --fg-muted: #9aa0ad; --fg-faint: #7d8493; --fg-dim: #8b919e;
     --accent: #2dd4bf; --accent-fg: #06201c; --link: #5cb3ff; --user-bg: #15292a; --tool-bg: #1b1e26; --jk: #5cb3ff; --js: #6fcf6f; --jn: #e0b050; --jl: #c792ea; --c-sent: #d58bff; --c-model: #5aa9ff; --blk-system: #a5b4fc; --blk-tools: #fb923c; --blk-memory: #e0b050; --blk-turn: #2dd4bf; --sys-base: #4ade80; --sys-agent: #fb923c; --sys-project: #facc15; --sys-mcp: #22d3ee; --sys-skills: #f472b6;
     --ok: #6fcf6f; --ok-soft: #80d890; --ok-strong: #2e7d32; --warn: #e0b050; --warn-alt: #ffb86c; --warn-bg: #2a2418;
     --danger: #ff6b6b; --danger-soft: #f08080; --danger-strong: #c62828; --sent: #f0a050; --received-b: #5cb3ff;
-    --code: #1b1b1b; --focus: #ffffff; --focus-bg: #443457; --vocab-fg: #b5ecff; --mcp: #c792ea;
+    --code: #161920; --focus: #ffffff; --focus-bg: #443457; --vocab-fg: #b5ecff; --mcp: #c792ea;
     --tc0-bg: #234854; --tc0-fg: #b5ecff; --tc1-bg: #443457; --tc1-fg: #f2caff;
     --btn-bg: #3a3f47; --btn-fg: #eeeeee; --btn-border: #5a6068; --btn-hover: #4a505a;
   }
