@@ -64,6 +64,14 @@ test('browser startup loads the packaged library, reports fetch failures and clo
   assert.equal(migrated.state.provider, 'demo');
   assert.equal((await migrated.getSession(demoSession)).model, 'scripted-demo');
   assert.equal(migrated.activeSessionRecord().id, demoSession);
+  // A session saved by a build that predates the keep-demo mark is migrated: the page opens on a fresh, unconnected session.
+  const storage = await BrowserStorage.open('startup'); await storage.put('settings', 'keep-demo', false); storage.close();
+  const stale = await loadBrowserHarness('startup', 'http://static/library.json');
+  assert.notEqual(stale.activeSessionRecord().id, demoSession);
+  assert.equal(stale.state.model, 'qwen3:8b'); assert.equal(stale.state.provider, 'ollama'); assert.equal((await stale.bootstrap()).model_connected, false);
+  assert.equal((await stale.getSession(demoSession)).model, 'scripted-demo');
+  const reopened = await loadBrowserHarness('startup', 'http://static/library.json');
+  assert.equal(reopened.activeSessionRecord().id, stale.activeSessionRecord().id); assert.equal(reopened.state.provider, 'ollama');
   assert.ok(sdk.BrowserHarness); assert.ok(sdk.WorkerClient); assert.ok(sdk.DemoModel); assert.ok(sdk.OllamaAdapter);
   t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 404 })); await assert.rejects(loadBrowserHarness('failed', 'http://static/library.json'), /instruction library/);
   t.mock.method(globalThis, 'fetch', async () => Response.json({ ...library, workspace: { '.': '' } }));
