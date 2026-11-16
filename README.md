@@ -528,15 +528,21 @@ the model's vocabulary file. An optional helper program on your computer does
 that and nothing else:
 
 ```bash
-npm run token-helper:ts                                   # serves https://harnessarium.com
-npm run token-helper:ts -- --origin http://localhost:5001   # serves another page
+./token-helper                                    # serves https://harnessarium.com
+./token-helper --origin http://localhost:5001     # serves another page
+./token-helper --install                          # also start it at every login
 ```
+
+Download it for Linux, macOS or Windows from the
+[latest release](https://github.com/StreamingBoss/myharness/releases/latest). It
+is one program of under 10 MB and needs nothing else installed. From a checkout,
+`npm run build:token-helper` builds it.
 
 Then open **Tokens** in the harness, open **Show token pieces for my Ollama
 model (optional)** and click **Connect**. There is no pairing code: the helper
 only answers the websites it was started for. After the first Connect the page
 reconnects by itself whenever the helper is running; **Forget helper** stops
-that. The helper needs the `myharness-tokenizer` program built once; see
+that. Downloads, start at login and building from source are described in
 [TOKENIZATION.md](TOKENIZATION.md#browser-harness-through-the-tokenizer-helper).
 
 The earlier loopback bridge (pairing codes, native files, shell commands, web

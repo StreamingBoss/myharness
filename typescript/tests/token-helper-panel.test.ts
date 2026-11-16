@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TOKEN_HELPER_HTML, mountTokenHelperPanel } from '../ui/token-helper-panel.js';
-import { HELPER_DEFAULT_ORIGIN, HelperError } from '../src/helper-protocol.js';
+import { HELPER_DEFAULT_ORIGIN, HELPER_DOWNLOAD_URL, HelperError } from '../src/helper-protocol.js';
 
 class Element {
   textContent = ''; hidden = false; disabled = false; open = false;
@@ -25,13 +25,14 @@ function fixture(origin = 'https://site.test') {
 
 test('the panel markup has every control the controller wires, and asks for no pairing code', () => {
   for (const id of ['token-helper', 'token-helper-status', 'token-helper-setup', 'token-helper-command', 'token-helper-connect', 'token-helper-forget']) assert.ok(TOKEN_HELPER_HTML.includes(`id="${id}"`), id);
-  assert.doesNotMatch(TOKEN_HELPER_HTML, /pairing|code\b|<input/i);
+  assert.doesNotMatch(TOKEN_HELPER_HTML, /pairing|<input/i);
   assert.match(TOKEN_HELPER_HTML, /does nothing else/);
+  assert.ok(TOKEN_HELPER_HTML.includes(`href="${HELPER_DOWNLOAD_URL}"`)); assert.match(TOKEN_HELPER_HTML, /--install/);
 });
 
 test('the start command names this page, except on the site the helper serves by default', () => {
-  assert.equal(fixture().get('token-helper-command').textContent, 'npm run token-helper:ts -- --origin https://site.test');
-  assert.equal(fixture(HELPER_DEFAULT_ORIGIN).get('token-helper-command').textContent, 'npm run token-helper:ts');
+  assert.equal(fixture().get('token-helper-command').textContent, './token-helper --origin https://site.test');
+  assert.equal(fixture(HELPER_DEFAULT_ORIGIN).get('token-helper-command').textContent, './token-helper');
 });
 
 test('the panel is offered for Ollama only and renders the backend status without contacting anything', () => {

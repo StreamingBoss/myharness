@@ -1,25 +1,25 @@
 import { DiagnosticError } from './failure.js';
 
-/** Shared by the tokenizer helper (Node) and its browser client. The helper tokenizes text and nothing else. */
+/**
+ * Protocol of the tokenizer helper, a native program (native/tokenizer) that runs next to Ollama.
+ * It has two requests, both POST with a JSON body, and tokenizes text and nothing else:
+ *   /v1/info      {}                   -> { value: HelperInfo }
+ *   /v1/tokenize  { model, content }   -> { value: { identity, tokens: [{ id, bytes }] } }
+ * The helper answers only the website origins it was started for; there is no pairing code or token.
+ */
+export const HELPER_PROTOCOL = 2;
 export const HELPER_DEFAULT_PORT = 5002;
 export const HELPER_DEFAULT_ENDPOINT = `http://127.0.0.1:${HELPER_DEFAULT_PORT}`;
 export const HELPER_DEFAULT_ORIGIN = 'https://harnessarium.com';
-export const HELPER_REQUEST_TIMEOUT_MS = 120_000;
-/** Covers the helper's own startup (30 s), Ollama rendering (180 s) and tokenization (30 s) limits. */
-export const HELPER_INSPECTION_TIMEOUT_MS = 260_000;
-/** What a connected helper can do. `automatic`: it finds the model file itself; `models`: operator-configured tokenizers. */
-export interface HelperInfo { ollamaUrl: string; models: string[]; automatic: boolean }
-export interface HelperRequest { id: string; operation: string; args: Record<string, unknown> }
+/** Where the helper for each system is published. */
+export const HELPER_DOWNLOAD_URL = 'https://github.com/StreamingBoss/myharness/releases/latest';
+/** Finding the model file can ask Ollama (30 s), and a first use loads the vocabulary. */
+export const HELPER_REQUEST_TIMEOUT_MS = 60_000;
+/** `ollamaUrl`: the Ollama the helper asks for model files. `models`: models with an operator-chosen file. */
+export interface HelperInfo { protocol: number; ollamaUrl: string; models: string[]; automatic: boolean }
+export interface HelperTokens { identity: string; tokens: { id: unknown; bytes: unknown }[] }
 export class HelperError extends DiagnosticError {
   constructor(message: string, readonly status = 400, timeoutMs?: number) {
     super({ source: 'helper', component: 'Tokenizer helper', reason: message, recovery: 'Check that the tokenizer helper is running on this computer and allows this website, then connect it again in the token viewer.', ...(timeoutMs === undefined ? {} : { timeoutMs }) });
   }
-}
-export function text(args: Record<string, unknown>, key: string): string {
-  if (typeof args[key] !== 'string') throw new HelperError(`${key} must be a string`);
-  return args[key];
-}
-export function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HelperError('Expected an object');
-  return value as Record<string, unknown>;
 }

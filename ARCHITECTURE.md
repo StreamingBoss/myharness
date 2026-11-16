@@ -315,14 +315,15 @@ until the user chooses one.
 The browser runtime has no native capability bridge any more: a web page reads
 virtual projects or user-granted folders and cannot run commands or web search.
 The one optional native capability is token inspection for local Ollama models,
-supplied by a **tokenizer helper** (`typescript/src/node/token-helper.ts`,
-started with `npm run token-helper:ts`). It is a loopback HTTP host with two
-routes, `/v1/connect` and `/v1/call`, and one effect: render a saved Ollama
-request and tokenize it. It owns no conversation or agent loop, reads no project
-files and accepts no upstream address from the browser. Every request must carry
-the helper's own `Host` and an `Origin` from its startup list (default
-`https://harnessarium.com`); there is no pairing code. `/v1/connect` returns a
-random session token that only separates page sessions.
+supplied by a **tokenizer helper**: one native program built from
+`native/tokenizer` (C++, llama.cpp vocabulary code plus the HTTP and JSON
+libraries llama.cpp ships). It is a loopback HTTP host with two requests,
+`/v1/info` and `/v1/tokenize`, and one effect: split a text with a model's own
+vocabulary. It owns no conversation or agent loop, reads no project files, never
+generates, and accepts no file path or upstream address from the browser. Every
+request must carry the helper's own `Host` and an `Origin` from its startup list
+(default `https://harnessarium.com`); there is no pairing code and no session.
+`typescript/src/helper-protocol.ts` documents the protocol.
 
 `BrowserHarness.connectTokenizer`, `forgetTokenizer` and `tokenizerStatus` are
 the callable interface, with Worker actions of the same names. Connecting stores
@@ -332,31 +333,25 @@ inspection, or the token view's panel, reconnects. A helper that is not running
 leaves inspection working without token pieces. `typescript/ui/token-helper-panel.ts`
 renders `bootstrap().tokenizer` and forwards those actions; it decides nothing.
 
-Saved-request token inspection remains a shared Harness operation. BrowserHarness
-uses the inspection adapter hook to forward Ollama requests to a connected helper
-with exact model bindings and matching Ollama endpoint. The helper validates
-requests and uses fixed operator-configured endpoints for rendering and llama.cpp
-tokenization. It exposes no arbitrary HTTP proxy or provider credential transport.
-Structured TokenInspection evidence and cancellation use existing backend events
-and the existing viewer; no tokenization decisions are implemented in the UI.
+Saved-request token inspection remains a shared Harness operation. The harness
+decisions stay in TypeScript: `BrowserHarness` uses the inspection adapter hook
+to give the shared `OllamaAdapter` a `PromptTokenizer` backed by the helper. The
+adapter renders the saved request with Ollama, as it does without a helper, and
+only the split into tokens goes to the helper. The helper finds the model's GGUF
+file through its own Ollama or an operator mapping, so the backend first checks
+that both use the same Ollama address. Structured TokenInspection evidence, the
+special-token glossary and cancellation use existing backend code and the
+existing viewer; no tokenization decisions are implemented in the UI or in the
+native program.
 
 Structured backend failures carry source, component, reason and recovery through
 Worker/HTTP adapters into live UI and session replay. Model and helper boundaries
 tag failures where they occur (`source: 'helper'`; `'bridge'` remains readable in
 sessions saved earlier).
 
-The helper delegates llama.cpp lifecycle to a Node ManagedTokenizer adapter. It
-discovers a local Ollama model file or uses an operator-owned exact-model path
-mapping, validates its GGUF header, and spawns a fixed executable without a shell.
-One owned process is reused, with startup deadlines/cancellation and cleanup when
-the last page session is released and on shutdown. Explicit external tokenizer
-bindings take precedence. The UI cannot choose executables, paths or launch
-arguments.
-
 Token inspection exposes ephemeral structured progress through
 `Harness.tokenizationProgress()`, Worker action `tokenizationProgress`, and
-`GET /tokenize/progress`. Model/tokenizer adapters own stage callbacks. For helper
-inspection, the browser backend reads the helper's per-session
-`inspectionProgress`; no source paths or prompt text enter progress. The existing
+`GET /tokenize/progress`. Model/tokenizer adapters own stage callbacks; no source
+paths or prompt text enter progress. The existing
 viewer polls and renders this state with request/session guards. Polling is not
 needed for backend execution, and completion/failure/cancellation clears progress.

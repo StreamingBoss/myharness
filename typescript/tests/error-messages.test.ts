@@ -4,7 +4,7 @@ import { explainError, timeoutDuration } from '../src/error-messages.js';
 import { presentFailure, failureDetails, DiagnosticError, failureText } from '../src/failure.js';
 import { OllamaAdapter } from '../src/ollama.js';
 import { TokenHelperClient } from '../src/browser/token-helper.js';
-import { HelperError, HELPER_REQUEST_TIMEOUT_MS, HELPER_INSPECTION_TIMEOUT_MS } from '../src/helper-protocol.js';
+import { HelperError, HELPER_REQUEST_TIMEOUT_MS } from '../src/helper-protocol.js';
 import { readFile } from 'node:fs/promises';
 import { Script } from 'node:vm';
 
@@ -34,7 +34,7 @@ test('common errors explain the problem and a next step without requiring implem
 });
 test('timeout values retain actual custom durations, including seconds and minutes', () => {
   for (const [ms, expected] of [[1, '1 millisecond'], [25, '25 milliseconds'], [1000, '1 second'], [1500, '1.5 seconds'], [2000, '2 seconds'], [60000, '1 minute'], [61000, '1 minute 1 second'], [62000, '1 minute 2 seconds'], [120000, '2 minutes'], [121000, '2 minutes 1 second'], [260000, '4 minutes 20 seconds']] as const) assert.equal(timeoutDuration(ms), expected);
-  assert.equal(HELPER_REQUEST_TIMEOUT_MS, 120_000); assert.equal(HELPER_INSPECTION_TIMEOUT_MS, 260_000);
+  assert.equal(HELPER_REQUEST_TIMEOUT_MS, 60_000);
 });
 test('friendly diagnostics preserve source and technical details and explain precisely what to reconnect', () => {
   const detail = failureDetails('Tokenizer helper unavailable, timed out or cancelled. [Time limit: 2 minutes]', 'helper', 'Tokenizer helper', 'Retry.');
@@ -59,16 +59,7 @@ test('model and tokenizer helper network failures report their configured reques
     await assert.rejects(call(), (error: DiagnosticError) => { assert.equal(error.failure.source, 'model'); assert.ok([10_000, 180_000].includes(error.failure.timeoutMs!)); assert.doesNotMatch(error.message, /PRIVATE/); return true; });
   }
   const helper = new TokenHelperClient('http://127.0.0.1:5002', offline);
-  await assert.rejects(helper.connect(), (error: HelperError) => { assert.equal(error.failure.timeoutMs, 120_000); assert.equal(error.failure.source, 'helper'); assert.doesNotMatch(error.message, /PRIVATE/); return true; });
-  // A real inspection operation has its own longer transport limit.
-  const failing = new TokenHelperClient('http://127.0.0.1:5002', async (url, init) => {
-    if (url.endsWith('/connect')) return Response.json({ value: { token: 'fixture', ollamaUrl: 'http://localhost:11434', models: [], automatic: true } });
-    if (JSON.parse(String(init.body)).operation === 'inspectTokens') return offline();
-    return Response.json({ value: {} });
-  });
-  await failing.connect();
-  await assert.rejects(failing.call('inspectTokens'), (error: HelperError) => { assert.equal(error.failure.timeoutMs, 260_000); return true; });
-  await failing.close();
+  await assert.rejects(helper.connect(), (error: HelperError) => { assert.equal(error.failure.timeoutMs, HELPER_REQUEST_TIMEOUT_MS); assert.equal(error.failure.source, 'helper'); assert.doesNotMatch(error.message, /PRIVATE/); return true; });
 });
 test('the browser uses the shared explanations and hides technical diagnostics behind a disclosure', async () => {
   const html = await readFile('web/static/app.js', 'utf8');
@@ -106,41 +97,6 @@ test('token inspection keeps a safe explanation when an adapter supplies no time
   });
   const inspection = await adapter.inspectTokens({ model: 'q', messages: [], stream: true, options: { num_ctx: 1000 } });
   assert.match(inspection.explanation, /Token inspection is unavailable/); assert.doesNotMatch(inspection.explanation, /NaN/);
-});
-
-test('helper status reflects failed requests and recovers without a new connection when the helper comes back', async () => {
-  let status = 200, offline = false;
-  const info = { ollamaUrl: 'http://localhost:11434', models: ['q'], automatic: false };
-  const helper = new TokenHelperClient('http://127.0.0.1:5002', async url => {
-    if (offline) throw new Error('offline');
-    if (status !== 200) return new Response('', { status });
-    return Response.json({ value: url.endsWith('/connect') ? { token: 'fixture', ...info } : { stage: null } });
-  });
-  assert.equal(helper.connected, false); assert.equal(helper.info, undefined);
-  await assert.rejects(helper.call('inspectionProgress'), /disconnected/);
-  assert.deepEqual(await helper.connect(), info); assert.equal(helper.connected, true); assert.deepEqual(helper.info, info);
-  offline = true; await assert.rejects(helper.call('inspectionProgress')); assert.equal(helper.connected, false); assert.equal(helper.info, undefined);
-  offline = false; await helper.call('inspectionProgress'); assert.equal(helper.connected, true);
-  status = 500; await assert.rejects(helper.call('inspectionProgress'), /denied the request \(500\)\.$/); assert.equal(helper.connected, true);
-  status = 403; await assert.rejects(helper.call('inspectionProgress'), /this website allowed/); assert.equal(helper.connected, false);
-  status = 401; await assert.rejects(helper.call('inspectionProgress')); assert.equal(helper.connected, false);
-  status = 200; await helper.call('inspectionProgress'); assert.equal(helper.connected, true);
-  const aborted = new AbortController(); aborted.abort();
-  await assert.rejects(helper.call('inspectionProgress', {}, aborted.signal), /cancelled/);
-  await helper.close(); assert.equal(helper.connected, false); await helper.close();
-  // Stopping an inspection in flight also tells the helper to cancel it.
-  const seen: string[] = [], stop = new AbortController();
-  const slow = new TokenHelperClient('http://127.0.0.1:5002', async (url, init) => {
-    if (url.endsWith('/connect')) return Response.json({ value: { token: 'fixture', ...info } });
-    const operation = JSON.parse(String(init.body)).operation as string; seen.push(operation);
-    if (operation === 'inspectTokens') return new Promise<Response>((_resolve, reject) => init.signal!.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
-    return Response.json({ value: {} });
-  });
-  await slow.connect(); const pending = slow.call('inspectTokens', {}, stop.signal);
-  stop.abort(); await assert.rejects(pending, /cancelled/); await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(seen, ['inspectTokens', 'cancel']);
-  for (const endpoint of ['https://127.0.0.1:5002', 'http://localhost:5002', 'http://127.0.0.1:5002/x', 'http://127.0.0.1:5002/?q=1', 'http://127.0.0.1:5002/#h', 'http://u:p@127.0.0.1:5002', 'not a url'])
-    assert.throws(() => new TokenHelperClient(endpoint), /on this computer/);
 });
 
 test('unexpected non-Error tokenizer failures receive a safe explanation', async () => {

@@ -102,27 +102,30 @@ truncation can differ from this separately rendered/tokenized prompt.
 
 ## Browser harness through the tokenizer helper
 
-A web page cannot read a model file or start a program, so the browser edition
-shows token pieces for a local Ollama model through an optional **tokenizer
-helper**: a small program that runs on the same computer as Ollama. It renders
-the saved request with Ollama and splits the result with the model's own
-vocabulary. It tokenizes text and does nothing else: it reads no project files,
-runs no commands, holds no conversation and accepts no address from the browser.
-The browser still talks to Ollama directly for ordinary chat. Without the
-helper, the viewer still shows the rendered prompt, the counts and the model
-vocabulary.
+A web page cannot read a model file, so the browser edition shows token pieces
+for a local Ollama model through an optional **tokenizer helper**: one small
+native program (under 10 MB, nothing else to install) that runs on the same
+computer as Ollama. The page renders the saved request with Ollama as usual and
+sends the rendered text to the helper, which splits it with the model's own
+vocabulary. The helper tokenizes text and does nothing else: it reads no project
+files, runs no commands, holds no conversation, never generates, and accepts no
+file path or address from the browser. Without the helper, the viewer still
+shows the rendered prompt, the counts and the model vocabulary.
 
 ### Use it
 
-1. Start the helper, from a checkout of this repository:
+1. Download the helper for your system from the
+   [latest release](https://github.com/StreamingBoss/myharness/releases/latest),
+   unpack it and start it in a terminal:
 
    ```bash
-   npm run token-helper:ts                                   # serves https://harnessarium.com
-   npm run token-helper:ts -- --origin http://localhost:5001   # serves another page
+   ./token-helper                                    # serves https://harnessarium.com
+   ./token-helper --origin http://localhost:5001     # serves another page
    ```
 
-   It listens on `http://127.0.0.1:5002`. `--origin` names the exact website
-   that may use it and can be repeated; `--port` changes the port.
+   On Windows the program is `token-helper.exe`. It listens on
+   `http://127.0.0.1:5002`. `--origin` names the exact website that may use it
+   and can be repeated; `--port` changes the port.
 2. In the harness, open **Tokens**. Under a request without token pieces, open
    **Show token pieces for my Ollama model (optional)** and click **Connect**.
 3. Click **Inspect selected request**.
@@ -139,105 +142,117 @@ an inspection reconnects by itself too. If the helper is not running, the panel
 says so and shows the start command. **Forget helper** stops this. Your browser
 may ask once to allow the site to reach devices on your local network.
 
-### Build the tokenizer program
+### Start at every login
 
-The helper starts the vocabulary-only `myharness-tokenizer` program on demand.
-Build it once. It uses llama.cpp at a pinned revision; the helper never
-downloads dependencies or models. On Ubuntu/WSL, install Git, CMake and a C++
-compiler, then run:
+```bash
+./token-helper --install       # add the same --origin and --port you use
+./token-helper --uninstall
+./token-helper --print-install # show the entry without changing anything
+```
+
+`--install` adds an entry for your user account only and needs no administrator
+rights: a systemd user service on Linux, a launch agent on macOS, a `Run`
+registry value on Windows. It records the program's own location, the `--origin`
+and `--port` given, and those of `OLLAMA_URL`, `MYHARNESS_TOKENIZER_MODELS` and
+`MYHARNESS_WSL_MOUNT_ROOT` that are set; nothing else from your environment. On
+Windows those settings cannot be recorded, so set them for your user account
+instead; the helper also starts only at the next login there. If the entry
+cannot be enabled, it is removed again. Run `--install` again after moving the
+program.
+
+### How it finds the vocabulary
+
+For each request the helper needs the GGUF file of the exact model:
+
+- By default it asks its own Ollama (`OLLAMA_URL`, default
+  `http://localhost:11434`) which file the model uses, and reads that file. This
+  needs Ollama on the same computer, reached over plain `http://`.
+- For Docker, a remote Ollama or an `https://` address, name the file yourself:
+
+  ```bash
+  export MYHARNESS_TOKENIZER_MODELS='{"qwen3:8b":"/absolute/path/to/matching-model.gguf"}'
+  ```
+
+Windows Ollama reports drive paths such as `D:\Users\...`. On Windows they are
+used as they are; under WSL they become `/mnt/d/Users/...`
+(`MYHARNESS_WSL_MOUNT_ROOT` changes `/mnt`).
+
+The helper checks the GGUF header and loads the vocabulary only: llama.cpp's
+`vocab_only` skips all weight tensors, and there is no inference context and no
+GPU use. One vocabulary stays loaded; another model or a changed file replaces
+it. Special markers in the text are parsed, automatic BOS/EOS insertion is
+disabled, and a token's bytes need not be valid UTF-8 on their own. A request is
+limited to 8 MiB of text. Explanations sent to the page never contain a path.
+
+The page compares its own Ollama address with the helper's, because the prompt
+is rendered by one and the vocabulary found through the other. Model matching
+remains the operator's responsibility when a file is named by hand, and the
+evidence is labelled separate tokenization: it is not an inference trace.
+
+### Protocol
+
+Two requests, both `POST` with a JSON body, on `http://127.0.0.1:5002`:
+
+| Request | Body | Answer |
+|---|---|---|
+| `/v1/info` | `{}` | `{ "value": { "protocol": 2, "ollamaUrl", "models", "automatic" } }` |
+| `/v1/tokenize` | `{ "model", "content" }` | `{ "value": { "identity", "tokens": [{ "id", "bytes" }] } }` |
+
+`403` means the website is not allowed, `422` carries a plain explanation of why
+this model cannot be tokenized, `400` and `413` reject a malformed or oversized
+request. `typescript/src/helper-protocol.ts` and `native/tokenizer/main.cpp` are
+the two sides.
+
+### The downloads
+
+`.github/workflows/token-helper.yml` builds the helper for Linux (x64), macOS
+(Apple silicon) and Windows (x64). Pushing a tag such as `token-helper-v1`
+publishes the downloads as a GitHub release; running the workflow by hand only
+builds them. On each system the built program is checked with
+`scripts/smoke-token-helper.mjs`, which uses the page's own client code and a
+real Qwen vocabulary file; on Linux `native/tokenizer/tests/verify.py` runs too.
+
+The downloads are not signed by a registered developer. macOS asks for
+confirmation under System Settings → Privacy & Security, and Windows shows
+"Windows protected your PC" (More info → Run anyway). The macOS and Windows
+builds have not yet been run on real machines; the Windows job reports its
+result without blocking the other systems.
+
+### Build it from source
+
+The helper is built from `native/tokenizer` against llama.cpp at a pinned
+revision, with the HTTP and JSON libraries that llama.cpp already ships. On
+Ubuntu/WSL, install Git, CMake and a C++ compiler, then run:
 
 ```bash
 sudo apt update
 sudo apt install -y git cmake build-essential
-cmake -S native/tokenizer -B dist/tokenizer -DCMAKE_BUILD_TYPE=Release
-cmake --build dist/tokenizer --target myharness-tokenizer -j4
-export MYHARNESS_LLAMA_TOKENIZER="$(pwd)/dist/tokenizer/bin/myharness-tokenizer"
+npm run build:token-helper        # cmake configure and build
+npm run token-helper -- --origin http://localhost:5001
 ```
 
-The initial explicit build downloads llama.cpp source. For an offline build, use
-an existing checkout of the pinned revision:
+The first build downloads llama.cpp source. For an offline build, use an
+existing checkout of the pinned revision:
 
 ```bash
 cmake -S native/tokenizer -B dist/tokenizer \
   -DMYHARNESS_LLAMA_SOURCE=/absolute/path/to/llama.cpp
 ```
 
-The pin is recorded in `native/tokenizer/CMakeLists.txt`. The program is statically
-linked to llama.cpp and needs no inference server or additional listening port.
-Its protocol is private NDJSON over stdin/stdout; version 1 starts with
-`{"ready":true,"protocol":1,"vocab_only":true}` and accepts `{"content":"..."}`.
-Replies contain `tokens` with numeric `id` and raw `bytes` arrays. Input frames
-are limited to 8 MiB and output frames to 64 MiB. Special markers are parsed;
-automatic BOS/EOS insertion is disabled. Empty input and trailing newlines are
-preserved, and a token's bytes need not be valid UTF-8 on their own.
-
-Run the export in the terminal that starts the helper. If `myharness-tokenizer`
-is already on PATH, it is found automatically. Connect Ollama in the page with
-the same URL as the helper's `OLLAMA_URL` (default `http://localhost:11434`) and
-select the exact model ID.
-
-On the first inspection the helper asks local Ollama for its model file, verifies
-the GGUF header, starts `myharness-tokenizer`, and waits for its vocabulary-only
-readiness response. Subsequent inspections reuse that owned process. Switching
-models or changing the file replaces it; Forget helper (when no other page is
-connected) or stopping the helper stops it. Startup cancellation also stops the
-process. The helper never runs an installation shell or downloads models. It strips
-`LLAMA_ARG_*` defaults so they cannot enable llama.cpp agent tools or alter the
-fixed launch arguments. Startup has a 30-second deadline. The program sets llama.cpp's
-`vocab_only=true`, reads tokenizer metadata, and skips all weight tensors. It creates
-no inference context and never generates.
+The pin is recorded in `native/tokenizer/CMakeLists.txt`. The program is
+statically linked and built without TLS.
 
 Migration: the loopback bridge (`npm run bridge:ts`, pairing codes, `--allow-*`
-grants) has been removed; `npm run token-helper:ts` replaces it for token
-inspection, and shell commands, native files and web search are available in the
-Node edition only. `MYHARNESS_LLAMA_SERVER` no longer configures automatic
-inspection: build the program and set `MYHARNESS_LLAMA_TOKENIZER` instead; do not
-point this setting at `llama-server` or `llama-tokenize`, which use different
-protocols. Existing manual `MYHARNESS_TOKENIZERS` HTTP bindings retain precedence
-and keep working. Those externally managed services may still load weights.
+grants), the Node tokenizer helper (`npm run token-helper:ts`) and the separate
+`myharness-tokenizer` program with its `MYHARNESS_LLAMA_TOKENIZER` setting have
+been removed. The helper no longer uses `MYHARNESS_TOKENIZERS`; that setting
+still configures an operator-run llama.cpp tokenizer for the Node edition.
+Shell commands, native files and web search are available in the Node edition
+only.
 
-Inspecting immediately after a reply normally reuses Ollama's resident model for
-prompt rendering. This does not guarantee zero Ollama loading time: it can unload
-or evict the model, particularly for historical requests or model switching. The
-current normal chat response does not expose its rendered prompt, so this release
-does not automatically capture it during generation or add a background model
-request. Successful inspections already save rendered text and token evidence;
-replaying them requires no model or tokenizer request. Local template rendering
-requires separate parity work before claiming equivalence to Ollama.
-
-Remote API/subscription adapters do not require this helper. They retain their
-existing pieces/count/unavailable behavior. A remote connection must expose an
-inspection capability or have verified tokenizer assets; a subscription alone
-is not evidence of access to a separate counting API.
-
-Windows Ollama drive paths are automatically translated to standard WSL mounts:
-`D:\Users\...` becomes `/mnt/d/Users/...`. If the file is readable there, no
-manual mapping is needed. Custom drive mounts, Docker or remote Ollama may still
-return paths the helper cannot read. Supply an exact model-to-local-file mapping
-in the terminal that starts the helper:
-
-```bash
-export OLLAMA_URL=http://your-ollama-host:11434
-export MYHARNESS_TOKENIZER_MODELS='{"qwen3:8b":"/absolute/path/to/matching-model.gguf"}'
-```
-
-Remote hosts require this explicit mapping. Verify the same vocabulary and model
-revision; automatic local discovery records the Ollama-reported file identity,
-while overrides are labelled operator-configured. Neither is an inference trace.
-Inspection reports missing executables, inaccessible models and startup failures
-without exposing process output. Ollama must support `_debug_render_only`.
-
-If you prefer an already running tokenizer, configure `MYHARNESS_TOKENIZERS` as
-shown above. Those exact model bindings take precedence. Previously saved
-successful inspections replay their saved evidence without launching a process.
-
-The helper reports its explicit model bindings and whether it starts tokenizers
-itself, validates saved-request structure, and only calls its own configured
-Ollama and tokenizer endpoints. A browser cannot supply a tokenizer URL or use
-the helper as a general network proxy. Origin checks and cancellation apply to
-inspection. Ollama must support `_debug_render_only`; otherwise the viewer
-explains why no pieces are available. Model matching remains the operator's
-responsibility, and the evidence is labelled separate tokenization.
+Successful inspections save rendered text and token evidence; replaying them
+requires no model or helper. Remote API adapters do not use the helper and keep
+their existing pieces/count/unavailable behavior.
 
 ## Remote Gemini in the Node runtime
 
