@@ -472,6 +472,26 @@ advanced reasoning controls remain subsequent features. Authenticated cloud
 browser and headless checks have not been performed; deterministic tests use
 scripted provider responses.
 
+## OpenRouter
+
+[OpenRouter](https://openrouter.ai/) reaches models from many vendors with one
+API key, including free ones (their IDs end in `:free`). Choose **OpenRouter** in
+the connect card ("Use an API key") or in Settings, enter your key and pick a model. The list
+shows only models that accept tool definitions, because the harness needs tools.
+The key is handled like the other cloud keys: Worker memory only, never saved in
+sessions, settings or exports.
+
+For Node/headless execution, set `MYHARNESS_PROVIDER=openrouter`,
+`OPENROUTER_API_KEY` and an explicit `MYHARNESS_MODEL` such as `vendor/model`.
+
+The adapter uses OpenRouter's
+[Chat Completions API](https://openrouter.ai/docs/api/reference/overview). Each
+assistant turn is replayed exactly as returned, with its `reasoning_details`, so
+models that require their reasoning during a tool loop keep working. HTTP 402
+means the account has no credits left. A headless tool loop (list_files, then
+read_file) was run against a free reasoning model with `reasoning_details` replayed
+on each request; deterministic tests use scripted responses.
+
 ## Scope and limits
 
 This is a local, single-user learning tool. The HTTP service has no authentication;

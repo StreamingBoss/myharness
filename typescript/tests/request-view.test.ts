@@ -8,6 +8,8 @@ import test from 'node:test';
 import { Script, createContext } from 'node:vm';
 import { chromium, type Page } from 'playwright';
 import { CloudAdapter } from '../src/cloud.js';
+import { OpenRouterAdapter } from '../src/openrouter.js';
+import { chunks } from './openrouter.test.js';
 import type { CoreEvent } from '../src/core.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { OllamaAdapter } from '../src/node/ollama.js';
@@ -114,6 +116,28 @@ for (const provider of ['openai', 'anthropic', 'gemini'] as const) {
     });
   });
 }
+
+test('openrouter: "As sent" is identical to the posted body and "By section" holds the same content', async t => {
+  const view = loadRequestView(), root = await workspace(t), posted: string[] = [];
+  let first = true;
+  const adapter = new OpenRouterAdapter(async (_url, init) => {
+    if (init.method === 'GET') return Response.json({});
+    posted.push(init.body!);
+    const reply = sse(first ? chunks('', [{ id: 'read', name: 'read_file', args: { path: 'README.md' } }]) : chunks('Done.'));
+    first = false; return reply;
+  }, 'SECRET');
+  const harness = new NodeHarness({ workspace: root, model: 'vendor/model', contextLength: 8192, provider: 'openrouter', maxOutputTokens: 2048, modelAdapter: adapter, sessions: new SessionStore(path.join(root, 'sessions')) });
+  await harness.initialize();
+  const events: CoreEvent[] = [];
+  for await (const event of harness.submit(turn('read the readme'))) events.push(event);
+  const sent = requests(events);
+  assert.equal(sent.length, 2); assert.equal(posted.length, 2);
+  sent.forEach((event, index) => {
+    assert.equal(JSON.stringify(view.sentBody(event)), posted[index]);
+    assert.ok(!posted[index]!.includes('SECRET'));
+    for (const text of shownTexts(view, event)) assert.ok(posted[index]!.includes(JSON.stringify(text).slice(1, -1)), `openrouter: ${text}`);
+  });
+});
 
 async function staticServer(t: { after(callback: () => unknown): void }) {
   const child = spawn(process.execPath, ['scripts/serve-browser.mjs'], { env: { ...process.env, MYHARNESS_PORT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
