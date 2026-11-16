@@ -54,12 +54,32 @@ test('a saved cloud session without its key asks for the key again, once', () =>
   assert.equal(f.get('connect-status').textContent, 'kept');
 });
 
-test('OpenRouter is offered on the API-key path, and a saved OpenRouter session asks for its key again', () => {
-  assert.match(CONNECT_CARD_HTML, /<option value="openrouter">OpenRouter/);
+test('OpenRouter, Mistral, Groq and Cerebras are offered on the API-key path, and a saved session asks for its key again', () => {
+  for (const provider of ['openrouter', 'mistral', 'groq', 'cerebras']) {
+    assert.match(CONNECT_CARD_HTML, new RegExp(`<option value="${provider}">`));
+    const f = fixture();
+    f.card.update({ model_connected: false, ready: false, provider });
+    assert.equal(f.get('connect-key').hidden, false); assert.equal(f.get('connect-provider').value, provider);
+    assert.equal(f.get('connect-custom').hidden, true);
+    assert.match(f.get('connect-status').textContent, /keys are never saved/);
+  }
+});
+
+test('a custom server asks for its address, lists models from it with an optional key, and is asked for again after a reload', async () => {
+  assert.match(CONNECT_CARD_HTML, /<option value="custom">Custom/); assert.match(CONNECT_CARD_HTML, /id="connect-custom-url"/);
   const f = fixture();
-  f.card.update({ model_connected: false, ready: false, provider: 'openrouter' });
-  assert.equal(f.get('connect-key').hidden, false); assert.equal(f.get('connect-provider').value, 'openrouter');
-  assert.match(f.get('connect-status').textContent, /keys are never saved/);
+  f.card.update({ model_connected: false, ready: false, provider: 'custom' });
+  assert.equal(f.get('connect-custom').hidden, false); assert.equal(f.get('connect-provider').value, 'custom');
+  assert.match(f.get('connect-status').textContent, /Its address and key are never saved/);
+  await f.click('connect-list'); assert.equal(f.get('connect-status').textContent, 'Enter your server address first.'); assert.equal(f.calls.length, 0);
+  f.get('connect-custom-url').value = 'http://localhost:1234/v1'; f.replies.listModels = () => [{ id: 'local/m', label: 'M' }];
+  await f.click('connect-list');
+  assert.deepEqual(f.calls.at(-1), { action: 'listModels', payload: { provider: 'custom', url: 'http://localhost:1234/v1' } });
+  await f.get('connect-custom-url').emit('change'); await settle(); assert.equal(f.calls.filter(call => call.action === 'listModels').length, 2);
+  f.get('connect-api-key').value = 'K'; await f.click('connect-go');
+  assert.deepEqual(f.calls.at(-2), { action: 'configureModel', payload: { provider: 'custom', model: 'local/m', url: 'http://localhost:1234/v1', apiKey: 'K' } });
+  f.get('connect-provider').value = 'gemini'; f.get('connect-provider').emit('change'); assert.equal(f.get('connect-custom').hidden, true);
+  f.get('connect-provider').value = 'custom'; f.get('connect-provider').emit('change'); assert.equal(f.get('connect-custom').hidden, false);
 });
 
 test('the API-key path lists models with the key, connects through the backend and clears the key field', async () => {

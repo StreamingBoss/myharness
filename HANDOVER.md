@@ -157,13 +157,30 @@ the backend; browser controls only forward RPC actions and render bootstrap.
 Provider-tagged continuation items and tool-call IDs survive session export and
 compaction retention. Current tool results are serialized from canonical memory.
 
-`openrouter.ts` is a separate adapter for OpenRouter's Chat Completions API (provider
-`openrouter`, `OPENROUTER_API_KEY` on Node). Its model IDs contain a slash, so
-`configuredModel` accepts one only for this provider. The continuation is the single
-assistant message as returned, including `reasoning_details`; streamed fragments are
-merged by index and type. It calls a detached `fetch`, as `cloud.ts` does: a browser's
-native fetch throws when invoked as a method. Its request body is covered by the
-Request-tab tests.
+`chat-completions.ts` is one adapter for OpenRouter, Mistral, Groq, Cerebras and `custom`
+(Chat Completions; the provider name is the lower-case service name; Node keys
+`OPENROUTER_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `CUSTOM_API_KEY`).
+A preset per provider holds the base URL, the token-limit field name (`max_tokens` or
+`max_completion_tokens`), extra headers (only OpenRouter sends one: the others would fail a
+browser preflight), the model-list path and filter, and how `describe` checks the key
+(OpenRouter's `/key`, or the model listing). Model IDs may contain a slash, so
+`configuredModel` accepts one only for these providers. The continuation is the single
+assistant message as returned, including `reasoning_details`; streamed fragments are merged by
+index and type. Mistral may return content as a list of text and thinking parts, and Groq
+reports streamed usage under `x_groq`.
+
+`custom` has no base URL in its preset: the user names a server. `customEndpoint` validates
+it (https for any host; http only for localhost, loopback, private ranges and `*.local`; no
+credentials, query or fragment). The address travels as `url` in the model settings
+(`configureModel`, `listModels`) or `MYHARNESS_CUSTOM_URL` on Node, and `ProviderRouter` keeps
+it in memory with `setBase`, like keys. The key is optional for `custom`, so `ready()` means
+"has an address" there and the `authorization` header is omitted without a key. Only services
+that answer a browser preflight belong among the named presets: NVIDIA NIM, Cloudflare Workers
+AI and Zhipu send no CORS headers and were left out; SiliconFlow was tried and removed because
+its international site has no free model (billing showed $0.0002 for the one call that ran).
+The adapter calls a detached `fetch`, as `cloud.ts` does: a browser's native fetch throws when
+invoked as a method. Request bodies are covered by the Request-tab tests. HTTP 402 has its own
+explanation in `error-messages.ts`; before it, a 402 was shown as "could not be reached".
 
 Keys never enter saved requests, sessions, settings or exports. Browser reload
 requires reconnection; Node supplies environment keys. Do not log provider error
@@ -171,6 +188,43 @@ bodies or headers. Native cloud count/token inspection is unavailable rather tha
 fabricated; generation usage is separate. The PR1 legacy Gemini/Vertex adapters
 and Ollama injection remain supported. Authenticated cloud checks are optional
 and currently unverified: no credentials were supplied for this change.
+
+## Provider test status (TODO: finish soon)
+
+The audience is engineers and students worldwide, including Russia and China, so every
+provider the page offers must be tried live before it is offered. Status on 2026-11-16, from
+a network in France, no VPN. "Preflight" is a browser CORS preflight from the site's origin;
+a provider without CORS headers cannot be called from a web page and is not offered.
+
+| Provider | Free access (per its own page, unverified) | Preflight | Scripted tests | Live, Node | Live, browser | From China | From Russia |
+|---|---|---|---|---|---|---|---|
+| Ollama (local) | Free, runs on your machine | n/a | yes | yes | yes | not run | not run |
+| Custom server | Whatever the server offers | n/a | yes | not run | yes (Ollama `/v1` on the LAN; OpenRouter by address) | not run | not run |
+| OpenRouter | `:free` models, daily caps | pass | yes | yes | yes | not run | not run |
+| Gemini | Free tier for Flash models | pass (site origin only) | yes | **not run** | **not run** | not run | not run |
+| Mistral | Free experimentation plan | pass | yes | **not run** | **not run** | not run | not run |
+| Groq | Free plan, per-model caps | pass (its CDN once returned 403 to the test network) | yes | **not run** | **not run** | not run | not run |
+| Cerebras | One-time credit, maybe a card | pass | yes | **not run** | **not run** | not run | not run |
+| OpenAI, Anthropic | Paid | pass (Anthropic needs its browser-access header) | yes | not run | not run | not run | not run |
+
+Tried and left out: SiliconFlow (international site: its one small model cost $0.0002 for
+3,200 tokens and the starter credit was gone, then HTTP 402 for every model); NVIDIA NIM,
+Cloudflare Workers AI, Zhipu, Yandex AI Studio and GigaChat (no CORS headers, or unreachable,
+so a web page cannot call them). Candidates not yet tried because they need accounts that may
+require a local phone number or ID: Alibaba Qwen (`dashscope` and `dashscope-intl`, CORS
+open), Baidu ERNIE (Qianfan, CORS open), cloud.ru Evolution (CORS open; free tier unknown) and
+Tencent Hunyuan. A truly free option for China and for Russia is still missing; Ollama and the
+Custom server are the only options that do not depend on a vendor's region or policy.
+
+To do, in order:
+1. Get free keys for Gemini, Mistral, Groq and Cerebras and run a browser tool loop for each
+   (connect card, list models, connect, ask for a `pwd` call). Record which free model worked.
+2. Repeat the probes and live runs with a VPN exit in China and in Russia, and fill the last
+   two columns. Claude is unavailable from those exits, so run a plain script there and read
+   its report afterwards.
+3. Try Alibaba Qwen, Baidu ERNIE and cloud.ru; add one Chinese and one Russian provider only
+   if a free tier really answers from a browser.
+4. Replace the "free access" cells with what was observed, and keep the README table in step.
 
 ## Connect card and tokenizer helper
 

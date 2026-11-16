@@ -3,7 +3,7 @@ import { tokenPiece, unavailable, type TokenInspection, type InspectionProgress 
 import type { PromptTokenizer } from '../llama-tokenizer.js';
 import type { OrchestrationLimits } from '../orchestration-limits.js';
 import { CloudAdapter } from '../cloud.js';
-import { OpenRouterAdapter } from '../openrouter.js';
+import { ChatCompletionsAdapter } from '../chat-completions.js';
 import type { ModelOption } from '../model.js';
 import { ProviderRouter, modelConfiguration, providerName, type ModelConfiguration } from '../providers.js';
 import { DemoModel } from './demo.js';
@@ -177,8 +177,8 @@ export class BrowserHarness extends Harness {
       if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new BackendError('Use an HTTP(S) Ollama URL without credentials.');
       return new OllamaAdapter(fetch, url.href.replace(/\/$/, '')).listModels();
     }
-    const adapter = this.router.adapter(provider, value.apiKey);
-    if (adapter instanceof CloudAdapter || adapter instanceof OpenRouterAdapter) return adapter.listModels();
+    const adapter = this.router.adapter(provider, value.apiKey, value.url);
+    if (adapter instanceof CloudAdapter || adapter instanceof ChatCompletionsAdapter) return adapter.listModels();
     throw new BackendError('Choose a real model provider to list models.');
   }
 

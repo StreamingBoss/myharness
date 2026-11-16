@@ -8,8 +8,8 @@ import test from 'node:test';
 import { Script, createContext } from 'node:vm';
 import { chromium, type Page } from 'playwright';
 import { CloudAdapter } from '../src/cloud.js';
-import { OpenRouterAdapter } from '../src/openrouter.js';
-import { chunks } from './openrouter.test.js';
+import { ChatCompletionsAdapter } from '../src/chat-completions.js';
+import { chunks } from './chat-completions.test.js';
 import type { CoreEvent } from '../src/core.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { OllamaAdapter } from '../src/node/ollama.js';
@@ -120,7 +120,7 @@ for (const provider of ['openai', 'anthropic', 'gemini'] as const) {
 test('openrouter: "As sent" is identical to the posted body and "By section" holds the same content', async t => {
   const view = loadRequestView(), root = await workspace(t), posted: string[] = [];
   let first = true;
-  const adapter = new OpenRouterAdapter(async (_url, init) => {
+  const adapter = new ChatCompletionsAdapter('openrouter', async (_url, init) => {
     if (init.method === 'GET') return Response.json({});
     posted.push(init.body!);
     const reply = sse(first ? chunks('', [{ id: 'read', name: 'read_file', args: { path: 'README.md' } }]) : chunks('Done.'));

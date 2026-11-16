@@ -455,7 +455,7 @@ export class Harness implements TurnHost {
     const provider = providerName((value.provider ?? value.mode)!);
     if (!(this.adapter instanceof ProviderRouter)) throw new BackendError('This injected model adapter does not support configuration.');
     const router = this.adapter, model = configuredModel(provider, value.model);
-    let candidate = router.adapter(provider, value.apiKey), context = value.contextLength ?? (provider === 'demo' ? 4096 : 8192);
+    let candidate = router.adapter(provider, value.apiKey, value.url), context = value.contextLength ?? (provider === 'demo' ? 4096 : 8192);
     let endpoint: string | undefined, selectionChanged = false;
     this.running = true; this.state.stopped = false; this.cancellationReason = 'turn cancelled'; this.controller = new AbortController();
     try {
@@ -476,6 +476,7 @@ export class Harness implements TurnHost {
       if (this.stopped()) throw new BackendError(this.stopReason());
       if (candidate instanceof LegacyModelAdapter) router.setLegacy(provider, candidate.port);
       if (value.apiKey !== undefined) router.setKey(provider, value.apiKey);
+      if (provider === 'custom') router.setBase(provider, value.url!);
       if (endpoint) await this.saveModelEndpoint(endpoint);
       selectionChanged = (this.state.provider ?? (this.state.model === 'scripted-demo' ? 'demo' : 'ollama')) !== provider || this.state.model !== model || this.state.contextLength !== context || this.state.maxOutputTokens !== maxOutput;
       router.selected = provider; this.state.provider = provider; this.state.model = model; this.state.contextLength = context;
