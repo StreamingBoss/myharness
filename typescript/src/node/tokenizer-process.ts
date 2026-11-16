@@ -12,7 +12,7 @@ export class TokenizerProcess {
     this.child = spawn(executable, ['-m', file], { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env });
     this.child.stderr.resume(); // Never expose native logs, paths or prompt contents to the UI.
     this.child.on('error', error => { this.failure = (error as NodeJS.ErrnoException).code === 'ENOENT'
-      ? 'Tokenizer helper is not installed. Build myharness-tokenizer and set MYHARNESS_LLAMA_TOKENIZER, then restart the bridge.'
+      ? 'Tokenizer helper is not installed. Build myharness-tokenizer and set MYHARNESS_LLAMA_TOKENIZER, then restart the tokenizer helper.'
       : 'Could not start tokenizer helper. Check MYHARNESS_LLAMA_TOKENIZER and executable permissions.'; });
     this.child.on('exit', () => { this.failure = 'Tokenizer helper exited. Check GGUF compatibility and retry inspection.'; });
     this.child.stdin.on('error', () => { this.failure = 'Tokenizer helper input channel failed. Retry inspection.'; });

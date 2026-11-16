@@ -164,7 +164,7 @@ fabricated; generation usage is separate. The PR1 legacy Gemini/Vertex adapters
 and Ollama injection remain supported. Authenticated cloud checks are optional
 and currently unverified: no credentials were supplied for this change.
 
-## Connect card and bridge
+## Connect card and tokenizer helper
 
 The browser edition has one entry page. Guide & Setup, the linked second tab,
 `ManagedSession`, the vault, shared/personal modes and the scripted demo option
@@ -176,10 +176,24 @@ models can raise the browser's local-network prompt. API keys stay in Worker
 memory only. `DemoModel` and the `demo` provider remain as a deterministic test
 fixture and for sessions saved with them; do not offer them in the page.
 
-The bridge backend actions remain callable and tested, but no page pairs a bridge.
-The planned next step reduces the bridge to a tokenizer-only helper paired from
-the token viewer. `scripts/build-browser.mjs` now empties `dist/browser` first so
-retired pages are never shipped from an older build.
+The loopback bridge is gone (`node/bridge*.ts`, `browser/bridge.ts`, pairing codes,
+grants, native folders, commands and web search from the website). What remains is
+the optional tokenizer helper: `node/token-helper.ts` and `token-helper-cli.ts`
+(`npm run token-helper:ts`), `browser/token-helper.ts` (client) and
+`helper-protocol.ts` (shared constants and `HelperError`). The helper has two routes
+and one effect, `inspectTokens`. It trusts the browser's `Origin` and `Host` headers
+instead of a pairing code; keep it tokenizer-only, because that is what makes the
+missing code acceptable. Default origin `https://harnessarium.com`, default address
+`http://127.0.0.1:5002`.
+
+`BrowserHarness.connectTokenizer`, `forgetTokenizer` and `tokenizerStatus` are the
+backend actions (same Worker action names). The remembered choice is
+`settings/tokenizer-helper` (`{ endpoint }`, no secret). Startup contacts nothing;
+`inspectModelTokens` reconnects a remembered helper lazily, and
+`ui/token-helper-panel.ts` reconnects once per page load when the token view opens.
+The panel lives inside `#tokenization`, is shown for Ollama only, and makes no
+decisions. `scripts/build-browser.mjs` empties `dist/browser` first so retired pages
+are never shipped from an older build.
 
 Explorer views request live model metadata only for the model-template view
 (`describe_model` in HTTP/Worker, the optional second `explore` argument headlessly).
@@ -188,40 +202,26 @@ available session snapshots; transport failures are displayed instead of leaving
 the explorer blank.
 Project-folder changes fetch fresh backend state so tool availability and browser
 workspace status update immediately without a page reload.
-`detachBridge` restores the pre-bridge runtime/workspace, keeps model credentials
-and conversation, and cancels pending pairing.
 Safe errors carry structured `failure` details: source,
 component, reason and recovery. Worker and HTTP adapters preserve those details;
 the harness renders them for live errors and replay. Provider response bodies and
 credentials must never be copied into diagnostics.
-Paired folder selection uses the bridge's native directory browser rather than
-browser directory handles, which expose no absolute native path. `selectProject`
-registers each selected native root in the authenticated bridge connection. Tools
-carry that root explicitly, so switching repositories cannot redirect an older
-workspace's operations. `--workspace` is the initial directory; grants and approval
-policy remain unchanged when selecting another repository. `browseProject` and
-`selectBridgeProject` are callable backend actions with Worker adapters.
-
-`npm run bridge:ts` starts an independent capability-only Node process on loopback.
-Writes, Bash and Git mutations require explicit startup flags. Pairing codes are
-single use; bridge tokens are not persisted. Ordinary browser mode still cannot
-start processes without a bridge. Keep owner services/settings untouched.
-
 The earlier Guide proposal and delivery notes in `docs/browser-guide-*.md` are kept
 as history and marked superseded. Copilot prerequisites are in
 `docs/copilot-feasibility.md`. All new TS modules and the connect-card controller
 participate in the per-file 100% coverage gate.
 
-Bridge token inspection uses operator-owned `MYHARNESS_TOKENIZERS` bindings and
-`OLLAMA_URL`. The browser backend routes saved Ollama requests through the paired
-bridge when bindings are advertised. The bridge renders the prompt and calls
-llama.cpp; it accepts no browser-selected upstream URLs. Setup is in TOKENIZATION.md.
+Helper token inspection uses operator-owned `MYHARNESS_TOKENIZERS` bindings and
+`OLLAMA_URL`. The browser backend routes saved Ollama requests through the connected
+helper when it reports bindings or automatic startup. The helper renders the prompt
+and calls llama.cpp; it accepts no browser-selected upstream URLs. Setup is in
+TOKENIZATION.md.
 
-`--allow-tokenizer` grants dedicated on-demand llama.cpp startup independently of
-Bash. `node/managed-tokenizer.ts` discovers local Ollama GGUF paths, supports
-operator `MYHARNESS_TOKENIZER_MODELS` mappings and `MYHARNESS_LLAMA_TOKENIZER`, reuses
-one owned process, and kills it on replacement, release, expiry or shutdown.
-Manual `MYHARNESS_TOKENIZERS` bindings take precedence. No installers run in the bridge.
+The helper always offers on-demand tokenizer startup. `node/managed-tokenizer.ts`
+discovers local Ollama GGUF paths, supports operator `MYHARNESS_TOKENIZER_MODELS`
+mappings and `MYHARNESS_LLAMA_TOKENIZER`, reuses one owned process, and kills it on
+replacement, when the last page session is released, and on shutdown.
+Manual `MYHARNESS_TOKENIZERS` bindings take precedence. No installers run in the helper.
 
 Windows Ollama `FROM` drive paths are translated to standard WSL `/mnt/<drive>`
 paths before GGUF validation. Existing POSIX paths stay unchanged; UNC/relative
@@ -229,17 +229,17 @@ paths require explicit model mappings. Scratch mounted-drive tests cover discove
 and actual child launch without touching the owner's Ollama or model files.
 
 Token viewer progress now comes from `tokenizationProgress` (Worker) or
-`GET /tokenize/progress` (HTTP). Ollama and ManagedTokenizer report stages; bridge
-state is connection-scoped and cleared after inspection. BrowserHarness forwards
+`GET /tokenize/progress` (HTTP). Ollama and ManagedTokenizer report stages; helper
+state is session-scoped and cleared after inspection. BrowserHarness forwards
 that status without a backend timer. The viewer polls with stale-result guards.
 Renderer/tokenizer failures preserve safe stage-specific explanations; diagnostic
-bridge failures also survive the shared inspection boundary. Inspection requests
-have a 260-second bridge transport deadline matching their component budgets.
+helper failures also survive the shared inspection boundary. Inspection requests
+have a 260-second helper transport deadline matching their component budgets.
 
 
 ## Vocabulary-only token inspection
 
-Automatic bridge inspection now owns `myharness-tokenizer`, built from
+Automatic helper inspection owns `myharness-tokenizer`, built from
 `native/tokenizer/` against the pinned llama.cpp revision. It sets `vocab_only`,
 creates no inference context, and returns IDs/raw bytes through private NDJSON.
 `node/tokenizer-process.ts` bounds frames, removes inherited `LLAMA_ARG_*` settings,
@@ -263,6 +263,6 @@ as `error-messages.js` for both the Node-served UI and browser distribution.
 Approval events/results carry their actual configured wait limits; network,
 command, Git, task and token-inspection failures report their operation limits.
 
-`BRIDGE_CONNECTION_TIMEOUT_MS` in `bridge/protocol.ts` is the single source for
-bridge lease expiry and ordinary bridge request deadlines. Its current value is
-120 seconds. A configured local Ollama does not imply a live network check.
+`HELPER_REQUEST_TIMEOUT_MS` (120 seconds) and `HELPER_INSPECTION_TIMEOUT_MS`
+(260 seconds) in `helper-protocol.ts` are the helper client's request deadlines.
+A configured local Ollama does not imply a live network check.

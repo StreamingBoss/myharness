@@ -10,6 +10,7 @@ import { closePanels, openSessions, openSettings, openTools } from './ui-panels.
 import { DemoModel } from '../src/browser/demo.js';
 import type { ModelRequest } from '../src/core.js';
 import { FixtureServer } from './mcp-fixture.js';
+import { TokenHelper, createTokenHelperServer } from '../src/node/token-helper.js';
 import { real, repository } from './git-helpers.js';
 
 async function staticServer(t: { after(callback: () => unknown): void }) {
@@ -113,6 +114,73 @@ test('first visit: the connect card reaches Ollama or explains how to allow this
   assert.match(await keyed.locator('#connect-status').innerText(), /keys are never saved/);
   // "Not now" hides the card so saved sessions stay readable.
   await keyed.locator('#connect-dismiss').click(); assert.equal(await keyed.locator('#connect-card').isVisible(), false);
+  assert.deepEqual(errors, []);
+});
+
+test('token viewer: one click connects the tokenizer helper, token pieces appear, and later visits reconnect without a click', async t => {
+  const { base } = await staticServer(t);
+  const model = new DemoModel();
+  const ollama = createServer(async (request, response) => {
+    response.setHeader('access-control-allow-origin', base); response.setHeader('access-control-allow-headers', 'content-type');
+    if (request.method === 'OPTIONS') { response.end(); return; }
+    if (request.url === '/api/tags') { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ models: [{ name: 'small:4b' }] })); return; }
+    let body = ''; for await (const chunk of request) body += String(chunk);
+    if (request.url === '/api/show') { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ template: 'Test model', model_info: { 'general.architecture': 'qwen3', 'qwen3.context_length': 4096 } })); return; }
+    response.setHeader('content-type', 'application/x-ndjson');
+    for await (const chunk of model.streamChat(JSON.parse(body) as ModelRequest)) response.write(chunk + '\n');
+    response.end();
+  });
+  await new Promise<void>(resolve => ollama.listen(0, '127.0.0.1', resolve)); t.after(() => ollama.close());
+  const modelURL = `http://127.0.0.1:${(ollama.address() as { port: number }).port}`;
+  // A real helper process boundary: loopback HTTP with the page's origin allowed. Its Ollama and tokenizer upstreams are scripted.
+  const helper = new TokenHelper({ origins: [base], ollamaUrl: modelURL, tokenizers: { 'small:4b': { url: 'http://tokenizer.test', alias: 'small:4b', identity: 'fixture vocabulary' } },
+    inspectionFetch: async (url: string) => Response.json(url.endsWith('/api/chat') ? { _debug_info: { rendered_template: '<|im_start|>user\nRemember 42<|im_end|>' } } : url.endsWith('/v1/models') ? { data: [{ id: 'small:4b' }] }
+      : { tokens: [{ id: 151644, piece: '<|im_start|>' }, { id: 872, piece: 'user' }, { id: 198, piece: '\n' }, { id: 28590, piece: 'Remember' }, { id: 220, piece: ' ' }, { id: 2983, piece: '42' }, { id: 151645, piece: '<|im_end|>' }] }) });
+  const helperServer = createTokenHelperServer(helper); await new Promise<void>(resolve => helperServer.listen(0, '127.0.0.1', resolve));
+  t.after(() => { helperServer.closeAllConnections(); helperServer.close(); });
+  const helperURL = `http://127.0.0.1:${(helperServer.address() as { port: number }).port}`;
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
+  const context = await browser.newContext(), page = await context.newPage(), errors: string[] = []; let helperRequests = 0;
+  page.on('pageerror', error => errors.push(error.message));
+  await context.route('http://localhost:11434/**', route => route.abort());
+  // The page uses the helper's fixed default address; the test helper listens on a free port instead.
+  await context.route('http://127.0.0.1:5002/**', route => { helperRequests++; return route.continue({ url: route.request().url().replace('http://127.0.0.1:5002', helperURL) }); });
+  await page.goto(base + '/?database=token-helper'); await ready(page);
+  // Ollama at another address is connected from the card.
+  await page.locator('#connect-choose-ollama').click(); await page.locator('#connect-ollama-help').waitFor();
+  await page.getByText('Ollama runs at another address', { exact: true }).click();
+  await page.locator('#connect-ollama-url').fill(modelURL); await page.locator('#connect-ollama-url').press('Tab');
+  await page.locator('#connect-go').click(); await page.locator('#connect-card').waitFor({ state: 'hidden' });
+  await send(page, 'Remember 42'); await page.getByText('Received: 42.', { exact: false }).first().waitFor();
+  const idle = () => page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden);
+  const inspect = async () => { await page.waitForFunction(() => !(document.querySelector('#token-inspect') as HTMLButtonElement).disabled); await page.locator('#token-inspect').click(); await idle(); };
+  await idle(); await page.locator('#explore-view').selectOption('tokens');
+  // Without the helper there are no token pieces, and the optional panel offers them without a pairing code.
+  await inspect(); await page.getByText('No token pieces to show for this request.', { exact: true }).waitFor();
+  assert.equal(await page.locator('.token-chip').count(), 0); assert.equal(helperRequests, 0);
+  assert.equal(await page.locator('#token-helper').isVisible(), true); assert.equal(await page.locator('#token-helper-connect').isVisible(), false);
+  await page.locator('#token-helper-setup > summary').click();
+  assert.equal(await page.locator('#token-helper-command').innerText(), `npm run token-helper:ts -- --origin ${base}`);
+  assert.equal(await page.locator('#token-helper input').count(), 0);
+  await page.locator('#token-helper-connect').click();
+  await page.getByText('Tokenizer helper connected.', { exact: false }).waitFor();
+  assert.equal(await page.locator('#token-helper-setup').isVisible(), false); assert.equal(await page.locator('#token-helper-forget').isVisible(), true);
+  await inspect(); await page.locator('.token-chip').first().waitFor();
+  assert.deepEqual(await page.locator('.token-chip').allInnerTexts(), ['<|im_start|>', 'user', '↵', 'Remember', '·', '42', '<|im_end|>']);
+  assert.match(await page.locator('#token-about').innerText(), /fixture vocabulary/);
+  // A later visit: nothing is contacted until the token view opens, then the helper reconnects by itself.
+  await page.reload(); await ready(page); helperRequests = 0;
+  assert.equal(await page.locator('#connect-card').isVisible(), false);
+  await page.locator('#explore-view').selectOption('memory'); assert.equal(helperRequests, 0);
+  await page.locator('#explore-view').selectOption('tokens');
+  await page.getByText('Tokenizer helper connected.', { exact: false }).waitFor(); assert.ok(helperRequests > 0);
+  assert.equal(await page.locator('.token-chip').count(), 7);
+  // Forget: the page stops reconnecting.
+  await page.locator('#token-helper-forget').click(); await page.locator('#token-helper-setup').waitFor();
+  assert.equal(await page.locator('#token-helper-forget').isVisible(), false);
+  await page.reload(); await ready(page); helperRequests = 0;
+  await page.locator('#explore-view').selectOption('tokens'); await page.locator('#token-helper-setup').waitFor();
+  await page.locator('#token-request').waitFor(); assert.equal(helperRequests, 0);
   assert.deepEqual(errors, []);
 });
 

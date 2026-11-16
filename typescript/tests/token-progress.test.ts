@@ -7,7 +7,7 @@ import path from 'node:path';
 import { OllamaAdapter } from '../src/ollama.js';
 import { BrowserHarness } from '../src/browser/harness.js';
 import { MemoryStorage } from '../src/browser/storage.js';
-import { NativeBridge, createBridgeServer } from '../src/node/bridge.js';
+import { TokenHelper, createTokenHelperServer } from '../src/node/token-helper.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { createHarnessServer } from '../src/node/http.js';
 import { WorkerHost } from '../src/browser/worker-host.js';
@@ -54,31 +54,31 @@ test('Node inspection progress is callable during a turn, cloned, and exposed ov
   finish.open(); assert.match((await pending).explanation, /Ollama renderer: HTTP 503/); assert.equal(await harness.tokenizationProgress(), null);
 });
 
-test('browser progress forwards real bridge stages and tolerates missing, unknown or unavailable status', async t => {
-  const root = await mkdtemp(path.join(tmpdir(), 'token-progress-bridge-')); t.after(() => rm(root, { recursive: true, force: true }));
+test('browser progress forwards real helper stages and tolerates missing, unknown or unavailable status', async t => {
   const render = gate(), renderReady = gate(), tokenize = gate(), tokenizeReady = gate();
-  const service = new NativeBridge({ workspace: root, origin: 'https://guide.test', grants: { writes: false, commands: false, gitWrites: false }, tokenizers: { [payload.model]: binding }, inspectionFetch: async url => {
+  const origin = 'https://harness.test';
+  const service = new TokenHelper({ origins: [origin], tokenizers: { [payload.model]: binding }, inspectionFetch: async (url: string) => {
     if (url.endsWith('/api/chat')) { renderReady.open(); await render.wait; return Response.json({ _debug_info: { rendered_template: 'hello' } }); }
     if (url.endsWith('/v1/models')) { tokenizeReady.open(); await tokenize.wait; return Response.json({ data: [{ id: payload.model }] }); }
     return Response.json({ tokens: [{ id: 42, piece: 'hello' }] });
   } });
-  const server = createBridgeServer(service); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => { server.closeAllConnections(); server.close(); });
+  const server = createTokenHelperServer(service); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => { server.closeAllConnections(); server.close(); });
   const rawFetch = globalThis.fetch, base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   let override: string | null | undefined, fail = false;
   t.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
     const request = JSON.parse(String(init.body));
     if (request.operation === 'inspectionProgress') { if (fail) throw new Error('offline'); if (override !== undefined) return Response.json({ value: { stage: override } }); }
-    return rawFetch(url, { ...init, headers: { ...init.headers, origin: service.origin } });
+    return rawFetch(url, { ...init, headers: { ...init.headers, origin } });
   });
   const harness = await BrowserHarness.open({ storage: new MemoryStorage(), library: { agents: {}, skills: {}, prompts: {} }, seed: {}, model: payload.model }); t.after(() => harness.close());
-  await harness.attachBridge(base, service.code); assert.equal(await harness.tokenizationProgress(), null);
+  await harness.connectTokenizer(base); assert.equal(await harness.tokenizationProgress(), null);
   const index = await saved(harness), pending = harness.tokenize(index); await renderReady.wait;
   assert.equal((await harness.tokenizationProgress())!.stage, 'rendering');
   for (const stage of [null, 'unknown']) { override = stage; assert.equal((await harness.tokenizationProgress())!.stage, 'inspecting'); }
   fail = true; assert.equal((await harness.tokenizationProgress())!.stage, 'inspecting'); fail = false; override = undefined;
   render.open(); await tokenizeReady.wait; assert.equal((await harness.tokenizationProgress())!.stage, 'tokenizing');
   tokenize.open(); assert.equal((await pending).count, 1); assert.equal(await harness.tokenizationProgress(), null);
-  await harness.detachBridge();
+  await harness.forgetTokenizer();
 });
 
 test('the Worker transport exposes progress immediately while inspection is pending', async t => {
@@ -98,10 +98,9 @@ test('the Worker transport exposes progress immediately while inspection is pend
   }
 });
 
-test('idle bridge progress is empty and requires the paired connection', async t => {
-  const root = await mkdtemp(path.join(tmpdir(), 'token-progress-idle-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const bridge = new NativeBridge({ workspace: root, origin: 'https://guide.test', grants: { writes: false, commands: false, gitWrites: false } });
-  const { token } = bridge.pair(bridge.code);
-  assert.deepEqual(await bridge.call(token, { id: 'idle', operation: 'inspectionProgress', args: {} }), { stage: null });
-  await assert.rejects(bridge.call('other-token', { id: 'foreign', operation: 'inspectionProgress', args: {} })); bridge.close();
+test('idle helper progress is empty and requires a connected session', async () => {
+  const helper = new TokenHelper({ origins: ['https://harness.test'] });
+  const { token } = helper.connect();
+  assert.deepEqual(await helper.call(token, { id: 'idle', operation: 'inspectionProgress', args: {} }), { stage: null });
+  await assert.rejects(helper.call('other-token', { id: 'foreign', operation: 'inspectionProgress', args: {} }), /connect again/); helper.close();
 });

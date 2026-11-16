@@ -8,7 +8,8 @@ import { DemoModel } from './demo.js';
 import { Harness, BackendError, type ModelPort } from '../harness.js';
 import { GIT_TOOLS, TOOL_NAMES } from '../tools.js';
 import { BrowserGit } from './git.js';
-import { BridgeClient, BridgeWorkspace } from './bridge.js';
+import { TokenHelperClient } from './token-helper.js';
+import { HELPER_DEFAULT_ENDPOINT, type HelperInfo } from '../helper-protocol.js';
 import type { RuntimePort } from '../runtime.js';
 import type { StoragePort } from './storage.js';
 import { BrowserSessions } from './sessions.js';
@@ -38,11 +39,10 @@ type ResolvedBrowserOptions = BrowserOptions & Required<Pick<BrowserOptions, 'al
 /** Complete browser backend. It runs directly or in a Worker, without a page. */
 export class BrowserHarness extends Harness {
   private runtime!: RuntimePort;
-  private bridge: BridgeClient | undefined;
-  private bridgeInspection = false;
-  private bridgeRestore: { runtime: RuntimePort; workspace: string } | undefined;
-  private bridgeGeneration = 0;
-  private readonly bridgeWorkspaces = new Map<string, BridgeWorkspace>();
+  /** Optional tokenizer helper on this computer. `helperEndpoint` is the remembered choice; `helper` the live connection. */
+  private helper: TokenHelperClient | undefined;
+  private helperEndpoint: string | undefined;
+  private helperInspection = false;
   private constructor(private readonly browser: ResolvedBrowserOptions, private readonly projects: Map<string, StoredProject>, workspace: string, private readonly router: ProviderRouter, private readonly mcpConfig: McpConfigHolder = {}) {
     const runtime: RuntimePort = {
         name: 'browser', supportedTools: TOOL_NAMES.filter(name => name !== 'run_command' && name !== 'web_search'),
@@ -89,107 +89,68 @@ export class BrowserHarness extends Harness {
     const url = await options.storage.get<string>('settings', 'ollama-url');
     const router = new ProviderRouter(fetch, { demo: new DemoModel(), ollama: new OllamaAdapter(fetch, url ?? 'http://localhost:11434') }, options.model === DEMO_MODEL ? 'demo' : 'ollama');
     const settings = await options.storage.get<{ allowSubagents: boolean; childTools: string[]; childRoutes: { provider: import('../model.js').Provider; model: string }[] }>('settings', 'harness-settings');
+    const helper = await options.storage.get<{ endpoint: string }>('settings', 'tokenizer-helper');
     const harness = new BrowserHarness({ ...options, allowSubagents: settings?.allowSubagents ?? options.allowSubagents ?? false, childTools: settings?.childTools ?? options.childTools ?? [], childRoutes: settings?.childRoutes ?? options.childRoutes ?? [] }, projects, workspace, router);
+    harness.helperEndpoint = helper?.endpoint;
     await harness.initialize();
     return harness;
   }
 
   protected override async inspectModelTokens(payload: ModelRequest, signal: AbortSignal, progress?: InspectionProgress): Promise<TokenInspection> {
-    const bridge = this.bridge;
-    if (this.router.selected !== 'ollama' || payload.provider && payload.provider !== 'ollama' || !bridge?.connected || !(bridge.snapshot().tokenization?.automatic || bridge.snapshot().tokenization?.models.length)) return super.inspectModelTokens(payload, signal, progress);
-    const config = bridge.snapshot().tokenization!;
-    if (!config.automatic && !config.models.includes(payload.model)) return unavailable(payload.model, 'ollama', 'The bridge has no tokenizer configured for this exact Ollama model. Set MYHARNESS_TOKENIZERS on the bridge and pair again.');
+    if (this.router.selected !== 'ollama' || payload.provider && payload.provider !== 'ollama' || !this.helperEndpoint) return super.inspectModelTokens(payload, signal, progress);
+    // A remembered helper reconnects by itself; if it is not running, inspection continues without token pieces.
+    if (!this.helper?.connected) await this.connectTokenizer().catch(() => undefined);
+    const info = this.helper?.info;
+    if (!info || !(info.automatic || info.models.length)) return super.inspectModelTokens(payload, signal, progress);
+    if (!info.automatic && !info.models.includes(payload.model)) return unavailable(payload.model, 'ollama', 'The tokenizer helper has no tokenizer configured for this exact Ollama model. Set MYHARNESS_TOKENIZERS where the helper runs and start it again.');
     const endpoint = await this.browser.storage.get<string>('settings', 'ollama-url') ?? 'http://localhost:11434';
-    if (endpoint !== config.ollamaUrl) return unavailable(payload.model, 'ollama', 'The browser and bridge Ollama URLs differ. Connect the same Ollama server in both before inspecting tokens.');
-    this.bridgeInspection = true;
-    try { return await bridge.call<TokenInspection>('inspectTokens', { payload, ollamaUrl: endpoint }, signal); }
-    finally { this.bridgeInspection = false; }
+    if (endpoint !== info.ollamaUrl) return unavailable(payload.model, 'ollama', 'The browser and the tokenizer helper use different Ollama URLs. Point both at the same Ollama server before inspecting tokens.');
+    this.helperInspection = true;
+    try { return await this.helper!.call<TokenInspection>('inspectTokens', { payload, ollamaUrl: endpoint }, signal); }
+    finally { this.helperInspection = false; }
   }
 
   override async tokenizationProgress(): Promise<TokenizationProgress | null> {
     const current = await super.tokenizationProgress();
-    if (!current || !this.bridgeInspection || !this.bridge) return current;
+    if (!current || !this.helperInspection) return current;
     try {
-      const { stage } = await this.bridge.call<{ stage: TokenizationStage | null }>('inspectionProgress');
+      const { stage } = await this.helper!.call<{ stage: TokenizationStage | null }>('inspectionProgress');
       return stage && Object.hasOwn(TOKENIZATION_PROGRESS, stage) ? { ...current, stage, message: TOKENIZATION_PROGRESS[stage] } : current;
     } catch { return current; }
   }
 
-  async attachBridge(endpoint: string, code: string, persistent = false): Promise<void> {
-    this.idle('connecting a bridge');
-    if (this.bridge?.connected) throw new BackendError('Lock or end this experiment before pairing a replacement bridge.');
-    const generation = this.bridgeGeneration;
-    const bridge = new BridgeClient(endpoint);
-    await bridge.pair(code, persistent);
-    try {
-      this.idle('connecting a bridge');
-      if (generation !== this.bridgeGeneration) throw new BackendError('Bridge pairing cancelled by unpairing.');
-    } catch (error) { await bridge.close(); throw error; }
-    const workspace = new BridgeWorkspace(bridge), snapshot = bridge.snapshot();
-    this.bridgeRestore ??= { runtime: { ...this.runtime, capabilities: { ...this.runtime.capabilities } }, workspace: this.state.workspace };
-    this.projects.set(workspace.root, workspace.project);
-    this.bridgeWorkspaces.clear(); this.bridgeWorkspaces.set(workspace.root, workspace);
-    const local = this.runtime.workspace, localGit = this.runtime.git!;
-    this.runtime.workspace = folder => this.bridgeWorkspaces.get(folder) ?? local(folder);
-    this.runtime.git = (folder, signal) => folder instanceof BridgeWorkspace ? (bridge.connected && bridge.snapshot(folder.root).git ? bridge.git(signal, folder.root) : undefined) : localGit(folder, signal);
-    this.runtime.executeCommand = (command, folder, signal) => { if (!this.bridgeWorkspaces.has(folder)) throw new BackendError('Select a bridge folder before running commands.'); return bridge.call('command', { command, workspace: folder }, signal); };
-    this.runtime.webSearch = (query, signal) => bridge.call('webSearch', { query }, signal);
-    Object.defineProperty(this.runtime, 'supportedTools', { configurable: true, get: () => TOOL_NAMES.filter(name => name !== 'web_search' && name !== 'run_command' || bridge.connected && (name === 'web_search' || this.bridgeWorkspaces.has(this.state.workspace) && snapshot.grants.commands)) });
-    Object.assign(this.runtime.capabilities, { commands: snapshot.grants.commands, web_search: true, workspace: 'paired local workspace' });
-    this.bridge = bridge;
-    await this.setProject(workspace.root);
+  /**
+   * Connects the tokenizer helper and remembers the choice, so later sessions reconnect without asking.
+   * Nothing secret is stored: only the helper's loopback address. The helper itself decides which websites it serves.
+   */
+  async connectTokenizer(endpoint = this.helperEndpoint ?? HELPER_DEFAULT_ENDPOINT): Promise<Record<string, unknown>> {
+    const client = new TokenHelperClient(endpoint);
+    await client.connect();
+    const previous = this.helper;
+    this.helper = client; this.helperEndpoint = endpoint;
+    await previous?.close();
+    await this.browser.storage.put('settings', 'tokenizer-helper', { endpoint });
+    return this.tokenizerStatus();
   }
-  bridgeStatus() { return this.bridge?.connected ? { connected: true, workspace: '/bridge-workspace', grants: this.bridge.snapshot().grants } : { connected: false }; }
-  override async setProject(raw: string): Promise<Record<string, unknown>> {
-    const folder = raw.trim();
-    if (this.bridge?.connected && !this.projects.has(folder)) return this.selectBridgeProject(folder);
-    return super.setProject(raw);
+  /** Disconnects the helper and stops reconnecting to it. */
+  async forgetTokenizer(): Promise<Record<string, unknown>> {
+    const helper = this.helper;
+    this.helper = undefined; this.helperEndpoint = undefined;
+    await this.browser.storage.put('settings', 'tokenizer-helper', undefined);
+    await helper?.close();
+    return this.tokenizerStatus();
   }
-  async selectBridgeProject(raw: string): Promise<Record<string, unknown>> {
-    if (!this.bridge?.connected) throw new BackendError('Pair a bridge before choosing a native folder.');
-    const folder = raw.trim();
-    this.idle('changing projects');
-    const bridge = this.bridge, generation = this.bridgeGeneration;
-    let snapshot;
-    try { snapshot = await bridge.selectProject(folder); }
-    catch { throw new BackendError(`'${folder}' does not exist or could not be opened through the bridge. Choose an absolute native directory path.`); }
-    this.idle('changing projects');
-    if (generation !== this.bridgeGeneration || !bridge.connected) throw new BackendError('Folder selection cancelled by bridge disconnection.');
-    const workspace = new BridgeWorkspace(bridge, snapshot.project.root);
-    this.bridgeWorkspaces.set(workspace.root, workspace); this.projects.set(workspace.root, workspace.project);
-    return super.setProject(workspace.root);
-  }
-  async browseProject(raw: string, native = false): Promise<{ path: string; parent: string | null; folders: string[] }> {
-    if (native || this.bridgeWorkspaces.has(this.state.workspace)) {
-      if (!this.bridge?.connected) throw new BackendError('Pair a bridge before choosing a native folder.');
-      const path = this.bridgeWorkspaces.has(raw) ? this.bridge.snapshot(raw).workspace ?? '' : native && this.projects.has(raw) ? '' : raw;
-      return this.bridge.call('browse', { path });
-    }
-    return this.browse(raw);
-  }
-  async detachBridge(): Promise<void> {
-    this.idle('unpairing a bridge');
-    this.bridgeGeneration++;
-    if (!this.bridgeRestore) return;
-    const previous = this.bridgeRestore, bridge = this.bridge!;
-    Object.defineProperty(this.runtime, 'supportedTools', { configurable: true, enumerable: true, writable: true, value: previous.runtime.supportedTools });
-    Object.assign(this.runtime, previous.runtime);
-    if (!previous.runtime.webSearch) delete this.runtime.webSearch;
-    this.bridge = undefined; this.bridgeRestore = undefined;
-    const selected = this.bridgeWorkspaces.has(this.state.workspace);
-    for (const root of this.bridgeWorkspaces.keys()) this.projects.delete(root);
-    this.bridgeWorkspaces.clear();
-    try { if (selected) await this.setProject(previous.workspace); }
-    finally { await bridge.close(); }
+  /** `enabled`: the user chose to use a helper. `connected`: it answered the last request. No network request is made here. */
+  tokenizerStatus(): { enabled: boolean; connected: boolean; endpoint: string } & Partial<HelperInfo> {
+    return { enabled: this.helperEndpoint !== undefined, connected: this.helper?.connected === true, endpoint: this.helperEndpoint ?? HELPER_DEFAULT_ENDPOINT, ...this.helper?.info };
   }
   override async lockCredentials(reason?: string): Promise<void> {
     await super.lockCredentials(reason);
     this.mcpConfig.value = undefined;
-    await this.bridge?.close();
     this.router.clearKeys();
   }
   override async close(): Promise<void> {
-    await this.lockCredentials(); await super.close();
+    await this.lockCredentials(); await this.helper?.close(); await super.close();
   }
 
   /** Validates and stores an MCP configuration, then reconnects. Header values are not persisted. */
@@ -213,7 +174,7 @@ export class BrowserHarness extends Harness {
     const state = await super.bootstrap();
     // The page shows its connect card from this flag: a real model was chosen and its provider can be called now.
     const connected = state.ready === true && state.provider !== 'demo' && await this.browser.storage.get<boolean>('settings', 'model-connected') === true;
-    return { ...state, model_connected: connected, bridge: this.bridgeStatus(), workspace_kind: this.bridgeWorkspaces.has(this.state.workspace) ? 'paired local workspace' : this.projects.get(this.state.workspace)?.handle ? 'local folder (direct disk access)' : 'virtual workspace (browser storage)', ollama_url: await this.browser.storage.get<string>('settings', 'ollama-url') ?? 'http://localhost:11434' };
+    return { ...state, model_connected: connected, tokenizer: this.tokenizerStatus(), workspace_kind: this.projects.get(this.state.workspace)?.handle ? 'local folder (direct disk access)' : 'virtual workspace (browser storage)', ollama_url: await this.browser.storage.get<string>('settings', 'ollama-url') ?? 'http://localhost:11434' };
   }
 
   async listModels(raw: ModelConfiguration): Promise<ModelOption[]> {
@@ -261,8 +222,8 @@ export class BrowserHarness extends Harness {
     const stored = this.projects.get(this.state.workspace);
     if (!stored) throw new BackendError('Choose a replacement project before exporting.');
     const { handle, ...project } = stored;
-    if (handle || this.bridgeWorkspaces.has(project.root)) {
-      const workspace = handle ? new LocalWorkspace(project, handle) : new BridgeWorkspace(this.bridge!, project.root); await workspace.refresh();
+    if (handle) {
+      const workspace = new LocalWorkspace(project, handle); await workspace.refresh();
       for (const name of Object.keys(project.files)) project.files[name] = await workspace.readText(name);
     }
     const active = this.activeSessionRecord();

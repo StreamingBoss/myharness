@@ -1085,11 +1085,11 @@ agentSelect.addEventListener("change", () => {
   addDivider("— agent: " + agentSelect.selectedOptions[0].textContent + " —");
 });
 
-async function setProject(native = false) {
+async function setProject() {
   const resp = await backendFetch(api("/project"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: projectInput.value, ...(native ? { bridge: true } : {}) }),
+    body: JSON.stringify({ path: projectInput.value }),
   });
   const result = await resp.json();
   if (!resp.ok) {
@@ -1111,7 +1111,6 @@ const browserEl = document.getElementById("browser");
 const browserPath = document.getElementById("browser-path");
 const browserList = document.getElementById("browser-list");
 let browsedPath = "";
-let browsedBridge = false;
 
 function browserEntry(label, onClick, className = "") {
   const div = document.createElement("div");
@@ -1121,8 +1120,8 @@ function browserEntry(label, onClick, className = "") {
   browserList.appendChild(div);
 }
 
-async function browse(path, bridge = false) {
-  const resp = await backendFetch(api("/browse?path=" + encodeURIComponent(path) + (bridge ? "&bridge=1" : "")));
+async function browse(path) {
+  const resp = await backendFetch(api("/browse?path=" + encodeURIComponent(path)));
   const result = await resp.json();
   if (!resp.ok) {
     projectError.textContent = formatFailure(result.failure, result.error);
@@ -1130,12 +1129,11 @@ async function browse(path, bridge = false) {
   }
   projectError.textContent = "";
   browsedPath = result.path;
-  browsedBridge = bridge;
   browserPath.textContent = result.path;
   browserList.replaceChildren();
-  if (result.parent) browserEntry("..", () => browse(result.parent, bridge));
+  if (result.parent) browserEntry("..", () => browse(result.parent));
   for (const name of result.folders) {
-    browserEntry(name + "/", () => browse(result.path.replace(/\/$/, "") + "/" + name, bridge));
+    browserEntry(name + "/", () => browse(result.path.replace(/\/$/, "") + "/" + name));
   }
   if (!result.folders.length) browserEntry("(no sub-folders)", null, "empty");
   browserEl.hidden = false;
@@ -1146,14 +1144,13 @@ browseBtn.addEventListener("click", async () => {
   await browse(projectInput.value);
   if (browserEl.hidden) browse("");
 });
-window.addEventListener("myharness:browse-bridge", () => { void browse("", true); });
 document.getElementById("browser-cancel").addEventListener("click", () => {
   browserEl.hidden = true;
 });
 document.getElementById("browser-select").addEventListener("click", () => {
   browserEl.hidden = true;
   projectInput.value = browsedPath;
-  setProject(browsedBridge);
+  setProject();
 });
 
 setProjectBtn.addEventListener("click", () => { void setProject(); });

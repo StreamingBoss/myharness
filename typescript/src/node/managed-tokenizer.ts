@@ -62,7 +62,7 @@ export class ManagedTokenizer {
         if (magic.toString('ascii') !== 'GGUF') throw new Error('not GGUF');
       } finally { await handle.close(); }
       key = JSON.stringify([model, file, info.size, info.mtimeMs]);
-    } catch { throw new TokenizerSetupError('The matching GGUF is missing, unreadable or invalid on the bridge machine. For Docker, WSL or remote Ollama, set MYHARNESS_TOKENIZER_MODELS to an accessible matching file.'); }
+    } catch { throw new TokenizerSetupError('The matching GGUF is missing, unreadable or invalid on the computer running the tokenizer helper. For Docker, WSL or remote Ollama, set MYHARNESS_TOKENIZER_MODELS to an accessible matching file.'); }
     requestSignal.throwIfAborted();
     if (this.running?.key === key && !this.running.process.failed) { progress?.('reusing'); return this.running.binding; }
     progress?.('loading');

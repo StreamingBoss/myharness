@@ -52,8 +52,11 @@ export class WorkerHost {
           if (typeof payload.approved !== 'boolean') throw new BackendError('approved must be a JSON boolean');
           if (typeof payload.id !== 'string' || !backend.approve(payload.id, payload.approved)) throw new BackendError('this change is no longer waiting for an answer', 404);
           value = { ok: true }; break;
-        case 'project': if (typeof payload.path !== 'string') throw new BackendError('path must be a string'); value = payload.bridge === true ? await backend.selectBridgeProject(payload.path) : await backend.setProject(payload.path); break;
-        case 'browse': value = await backend.browseProject(typeof payload.path === 'string' ? payload.path : backend.state.workspace, payload.bridge === true); break;
+        case 'project': if (typeof payload.path !== 'string') throw new BackendError('path must be a string'); value = await backend.setProject(payload.path); break;
+        case 'browse': value = backend.browse(typeof payload.path === 'string' ? payload.path : backend.state.workspace); break;
+        case 'connectTokenizer': value = await backend.connectTokenizer(typeof payload.endpoint === 'string' ? payload.endpoint : undefined); break;
+        case 'forgetTokenizer': value = await backend.forgetTokenizer(); break;
+        case 'tokenizerStatus': value = backend.tokenizerStatus(); break;
         case 'tokenizationProgress': value = await backend.tokenizationProgress(); break;
         case 'tokenize': value = await backend.tokenize(payload.event_index as number, typeof payload.session_id === 'string' ? payload.session_id : undefined); break;
         case 'vocabulary': value = await backend.vocabulary(payload); break;

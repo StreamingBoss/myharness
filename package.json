@@ -10,8 +10,8 @@
     "test:ts": "npm run build:browser && node --test --test-concurrency=2 dist/typescript/tests/*.test.js",
     "start:ts": "npm run build:ts && node dist/typescript/src/node/server.js",
     "headless:ts": "npm run build:ts && node dist/typescript/src/node/headless.js",
-    "coverage:ts": "npm run build:browser && c8 --all --src dist/typescript/src --src dist/typescript/ui --include '**/src/**' --include '**/ui/connect-card.js' --exclude '**/node_modules/**' --check-coverage --per-file --lines 100 --branches 100 --functions 100 --statements 100 node --test --test-concurrency=2 dist/typescript/tests/*.test.js",
-    "bridge:ts": "npm run build:ts && node dist/typescript/src/node/bridge-cli.js"
+    "coverage:ts": "npm run build:browser && c8 --all --src dist/typescript/src --src dist/typescript/ui --include '**/src/**' --include '**/ui/connect-card.js' --include '**/ui/token-helper-panel.js' --exclude '**/node_modules/**' --check-coverage --per-file --lines 100 --branches 100 --functions 100 --statements 100 node --test --test-concurrency=2 dist/typescript/tests/*.test.js",
+    "token-helper:ts": "npm run build:ts && node dist/typescript/src/node/token-helper-cli.js"
   },
   "devDependencies": {
     "@types/diff": "^7.0.2",

@@ -536,3 +536,13 @@ html, body { overflow: hidden; }
 #connect-status { color: var(--warn-alt); white-space: pre-wrap; }
 #connect-status:empty { display: none; }
 #connect-dismiss { justify-self: start; background: none; border: 0; padding: 0; color: var(--link); text-decoration: underline; height: auto; }
+
+/* Optional tokenizer helper controls inside the token viewer (browser edition). */
+#token-helper { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); display: grid; gap: 8px; }
+#token-helper[hidden], #token-helper [hidden] { display: none; }
+#token-helper p, #token-helper ol { margin: 0; }
+#token-helper ol { padding-left: 20px; display: grid; gap: 6px; }
+#token-helper-setup[open]:not([hidden]) { display: grid; gap: 8px; }
+#token-helper pre { margin: 6px 0 0; padding: 8px; background: var(--code); border-radius: 6px; font: 13px ui-monospace, monospace; user-select: all; }
+#token-helper button { justify-self: start; }
+#token-helper-status:empty { display: none; }

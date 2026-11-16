@@ -5,15 +5,15 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ManagedTokenizer, modelFilePath } from '../src/node/managed-tokenizer.js';
-import { NativeBridge, createBridgeServer } from '../src/node/bridge.js';
+import { TokenHelper, createTokenHelperServer } from '../src/node/token-helper.js';
 import { BrowserHarness } from '../src/browser/harness.js';
 import { MemoryStorage } from '../src/browser/storage.js';
-import { bridgeMain } from '../src/node/bridge-cli.js';
+import { tokenHelperMain } from '../src/node/token-helper-cli.js';
 import type { FetchLike } from '../src/ollama.js';
 import type { ModelRequest } from '../src/core.js';
 
 const model = 'qwen3:8b';
-const grants = { writes: false, commands: false, gitWrites: false };
+const origins = ['https://harness.test'];
 const request: ModelRequest = { model, provider: 'ollama', messages: [{ role: 'user', content: 'hello' }], stream: true, options: { num_ctx: 4096 } };
 async function fixture(t: { after(fn: () => unknown): void }) {
   const root = await mkdtemp(path.join(tmpdir(), 'managed-tokenizer-')); t.after(() => rm(root, { recursive: true, force: true }));
@@ -130,34 +130,35 @@ test('startup cancellation and shutdown kill only the owned process; incompatibl
   await assert.rejects(manager.binding(model, new AbortController().signal), /incompatible readiness/); manager.close();
 });
 
-test('browser requests automatic inspection through a real bridge without Bash grants; unpair stops the child', async t => {
+test('browser requests automatic inspection through a real tokenizer helper; forgetting the helper stops the child', async t => {
   const f = await fixture(t), rawFetch = globalThis.fetch;
-  const service = new NativeBridge({ workspace: f.root, origin: 'https://guide.test', grants, managedTokenizer: { executable: f.executable }, inspectionFetch: f.fetch_ });
-  const server = createBridgeServer(service); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const service = new TokenHelper({ origins, managedTokenizer: { executable: f.executable }, inspectionFetch: f.fetch_ });
+  const server = createTokenHelperServer(service); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => { server.closeAllConnections(); server.close(); });
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   t.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
-    assert.ok(url.startsWith(base), 'browser must only contact bridge during inspection');
-    return rawFetch(url, { ...init, headers: { ...init.headers, origin: service.origin } });
+    assert.ok(url.startsWith(base), 'browser must only contact the helper during inspection');
+    return rawFetch(url, { ...init, headers: { ...init.headers, origin: origins[0]! } });
   });
   const harness = await BrowserHarness.open({ storage: new MemoryStorage(), library: { agents: {}, skills: {}, prompts: {} }, seed: {}, model }); t.after(() => harness.close());
-  await harness.attachBridge(base, service.code);
+  assert.deepEqual(await harness.connectTokenizer(base), { enabled: true, connected: true, endpoint: base, ollamaUrl: 'http://localhost:11434', models: [], automatic: true });
   const record = harness.activeSessionRecord(); record.events.push({ type: 'request', provider: 'ollama', model_request: request });
   const copy = await harness.importSession(record); await harness.activateSession(copy.id);
   const result = await harness.tokenize(record.events.length - 1);
   assert.equal(result.fidelity, 'configured-tokenizer'); assert.equal(result.groups[0]!.tokens[0]!.id, '42');
-  assert.ok(!(await harness.bootstrap()).tools || !JSON.stringify((await harness.bootstrap()).tools).includes('run_command'));
-  const processId = await pid(f.gguf); await harness.detachBridge(); await gone(processId);
+  // The helper adds no tools: a web page still cannot run commands.
+  assert.ok(!JSON.stringify((await harness.bootstrap()).tools).includes('run_command'));
+  const processId = await pid(f.gguf); await harness.forgetTokenizer(); await gone(processId);
 });
 
-test('CLI startup grant enables automatic inspection; setup failure returns safe unavailable evidence', async t => {
+test('the helper CLI enables automatic inspection; setup failure returns safe unavailable evidence', async t => {
   const f = await fixture(t);
-  const args = ['--workspace', f.root, '--origin', 'https://guide.test', '--port', '0', '--allow-tokenizer'];
-  await assert.rejects(bridgeMain(args, () => undefined, 'linux', { MYHARNESS_TOKENIZER_MODELS: 'null' }), /absolute GGUF/);
-  const server = await bridgeMain(args, () => undefined, 'linux', { MYHARNESS_LLAMA_TOKENIZER: f.executable, MYHARNESS_TOKENIZER_MODELS: '{}' });
+  const args = ['--origin', origins[0]!, '--port', '0'];
+  await assert.rejects(tokenHelperMain(args, () => undefined, { MYHARNESS_TOKENIZER_MODELS: 'null' }), /absolute GGUF/);
+  const server = await tokenHelperMain(args, () => undefined, { MYHARNESS_LLAMA_TOKENIZER: f.executable, MYHARNESS_TOKENIZER_MODELS: '{}' });
   await new Promise<void>(resolve => server!.close(() => resolve()));
-  const service = new NativeBridge({ workspace: f.root, origin: 'https://guide.test', grants, managedTokenizer: {}, inspectionFetch: f.fetch_ });
-  const { token } = service.pair(service.code);
+  const service = new TokenHelper({ origins, managedTokenizer: {}, inspectionFetch: f.fetch_ });
+  const { token } = service.connect();
   f.setShow({});
   const result = await service.call(token, { id: 'inspect', operation: 'inspectTokens', args: { payload: request, ollamaUrl: 'http://localhost:11434' } }) as { fidelity: string; explanation: string };
   assert.equal(result.fidelity, 'unavailable'); assert.match(result.explanation, /usable model file/);
@@ -166,18 +167,18 @@ test('CLI startup grant enables automatic inspection; setup failure returns safe
 
 test('manual bindings take precedence; aborted discovery cannot launch a process', async t => {
   const f = await fixture(t);
-  const manual = new NativeBridge({ workspace: f.root, origin: 'https://guide.test', grants, managedTokenizer: { executable: '/missing' },
+  const manual = new TokenHelper({ origins, managedTokenizer: { executable: '/missing' },
     tokenizers: { [model]: { url: 'http://configured.test', alias: model, identity: 'operator verified' } },
-    inspectionFetch: async url => Response.json(url.endsWith('/api/chat') ? { _debug_info: { rendered_template: 'hello' } } : url.endsWith('/v1/models') ? { data: [{ id: model }] } : { tokens: [{ id: 1, piece: 'hello' }] }) });
-  const paired = manual.pair(manual.code);
+    inspectionFetch: async (url: string) => Response.json(url.endsWith('/api/chat') ? { _debug_info: { rendered_template: 'hello' } } : url.endsWith('/v1/models') ? { data: [{ id: model }] } : { tokens: [{ id: 1, piece: 'hello' }] }) });
+  const paired = manual.connect();
   const result = await manual.call(paired.token, { id: 'manual', operation: 'inspectTokens', args: { payload: request, ollamaUrl: 'http://localhost:11434' } }) as { fidelity: string };
   assert.equal(result.fidelity, 'configured-tokenizer'); await assert.rejects(readFile(f.gguf + '.process')); manual.close();
   let token = '';
-  const cancelled = new NativeBridge({ workspace: f.root, origin: 'https://guide.test', grants, managedTokenizer: { executable: f.executable }, inspectionFetch: async () => {
+  const cancelled: TokenHelper = new TokenHelper({ origins, managedTokenizer: { executable: f.executable }, inspectionFetch: async () => {
     await cancelled.call(token, { id: 'stop', operation: 'cancel', args: { id: 'discovery' } });
     return Response.json({ modelfile: `FROM ${f.gguf}` });
   } });
-  token = cancelled.pair(cancelled.code).token;
+  token = cancelled.connect().token;
   await assert.rejects(cancelled.call(token, { id: 'discovery', operation: 'inspectTokens', args: { payload: request, ollamaUrl: 'http://localhost:11434' } }));
   await assert.rejects(readFile(f.gguf + '.process')); cancelled.close();
 });
@@ -189,8 +190,7 @@ test('default executable lookup has useful errors', async t => {
     const manager = new ManagedTokenizer({}, 'http://localhost:11434', f.fetch_);
     await assert.rejects(manager.binding(model, new AbortController().signal), /Build myharness-tokenizer/); manager.close();
   } finally { if (previous === undefined) delete process.env.PATH; else process.env.PATH = previous; }
-  const args = ['--workspace', f.root, '--origin', 'https://guide.test', '--port', '0', '--allow-tokenizer'];
-  const server = await bridgeMain(args, () => undefined, 'linux', {});
+  const server = await tokenHelperMain(['--port', '0'], () => undefined, {});
   await new Promise<void>(resolve => server!.close(() => resolve()));
 });
 

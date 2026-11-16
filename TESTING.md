@@ -133,43 +133,44 @@ and Anthropic. Optional checks, using supplied credentials and a scratch
 workspace, should answer, read a file, propose/approve an edit, follow up from
 memory, compact and cancel. Use ephemeral ports or 5001, never 5000.
 
-## Connect card and bridge verification
+## Connect card and tokenizer helper verification
 
 `connect-backend.test.ts` checks, without a UI, that the browser backend reports
 `model_connected` only after a real model is chosen, that a key is never stored,
-and that a cloud session is not connected after a reload. It also covers bridge
-pairing, cancellation and unpair restoration directly on `BrowserHarness`.
+and that a cloud session is not connected after a reload.
 `connect-card.test.ts` drives the card's view controller with a scripted client:
 both paths, the Ollama help with this page's origin, failures, stale model lists
 and dismissal. `browser-distribution.test.ts` runs the same flow in Chromium
 against the built page, including that the page contacts no model service before
-the user chooses one and that the key is absent from IndexedDB. `guide-bridge`
-tests the loopback bridge and native effects.
+the user chooses one and that the key is absent from IndexedDB.
 
-`guide-folders` checks native directory browsing and selection, workspace-scoped
-files/Git/commands, approval denial and execution, unchanged grants, cancellation
-of folder selection, Worker routing and unpair restoration without a UI.
+`token-helper.test.ts` checks the tokenizer helper without a UI: it accepts only
+saved Ollama requests for its own Ollama URL, refuses every former bridge
+operation, serializes and cancels inspections, and replaces the oldest page
+session at its limit. Over real loopback HTTP it refuses other websites, a
+missing `Origin` and a foreign `Host`, and needs no pairing code. A headless
+`BrowserHarness` connects, stores only the helper address, contacts nothing at
+the next startup and reconnects on the first inspection, including after the
+helper stops and starts again. The CLI is run both in process and as a program.
+`token-helper-panel.test.ts` drives the panel's view controller with a scripted
+client. The Chromium test connects with one click, reads the token chips, reloads
+to verify the automatic reconnect, and checks that Forget stops it.
 
-`npm run coverage:ts` includes all backend modules and the new guide controllers/
-bootstraps, and enforces 100% lines, branches, functions and statements per file.
+`npm run coverage:ts` includes all backend modules and the connect-card and
+token-helper-panel controllers, and enforces 100% lines, branches, functions and statements per file.
 Test processes use concurrency 2 to avoid competing browser fixtures exhausting
 short execution deadlines. Tests require no live API keys or owner port-5000 access.
 
-`bridge-tokenization.test.ts` checks real HTTP pairing and saved-request inspection
-from a headless BrowserHarness, exact model/endpoint restrictions, byte preservation,
-missing rendering, sanitized failures, cancellation and CLI environment configuration.
-All upstream model/tokenizer responses are fixtures; no owner services are contacted.
-
 `managed-tokenizer.test.ts` exercises real fixture helper child processes: automatic model discovery, explicit remote mappings, reuse/replacement,
 missing binaries, permissions, invalid GGUF, startup exit/timeout/cancellation,
-versioned vocabulary-only readiness checks, removal of inherited llama tool settings, unpair cleanup and
+versioned vocabulary-only readiness checks, removal of inherited llama tool settings, cleanup when the helper is forgotten and
 manual-binding precedence. A headless BrowserHarness requests automatic inspection
-through real paired HTTP with no Bash grant. No live model or owner service is used.
+through a real tokenizer helper over HTTP. No live model or owner service is used.
 
 `token-progress.test.ts` verifies stage callbacks, safe rendering/tokenizer
-failures, progress during headless Node inspection and HTTP requests, real paired
-bridge stage forwarding, advisory-status failures, cleanup and immediate Worker
-progress while a managed inspection is pending. Token viewer smoke tests check
+failures, progress during headless Node inspection and HTTP requests, real helper
+stage forwarding, advisory-status failures, cleanup and immediate Worker
+progress while an inspection is pending. Token viewer smoke tests check
 visible stage changes and reject delayed progress after final token pieces appear.
 
 
@@ -196,16 +197,14 @@ for an owner's GGUF/filesystem or comparisons with full inference startup.
 `tokenizer-process.test.ts` covers bounded/fragmented protocol replies, invalid
 output, input/output limits, concurrent requests, cancellation/timeouts, idle
 exit, permission errors and restarting failed channels. Managed tests exercise
-bridge cleanup and ensure the native path never calls HTTP tokenizer endpoints.
+helper cleanup and ensure the native path never calls HTTP tokenizer endpoints.
 Browser smoke tests verify the vocabulary-only progress wording. Live checks
 with the owner's GGUF remain an optional final parity/performance check.
 
 
 Plain-language errors are covered by `error-messages.test.ts`, including safe
 technical detail disclosure, service identification and actual default/custom time
-limits.
-The bridge lease regression checks both sides of the centralized 120-second
-boundary without waiting two minutes or touching the owner's services.
+limits, and the tokenizer helper client's request limits and connection status.
 
 
 ## Request tab verification
