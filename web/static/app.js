@@ -8,6 +8,13 @@
     paint();
   });
   paint();
+  // Keep the choice made on the start page: another tab or a page restored from the back/forward cache may hold an older theme.
+  const apply = () => {
+    try { const saved = localStorage.getItem("theme"); if (saved === "light" || saved === "dark") root.dataset.theme = saved; else delete root.dataset.theme; } catch {}
+    paint();
+  };
+  window.addEventListener("storage", event => { if (event.key === "theme" || event.key === null) apply(); });
+  window.addEventListener("pageshow", event => { if (event.persisted) apply(); });
 })();
 const messagesEl = document.getElementById("messages");
 const terminalEl = document.getElementById("terminal");

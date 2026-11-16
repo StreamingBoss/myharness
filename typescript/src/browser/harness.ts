@@ -94,6 +94,16 @@ export class BrowserHarness extends Harness {
     const harness = new BrowserHarness({ ...options, allowSubagents: settings?.allowSubagents ?? options.allowSubagents ?? false, childTools: settings?.childTools ?? options.childTools ?? [], childRoutes: settings?.childRoutes ?? options.childRoutes ?? [] }, projects, workspace, router);
     harness.helperEndpoint = helper?.endpoint;
     await harness.initialize();
+    // A session saved by the retired scripted demo would stay active and be copied by every new session, and "New session" would then
+    // try to reach Ollama first and leave the demo in place. Open on a fresh session with the default local model instead; the old one
+    // stays in the list. Only a build that predates the "keep-demo" mark can have saved such a session: choosing the demo on purpose
+    // (backend tests and fixtures) sets the mark, and so does a harness opened on the demo model.
+    if (options.model !== DEMO_MODEL && (harness.state.provider === 'demo' || harness.state.model === DEMO_MODEL) && await options.storage.get<boolean>('settings', 'keep-demo') !== true) {
+      harness.state.provider = 'ollama'; harness.state.model = 'qwen3:8b'; harness.state.contextLength = 8192; delete harness.state.maxOutputTokens;
+      router.selected = 'ollama';
+      await options.storage.put('settings', 'model-connected', false);
+      await harness.newSession();
+    }
     return harness;
   }
 
@@ -161,6 +171,7 @@ export class BrowserHarness extends Harness {
   override async configureModel(raw: ModelConfiguration, startNewSession = false): Promise<void> {
     await super.configureModel(raw, startNewSession);
     await this.browser.storage.put('settings', 'model-connected', true);
+    await this.browser.storage.put('settings', 'keep-demo', raw.provider === 'demo' || raw.mode === 'demo');
   }
 
   override async bootstrap(): Promise<Record<string, unknown>> {
