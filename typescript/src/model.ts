@@ -3,8 +3,8 @@ import type { ModelPort } from './harness.js';
 import { unavailable, type TokenInspection, type InspectionPort, type InspectionProgress } from './tokenization.js';
 import type { ModelTiming } from './timing.js';
 
-export type Provider = 'demo' | 'ollama' | 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'vertex';
-export const PROVIDERS: readonly Provider[] = ['demo', 'ollama', 'gemini', 'openai', 'anthropic', 'openrouter', 'vertex'];
+export type Provider = 'demo' | 'ollama' | 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'groq' | 'mistral' | 'cerebras' | 'custom' | 'vertex';
+export const PROVIDERS: readonly Provider[] = ['demo', 'ollama', 'gemini', 'openai', 'anthropic', 'openrouter', 'groq', 'mistral', 'cerebras', 'custom', 'vertex'];
 export interface ModelOption { id: string; label: string }
 export interface ModelDescription { provider: string; ready: boolean; template: string; parameters: string; model_info?: Record<string, unknown> }
 export interface ModelUsage { input?: number; output?: number; cached?: number; reasoning?: number }

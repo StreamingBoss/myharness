@@ -472,25 +472,60 @@ advanced reasoning controls remain subsequent features. Authenticated cloud
 browser and headless checks have not been performed; deterministic tests use
 scripted provider responses.
 
-## OpenRouter
+## Hosted providers with a free option
 
-[OpenRouter](https://openrouter.ai/) reaches models from many vendors with one
-API key, including free ones (their IDs end in `:free`). Choose **OpenRouter** in
-the connect card ("Use an API key") or in Settings, enter your key and pick a model. The list
-shows only models that accept tool definitions, because the harness needs tools.
-The key is handled like the other cloud keys: Worker memory only, never saved in
-sessions, settings or exports.
+These services share one adapter, because they all speak OpenAI-style
+[Chat Completions](https://openrouter.ai/docs/api/reference/overview). Choose one in
+the connect card ("Use an API key") or in Settings, enter your key and pick a model.
+Each list shows only models that accept tool definitions where the provider says which
+do, because the harness needs tools. Keys are handled like the other cloud keys:
+Worker memory only, never saved in sessions, settings or exports.
 
-For Node/headless execution, set `MYHARNESS_PROVIDER=openrouter`,
-`OPENROUTER_API_KEY` and an explicit `MYHARNESS_MODEL` such as `vendor/model`.
+| Provider | Free access | Key variable (Node) |
+|---|---|---|
+| [OpenRouter](https://openrouter.ai/) | Models whose ID ends in `:free`, with daily request caps | `OPENROUTER_API_KEY` |
+| [Mistral](https://console.mistral.ai/) | A free experimentation plan for personal use | `MISTRAL_API_KEY` |
+| [Groq](https://console.groq.com/) | A free plan with per-model daily caps | `GROQ_API_KEY` |
+| [Cerebras](https://cloud.cerebras.ai/) | A one-time trial credit; may need a payment method | `CEREBRAS_API_KEY` |
+| A server you name | Whatever that server offers, including free local ones (see below) | `CUSTOM_API_KEY` (optional) |
 
-The adapter uses OpenRouter's
-[Chat Completions API](https://openrouter.ai/docs/api/reference/overview). Each
-assistant turn is replayed exactly as returned, with its `reasoning_details`, so
-models that require their reasoning during a tool loop keep working. HTTP 402
-means the account has no credits left. A headless tool loop (list_files, then
-read_file) was run against a free reasoning model with `reasoning_details` replayed
-on each request; deterministic tests use scripted responses.
+Plans and limits change; check the provider's own page.
+
+For Node/headless execution, set `MYHARNESS_PROVIDER` (`openrouter`, `mistral`, `groq`,
+`cerebras` or `custom`), the key variable above and an explicit `MYHARNESS_MODEL`,
+such as `vendor/model`.
+
+### Your own provider
+
+Choose **Custom (OpenAI-compatible)** in the connect card or in Settings to try any server
+that speaks OpenAI-style Chat Completions: LM Studio (`http://localhost:1234/v1`), llama.cpp's
+server (`http://localhost:8080/v1`), vLLM, Ollama's `/v1` address
+(`http://localhost:11434/v1`), a company gateway, or another hosted service. Enter the
+address, a key if the server wants one (many local servers do not), and pick a model from
+its `/models` list. The harness uses only `/models` and `/chat/completions`.
+
+- The address must be `https://`. Plain `http://` is accepted only for this computer or
+  your local network (localhost, 10.x, 172.16-31.x, 192.168.x, `*.local`). A password,
+  query or fragment in the address is refused.
+- A browser page can call a server only if it allows this website's origin (CORS). Most
+  local servers have a setting for it; if the model list fails, check that first.
+- The model must support tool calls, or the harness cannot act. The list does not say which
+  models do, so a model without tool support answers with plain text.
+- The address and key stay in memory only, like the other keys: enter them again after a
+  reload. In Node, set `MYHARNESS_PROVIDER=custom`, `MYHARNESS_CUSTOM_URL`, optionally
+  `CUSTOM_API_KEY`, and `MYHARNESS_MODEL`.
+
+Services that send no CORS headers cannot be called from a web page, so they are not
+offered (checked with preflight requests: NVIDIA NIM, Cloudflare Workers AI, Zhipu).
+
+Each assistant turn is replayed exactly as returned, with its `reasoning_details`
+where the provider sends them, so models that require their reasoning during a tool
+loop keep working. HTTP 402 means the account has no credits left. Checked live: a
+headless tool loop (list_files, then read_file) on a free OpenRouter reasoning model.
+The HTTP 402 "no credits left" message was checked in the browser against a paid model with
+an empty balance. The others are covered by scripted tests only. Groq's CDN once refused
+requests from the development network (HTTP 403) and later answered browser preflight
+requests with CORS headers, so it is reachable from some networks only.
 
 ## Scope and limits
 

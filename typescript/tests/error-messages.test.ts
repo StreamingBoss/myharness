@@ -12,7 +12,7 @@ const examples = [
   ['Tokenizer helper is disconnected; connect it again', 'could not use the tokenizer helper'], ['Tokenizer helper denied the request (403).', 'could not use the tokenizer helper'],
   ['This website is not allowed to use the tokenizer helper', 'could not use the tokenizer helper'], ['Origin is not allowed', 'browser could not access'],
   ['Credentials were locked', 'connections were locked'], ['Enter an API key before continuing', 'valid access key'],
-  ['HTTP 429', 'usage limit'], ['HTTP 404', 'could not be found'], ['HTTP 503', 'could not be reached'],
+  ['custom request failed (HTTP 402). Your account has no credits left.', 'no credits left'], ['openrouter request failed (HTTP 402). Your OpenRouter credits are used up.', 'no credits left'], ['HTTP 429', 'usage limit'], ['HTTP 404', 'could not be found'], ['HTTP 503', 'could not be reached'],
   ['The model returned an empty reply', 'usable answer'], ['Provider stream ended before completion', 'stopped before'],
   ['Invalid tool arguments', 'missing or invalid information'], ['nobody answered the approval request', 'not run'],
   ['A turn is already running', 'still running'], ["'missing.txt' does not exist", 'file or folder could not be found'],
