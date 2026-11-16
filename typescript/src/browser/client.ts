@@ -32,10 +32,10 @@ export class WorkerClient {
   };
   private readonly error = (event: { message?: string }): void => {
     this.closed = true;
-    for (const pending of this.pending.values()) { pending.error = new BackendError(event.message ?? 'Backend Worker stopped', 400, failureDetails(event.message ?? 'Backend Worker stopped', 'transport', 'Browser backend connection', 'Return to Guide & Setup and reopen the harness if the backend has stopped.')); pending.done = true; pending.reject?.(pending.error); pending.wake?.(); }
+    for (const pending of this.pending.values()) { pending.error = new BackendError(event.message ?? 'Backend Worker stopped', 400, failureDetails(event.message ?? 'Backend Worker stopped', 'transport', 'Browser backend connection', 'Reload this page to restart the harness if the backend has stopped.')); pending.done = true; pending.reject?.(pending.error); pending.wake?.(); }
   };
   call(action: string, payload: Record<string, unknown> = {}): Promise<unknown> {
-    if (this.closed) return Promise.reject(new BackendError('Backend Worker is closed', 400, failureDetails('Backend Worker is closed', 'transport', 'Browser backend connection', 'Return to Guide & Setup and reopen the harness.')));
+    if (this.closed) return Promise.reject(new BackendError('Backend Worker is closed', 400, failureDetails('Backend Worker is closed', 'transport', 'Browser backend connection', 'Reload this page to restart the harness.')));
     const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       this.pending.set(id, { events: [], done: false, resolve, reject });
@@ -44,7 +44,7 @@ export class WorkerClient {
     });
   }
   async *stream(action: string, payload: Record<string, unknown> = {}): AsyncGenerator<CoreEvent> {
-    if (this.closed) throw new BackendError('Backend Worker is closed', 400, failureDetails('Backend Worker is closed', 'transport', 'Browser backend connection', 'Return to Guide & Setup and reopen the harness.'));
+    if (this.closed) throw new BackendError('Backend Worker is closed', 400, failureDetails('Backend Worker is closed', 'transport', 'Browser backend connection', 'Reload this page to restart the harness.'));
     const id = crypto.randomUUID(), pending: Pending = { events: [], done: false };
     this.pending.set(id, pending);
     try {

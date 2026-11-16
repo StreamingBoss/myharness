@@ -1,5 +1,11 @@
 # Browser Guide, Private Connections, and Local Workspace Bridge
 
+> **Superseded.** The Guide & Setup page, its linked tab, the shared and personal
+> modes and the credential vault described here were removed. The browser edition
+> now has one page with a connect card; see README.md and ARCHITECTURE.md. This
+> file is kept as a record of the earlier design.
+
+
 **Status:** Proposed implementation plan.
 
 ## 1. Outcome and boundaries

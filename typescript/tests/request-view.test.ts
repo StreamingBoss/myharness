@@ -136,6 +136,9 @@ test('the rendered Request view: "As sent" equals the sent body, and "By section
   const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(base + '/?database=request-parity');
   await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 12);
+  // The page starts with no model connected. The deterministic scripted model is a backend fixture, selected without the UI.
+  await page.evaluate(() => (window as unknown as { harness: { call(action: string, payload: unknown): Promise<unknown> } }).harness.call('configureModel', { provider: 'demo' }));
+  await page.reload(); await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length === 12);
   await send(page, 'Remember 42'); await send(page, 'Read README.md');
   await page.locator('#tab-request').click();
   // By section, read from the rendered rows (rows are collapsed but present in the page)

@@ -59,6 +59,63 @@ test('browser MCP edits and imports print their storage location and saved conte
   assert.match(await page.locator('#mcp-config-source').innerText(), /browser storage/);
 });
 
+test('first visit: the connect card reaches Ollama or explains how to allow this page, accepts an API key, and never saves the key', async t => {
+  const { base } = await staticServer(t);
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
+  const context = await browser.newContext(), page = await context.newPage(), errors: string[] = [], local: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await context.route('http://localhost:11434/**', route => { local.push(route.request().url()); return route.abort(); });
+  await page.goto(base + '/?database=connect-ollama'); await ready(page);
+  const card = page.locator('#connect-card');
+  assert.equal(await card.isVisible(), true); assert.equal(await page.locator('#connect-key').isVisible(), false); assert.equal(await page.locator('#connect-ollama').isVisible(), false);
+  assert.deepEqual(local, []);
+  // Ollama is not reachable: the card explains the one step it cannot do for the user, with this page's origin filled in.
+  await page.locator('#connect-choose-ollama').click();
+  await page.locator('#connect-ollama-help').waitFor();
+  assert.equal(await page.locator('#connect-ollama-command').innerText(), `OLLAMA_ORIGINS=${base} ollama serve`);
+  assert.equal(await page.locator('#connect-ollama-command-windows').innerText(), `$env:OLLAMA_ORIGINS="${base}"; ollama serve`);
+  assert.equal(await page.locator('#model-name').innerText(), 'no model connected');
+  assert.equal(await page.locator('#connect-models').isVisible(), false); assert.deepEqual(local, ['http://localhost:11434/api/tags']);
+  await context.unroute('http://localhost:11434/**');
+  await context.route('http://localhost:11434/api/tags', route => route.fulfill({ json: { models: [{ name: 'qwen3:8b' }] } }));
+  await context.route('http://localhost:11434/api/show', route => route.fulfill({ json: { template: 'Test', model_info: { 'general.architecture': 'qwen3', 'qwen3.context_length': 4096 } } }));
+  await page.locator('#connect-retry').click();
+  await page.locator('#connect-go').waitFor();
+  assert.equal(await page.locator('#connect-ollama-help').isVisible(), false); assert.equal(await page.locator('#connect-model').inputValue(), 'qwen3:8b');
+  await page.locator('#connect-go').click();
+  await card.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('#model-name').innerText(), 'qwen3:8b');
+  await openSettings(page); assert.match(await page.locator('#browser-mode-label').innerText(), /Ollama · qwen3:8b · ready/);
+  await page.waitForFunction(() => (document.querySelector('#browser-model') as HTMLSelectElement).value === 'qwen3:8b');
+  // The choice is remembered: a returning visitor goes straight to the harness.
+  await page.reload(); await ready(page); assert.equal(await card.isVisible(), false);
+
+  const keyed = await context.newPage(); keyed.on('pageerror', error => errors.push(error.message));
+  await context.route('https://api.openai.com/v1/models', route => route.fulfill({ json: { data: [{ id: 'gpt-test' }, { id: 'text-embedding' }] } }));
+  await context.route('https://api.openai.com/v1/models/gpt-test', route => route.fulfill({ json: { id: 'gpt-test' } }));
+  await keyed.goto(base + '/?database=connect-key'); await ready(keyed);
+  await keyed.locator('#connect-choose-key').click(); await keyed.locator('#connect-provider').selectOption('openai');
+  await keyed.locator('#connect-list').click(); assert.equal(await keyed.locator('#connect-status').innerText(), 'Paste your API key first.');
+  await keyed.locator('#connect-api-key').fill('PRIVATE_TEST_KEY'); await keyed.locator('#connect-list').click();
+  await keyed.locator('#connect-go').waitFor(); assert.equal(await keyed.locator('#connect-model').inputValue(), 'gpt-test');
+  await keyed.locator('#connect-go').click(); await keyed.locator('#connect-card').waitFor({ state: 'hidden' });
+  assert.equal(await keyed.locator('#model-name').innerText(), 'gpt-test'); assert.equal(await keyed.locator('#connect-api-key').inputValue(), '');
+  const stored = await keyed.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open('connect-key'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    const dump: unknown[] = [];
+    for (const name of [...database.objectStoreNames]) dump.push(await new Promise(resolve => { const request = database.transaction(name).objectStore(name).getAll(); request.onsuccess = () => resolve(request.result); }));
+    database.close(); return JSON.stringify(dump) + JSON.stringify({ ...localStorage }) + location.href;
+  });
+  assert.match(stored, /gpt-test/); assert.doesNotMatch(stored, /PRIVATE_TEST_KEY/);
+  // After a reload the key is gone, so the card comes back and says why.
+  await keyed.reload(); await ready(keyed);
+  assert.equal(await keyed.locator('#connect-card').isVisible(), true); assert.equal(await keyed.locator('#connect-provider').inputValue(), 'openai');
+  assert.match(await keyed.locator('#connect-status').innerText(), /keys are never saved/);
+  // "Not now" hides the card so saved sessions stay readable.
+  await keyed.locator('#connect-dismiss').click(); assert.equal(await keyed.locator('#connect-card').isVisible(), false);
+  assert.deepEqual(errors, []);
+});
+
 test('static browser distribution runs the backend in a Worker, saves sessions/files and works after the server stops', async t => {
   const { base, child } = await staticServer(t);
   assert.equal((await fetch(base + '/chat', { method: 'POST' })).status, 404);
@@ -73,8 +130,12 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   await page.context().route('http://localhost:11434/api/tags', route => route.fulfill({ json: { models: [{ name: 'qwen3:8b' }] } }));
   page.on('pageerror', error => errors.push(error.message)); page.on('request', request => requests.push(request.url()));
   await page.goto(base + '/?database=distribution'); await ready(page);
-  await openSettings(page); assert.equal(await page.locator('#browser-model-mode').inputValue(), 'demo');
-  await openSettings(page); assert.equal(await page.locator('#browser-model-mode option[value=demo]').count(), 1);
+  assert.equal((await fetch(base + '/guide.html')).status, 404);
+  // Nothing contacts a model service until the user asks: no local-network probe on page load.
+  assert.equal(await page.locator('#connect-card').isVisible(), true); assert.deepEqual(requests.filter(url => url.includes('11434')), []);
+  await openSettings(page); assert.equal(await page.locator('#browser-model-mode').inputValue(), 'ollama');
+  await openSettings(page); assert.equal(await page.locator('#browser-model-mode option[value=demo]').count(), 0);
+  await openSettings(page); assert.match(await page.locator('#browser-mode-label').innerText(), /no model connected/);
   await openSettings(page); assert.equal(await page.locator('#browser-examples').count(), 0);
   await openSettings(page); assert.equal(await page.locator('#browser-context-limit').inputValue(), '8192');
   assert.equal(await page.getByText('How this version works', { exact: true }).count(), 0);
@@ -140,7 +201,8 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
   await page.reload(); await ready(page);
   await page.waitForFunction(() => !(document.querySelector('#browser-model') as HTMLSelectElement).disabled);
   await openSettings(page); assert.equal(await page.locator('#browser-model').inputValue(), 'small:4b');
-  await openSettings(page); assert.equal(page.workers().length, 1); assert.match(await page.locator('#browser-mode-label').innerText(), /ollama/i);
+  await openSettings(page); assert.equal(page.workers().length, 1); assert.match(await page.locator('#browser-mode-label').innerText(), /Ollama · small:4b · ready/);
+  assert.equal(await page.locator('#connect-card').isVisible(), false);
   await openTools(page); const offered = await page.locator('.tool-checkbox').evaluateAll(boxes => boxes.map(box => (box as HTMLInputElement).value));
   assert.equal(offered.length, 12); for (const hidden of ['run_command', 'web_search', 'git_status', 'git_commit']) assert.equal(offered.includes(hidden), false); assert.ok(offered.includes('delete_file'));
   // MCP from the Worker: a CORS-enabled Streamable HTTP server; stdio is reported unsupported.
@@ -257,15 +319,15 @@ test('browser Worker connects to Ollama and reads/edits native filesystem handle
   await openSettings(page); await page.locator('#browser-model-mode').selectOption('ollama'); await page.locator('#browser-ollama-url').fill('http://127.0.0.1:' + address.port);
   await openSettings(page); await page.locator('#browser-ollama-url').press('Tab');
   await page.waitForFunction(() => !(document.querySelector('#browser-model') as HTMLSelectElement).disabled);
-  await openSessions(page); await page.locator('#new-session').click(); await page.waitForFunction(() => document.querySelector('#browser-mode-label')?.textContent?.includes('Real model')); await ready(page);
-  await openSettings(page); assert.match(await page.locator('#browser-mode-label').innerText(), /Real model/);
+  await openSessions(page); await page.locator('#new-session').click(); await page.waitForFunction(() => document.querySelector('#browser-mode-label')?.textContent?.includes('· ready')); await ready(page);
+  await openSettings(page); assert.match(await page.locator('#browser-mode-label').innerText(), /Ollama · .* · ready/);
   await send(page, 'Edit my local code'); await page.getByRole('button', { name: 'Approve', exact: true }).waitFor();
   const disk = () => page.evaluate(async () => { const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle('local-code'); return (await (await folder.getFileHandle('main.py')).getFile()).text(); });
   assert.equal(await disk(), 'print("hello")\n'); await page.getByRole('button', { name: 'Approve', exact: true }).click();
   await page.getByText('Local code updated through the browser harness', { exact: true }).first().waitFor(); assert.equal(await disk(), 'print("updated")\n');
   assert.ok(requests.some(request => request.messages?.some(message => message.role === 'tool' && message.content.includes('main.py'))));
   await page.waitForFunction(() => !(document.querySelector('#send') as HTMLButtonElement).disabled && (document.querySelector('#stop') as HTMLButtonElement).hidden); await page.reload(); await ready(page);
-  await openSettings(page); assert.match(await page.locator('#browser-mode-label').innerText(), /Real model.*direct disk access/); assert.equal(await disk(), 'print("updated")\n');
+  await openSettings(page); assert.match(await page.locator('#browser-mode-label').innerText(), /Ollama · .* · ready.*direct disk access/); assert.equal(await disk(), 'print("updated")\n');
   await openSettings(page); assert.equal(await page.locator('#browser-ollama-url').inputValue(), 'http://127.0.0.1:' + address.port);
   assert.deepEqual(errors, []);
 });
@@ -312,7 +374,7 @@ test('the packaged browser Worker commits to a real repository in a native folde
   assert.ok(offered.includes('git_commit') && offered.includes('delete_file')); assert.equal(offered.includes('run_command'), false); assert.equal(offered.includes('web_search'), false);
   await openSettings(page); await page.locator('#browser-model-mode').selectOption('ollama'); await page.locator('#browser-ollama-url').fill('http://127.0.0.1:' + address.port); await page.locator('#browser-ollama-url').press('Tab');
   await page.waitForFunction(() => !(document.querySelector('#browser-model') as HTMLSelectElement).disabled);
-  await openSessions(page); await page.locator('#new-session').click(); await page.waitForFunction(() => document.querySelector('#browser-mode-label')?.textContent?.includes('Real model'));
+  await openSessions(page); await page.locator('#new-session').click(); await page.waitForFunction(() => document.querySelector('#browser-mode-label')?.textContent?.includes('· ready'));
   await page.waitForFunction(() => document.querySelectorAll('.tool-checkbox').length > 0);
   await send(page, 'Commit my work');
   await page.locator('.change-title', { hasText: /git_commit wants to commit on main/ }).waitFor();

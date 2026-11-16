@@ -55,10 +55,10 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
         if (!existsSync(file)) throw new BackendError('Not found', 404);
         response.writeHead(200, { 'content-type': route === '/' ? 'text/html; charset=utf-8' : staticType(route) }); response.end(await readFile(file)); return;
       }
-      const browserAssets: Record<string, string> = { '/error-messages.js': 'application/javascript', '/guide.html': 'text/html; charset=utf-8', '/index.html': 'text/html; charset=utf-8', '/guide-ui.js': 'application/javascript', '/managed-worker.js': 'application/javascript', '/library.json': 'application/json', '/browser-ui.js': 'application/javascript', '/backend-worker.js': 'application/javascript', '/browser-backend.js': 'application/javascript' };
+      const browserAssets: Record<string, string> = { '/error-messages.js': 'application/javascript', '/index.html': 'text/html; charset=utf-8', '/library.json': 'application/json', '/browser-ui.js': 'application/javascript', '/backend-worker.js': 'application/javascript', '/browser-backend.js': 'application/javascript' };
       if (request.method === 'GET' && browserAssets[route]) {
         const file = path.join(root, 'dist/browser', route.slice(1));
-        if (!existsSync(file)) throw new BackendError('Build the browser distribution before opening Guide & Setup.', 404);
+        if (!existsSync(file)) throw new BackendError('Build the browser distribution before opening the browser edition.', 404);
         response.writeHead(200, { 'content-type': browserAssets[route] }); response.end(await readFile(file)); return;
       }
       if (request.method === 'GET' && route === '/tokenize/progress') { send(response, 200, await harness.tokenizationProgress()); return; }

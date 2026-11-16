@@ -362,7 +362,7 @@ export class Harness implements TurnHost {
     catch (error) { throw new BackendError((error as Error).message); }
   }
   /** Cancel first, then remove every provider credential, including child routes. */
-  async lockCredentials(reason = 'Credentials were locked; reconnect in Guide & Setup.'): Promise<void> {
+  async lockCredentials(reason = 'Credentials were locked; reconnect your model in Settings.'): Promise<void> {
     await this.cancelRun(reason);
     if (this.adapter instanceof ProviderRouter) this.adapter.clearKeys();
     await this.mcp.close();
@@ -469,7 +469,7 @@ export class Harness implements TurnHost {
         candidate = new LegacyModelAdapter(port);
       } else {
         try { await candidate.describe(model, this.controller.signal); }
-        catch (error) { throw new DiagnosticError(failureDetails(error, 'model', `${provider} / ${model}`, 'Check the model credentials and provider connection in Guide & Setup.')); }
+        catch (error) { throw new DiagnosticError(failureDetails(error, 'model', `${provider} / ${model}`, 'Check the model credentials and provider connection in Settings.')); }
       }
       const maxOutput = ['demo', 'ollama', 'vertex'].includes(provider) ? value.maxOutputTokens : value.maxOutputTokens ?? 2048;
       if (maxOutput !== undefined && maxOutput >= context) throw new BackendError('Maximum output tokens must be smaller than the working context limit.');

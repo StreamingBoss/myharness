@@ -514,3 +514,25 @@ html, body { overflow: hidden; }
 #request-view details.part > summary .when { color: var(--blk); border-color: var(--blk); }
 #request-view details.part.is-empty > summary { color: var(--fg-faint); }
 #request-view details.part.is-empty > summary .tok { color: var(--fg-faint); }
+
+/* First-run connect card (browser edition). Shown above the chat until a model is connected. */
+#connect-card { margin: 12px; padding: 16px; border: 1px solid var(--accent); border-radius: 10px; background: var(--panel); display: grid; gap: 12px; font: 14px/1.5 system-ui, sans-serif; }
+#connect-card[hidden], #connect-card [hidden] { display: none; }
+#connect-card h2 { margin: 0; font-size: 18px; }
+#connect-card p { margin: 0; }
+.connect-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+.connect-choices button { display: grid; gap: 2px; text-align: left; padding: 12px; height: auto; white-space: normal; border-radius: 8px; }
+.connect-choices button span { font-size: 13px; color: var(--fg-muted); }
+.connect-choices button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.connect-step { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.connect-step label { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.connect-step input, .connect-step select { font: inherit; padding: 6px 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--fg); min-width: 0; max-width: 100%; }
+.connect-step .note, #connect-ollama-help, #connect-ollama details { flex-basis: 100%; }
+#connect-ollama-help { display: grid; gap: 8px; }
+#connect-ollama-help pre { margin: 0; padding: 10px; background: var(--code); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px ui-monospace, monospace; user-select: all; }
+#connect-ollama-help .connect-os { font-size: 13px; color: var(--fg-muted); margin-bottom: -4px; }
+#model-chip.disconnected .dot { background: var(--fg-faint); }
+#connect-card button.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 600; }
+#connect-status { color: var(--warn-alt); white-space: pre-wrap; }
+#connect-status:empty { display: none; }
+#connect-dismiss { justify-self: start; background: none; border: 0; padding: 0; color: var(--link); text-decoration: underline; height: auto; }

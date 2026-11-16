@@ -133,20 +133,22 @@ and Anthropic. Optional checks, using supplied credentials and a scratch
 workspace, should answer, read a file, propose/approve an edit, follow up from
 memory, compact and cancel. Use ephemeral ports or 5001, never 5000.
 
-## Guide and bridge verification
+## Connect card and bridge verification
 
-`guide-bridge`, `guide-managed`, `guide-vault`, `guide-ui`, `guide-http` and
-`guide-browser` test the new independent backend, lifecycle, private handoff,
-credential races, native effects and setup controls. The browser test hosts an
-HTTPS fixture with a temporary OpenSSL certificate, grants Chromium local-network
-permission, and pairs an actual loopback bridge; it does not disable browser
-security. Install OpenSSL alongside the existing Playwright dependencies.
+`connect-backend.test.ts` checks, without a UI, that the browser backend reports
+`model_connected` only after a real model is chosen, that a key is never stored,
+and that a cloud session is not connected after a reload. It also covers bridge
+pairing, cancellation and unpair restoration directly on `BrowserHarness`.
+`connect-card.test.ts` drives the card's view controller with a scripted client:
+both paths, the Ollama help with this page's origin, failures, stale model lists
+and dismissal. `browser-distribution.test.ts` runs the same flow in Chromium
+against the built page, including that the page contacts no model service before
+the user chooses one and that the key is absent from IndexedDB. `guide-bridge`
+tests the loopback bridge and native effects.
 
 `guide-folders` checks native directory browsing and selection, workspace-scoped
 files/Git/commands, approval denial and execution, unchanged grants, cancellation
-of folder selection, Worker routing and unpair restoration without a UI. The
-Chromium guide test chooses a second repository through the actual folder chooser
-and verifies that an approved command writes only in the selected repository.
+of folder selection, Worker routing and unpair restoration without a UI.
 
 `npm run coverage:ts` includes all backend modules and the new guide controllers/
 bootstraps, and enforces 100% lines, branches, functions and statements per file.
@@ -201,10 +203,7 @@ with the owner's GGUF remain an optional final parity/performance check.
 
 Plain-language errors are covered by `error-messages.test.ts`, including safe
 technical detail disclosure, service identification and actual default/custom time
-limits. Guide backend/view tests cover live connection status after locks, refresh
-on focus, stale replies and pending connection setup. The HTTPS Guide browser
-check expires a scratch bridge connection and verifies that Guide marks it
-disconnected, retains the model configuration, and updates the harness tool list.
+limits.
 The bridge lease regression checks both sides of the centralized 120-second
 boundary without waiting two minutes or touching the owner's services.
 

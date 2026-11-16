@@ -99,14 +99,28 @@ npm run start:browser
 ```
 
 Open **http://localhost:5001**. This server serves static files only: the full
-harness backend runs in a Worker on your browser's machine. Choose a real model
-provider and click **New Session**. Local Ollama is selected
-by default. Cloud providers show an API-key field; Ollama shows its server URL. The model
-picker lists installed Ollama models or loads account models after you enter a
-cloud API key. Changing the provider, URL or API key refreshes the choices.
-The backend supplies the context and response budgets, so no model-limit settings
-are needed in the browser toolbar. Existing scripted-demo sessions remain saved,
-but startup opens a new Ollama session instead of resuming a demo.
+harness backend runs in a Worker on your browser's machine. There is one page
+and no separate setup step. Until a model is connected, a **Connect a model**
+card sits above the chat with two choices:
+
+- **Use an API key**: choose Gemini, OpenAI or Anthropic, paste your key and
+  click **List models**, pick a model, then **Connect**. The key goes from the
+  page to the provider and stays in Worker memory; it is never saved, so enter
+  it again after a reload.
+- **Use Ollama on this computer**: the page looks for Ollama at
+  `http://localhost:11434` and lists the installed models. A website can only
+  reach Ollama if Ollama allows its origin, so when the request is blocked the
+  card shows the start command with `OLLAMA_ORIGINS` filled in for this page.
+  The page does not contact Ollama before you choose it, because browsers may
+  ask for local-network permission.
+
+The card is a view of backend state: `bootstrap` reports `model_connected`, and
+the card disappears once it is true. A chosen Ollama model is remembered across
+reloads. **Not now** hides the card so saved sessions can still be read. The
+same controls stay available under **Settings**, where **New Session** applies
+a changed provider or model. The backend supplies the context and response
+budgets. The scripted demo model is no longer offered; sessions saved with it
+remain readable.
 
 To distribute it, run `npm run package:browser` (requires the `zip` command).
 The resulting **`dist/myharness-browser.zip`** contains a standalone static site
@@ -280,7 +294,8 @@ backend stops and asks you to compact or reset memory.
 
 The browser distribution includes `headless.html`, which starts a backend Worker
 and exposes `window.harness` without loading the UI. Its public SDK exports
-`WorkerClient`, `BrowserHarness`, `BrowserStorage`, `DemoModel` and `OllamaAdapter`.
+`WorkerClient`, `BrowserHarness`, `BrowserStorage`, `OllamaAdapter` and `DemoModel`
+(a deterministic scripted model kept for tests, not offered in the page).
 See [ARCHITECTURE.md](ARCHITECTURE.md) for a callable browser example.
 
 The direct runner starts the full backend and prints NDJSON events. It requires
@@ -408,8 +423,8 @@ saved, so import the file again after reloading.
 
 ## Gemini, OpenAI and Claude
 
-The browser toolbar connects directly from its Worker to the selected provider.
-Enter your provider API key, select a model and connect. Connecting refreshes the
+The browser edition connects directly from its Worker to the selected provider.
+Enter your provider API key in the connect card or in Settings, select a model and connect. Connecting refreshes the
 page state without reloading. The key input clears immediately, and keys stay in
 Worker memory: sessions, IndexedDB, exports and inspection events contain no
 credentials. **Forget API key** removes the active provider credential. After a
@@ -505,43 +520,22 @@ unchanged minimal `harness.py` example. The retired full backend lives under
 The browser edition runs both UI and backend on the learner's machine. The Node
 edition remains available for shell tools, the HTTP API and the terminal runner.
 
-## Guide & Setup and local bridge
+## Local bridge
 
-Open the separate setup page with `npm run start:browser`, then visit
-`http://localhost:5001/guide.html`. Shared-computer mode keeps experiments in memory;
-personal mode offers explicitly saved, passphrase-encrypted model and MCP credentials.
-Connect Ollama or Gemini/OpenAI/Anthropic and open the existing harness in a linked tab.
+The separate Guide & Setup page, its linked second tab, the shared-computer and
+personal modes and the passphrase vault have been removed. Model connection now
+happens in the harness page itself (see [Run entirely in the browser](#run-entirely-in-the-browser)).
 
-For native scripts and files, pair an independent loopback bridge:
+The loopback bridge (`npm run bridge:ts`) and its backend actions
+(`BrowserHarness.attachBridge`, `detachBridge`, `selectBridgeProject`) still exist
+and are tested without a UI, but the page no longer offers a way to pair one.
+The bridge is being reduced to an optional tokenizer-only helper reached from the
+token viewer. Until then, use the Node edition (`./web.sh` or `npm run start:ts`)
+for shell commands, web search and Ollama token pieces; see
+[TOKENIZATION.md](TOKENIZATION.md).
 
-```bash
-npm run bridge:ts -- --workspace /path/to/scratch --origin https://your-site.example --port 5001 --allow-writes --allow-commands --allow-git-writes
-```
-
-The startup workspace is the initial folder. Once paired, use **Choose bridge
-folder…** in the harness to browse to any local repository, or enter its absolute
-native path in **Project folder** and click **Set**. Files, Git and approved commands
-use that selected directory without restarting or re-pairing the bridge. On WSL,
-use Linux paths such as `/home/you/repo` or `/mnt/c/Users/you/repo`.
-The bridge's startup grants still apply; changing folders does not grant commands
-unless it was started with `--allow-commands`. Unpair restores the previous browser
-workspace and removes the bridge tools while keeping the model and conversation.
-
-For Ollama token pieces, build the vocabulary-only `myharness-tokenizer` helper
-once and start the bridge with
-`--allow-tokenizer`. It manages the matching tokenizer process automatically;
-`OLLAMA_URL`, `MYHARNESS_LLAMA_TOKENIZER` and optional `MYHARNESS_TOKENIZER_MODELS`
-configure host access. Existing `MYHARNESS_TOKENIZERS` services also work. Follow the
-[browser token inspection setup](TOKENIZATION.md#browser-harness-through-the-local-bridge).
-The helper reads only tokenizer metadata and skips model weights. The browser
-does not need direct access to llama.cpp. Existing `MYHARNESS_LLAMA_SERVER` setups
-must migrate to the helper; manual HTTP bindings remain supported. Ollama prompt
-rendering can still reload a model that has been unloaded.
-
-Use another unused bridge port when the static site already uses 5001. The browser
-backend still owns approvals and the agent loop. Commands run with account permissions.
-See [setup, privacy and lifecycle details](docs/browser-guide-implementation.md) and
-[Copilot feasibility](docs/copilot-feasibility.md). Copilot is not yet a provider.
+[Copilot feasibility](docs/copilot-feasibility.md) records the research on a
+Copilot provider; it is not implemented.
 
 ## License
 

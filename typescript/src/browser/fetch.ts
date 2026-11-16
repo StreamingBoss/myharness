@@ -5,7 +5,6 @@ import { agentRoute, agentQuery } from '../transport.js';
 
 /** Logs browser MCP storage through the local static server when served on localhost. */
 export async function reportBrowserMcpConfig(client: WorkerClient): Promise<void> {
-  if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('managed') === '1') return;
   if (typeof location === 'undefined' || !['localhost', '127.0.0.1'].includes(location.hostname)) return;
   try {
     const configuration = await client.call('mcpConfiguration') as { config: unknown };

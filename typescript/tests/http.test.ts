@@ -31,3 +31,22 @@ test("Node HTTP adapter exposes bootstrap, NDJSON chat, reset, stop, and 404", a
   assert.equal((await fetch(`${base}/stop`, { method: "POST" })).status, 200);
   assert.equal((await fetch(`${base}/missing`)).status, 404);
 });
+
+test("Node distribution serves the browser edition's Worker assets, reports a missing build, and no longer serves a Guide page", async (context) => {
+  const scratch = await mkdtemp(path.join(tmpdir(), "myharness-assets-"));
+  const harness = new NodeHarness({ workspace: scratch, model: "scripted", contextLength: 4000, ollama: new Model() });
+  context.after(() => harness.close());
+  for (const options of [{}, { projectRoot: scratch }]) {
+    const server = createHarnessServer(harness, options);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    for (const file of ["index.html", "library.json", "browser-ui.js", "backend-worker.js", "browser-backend.js"]) {
+      const response = await fetch(`${base}/${file}`);
+      assert.equal(response.status, options.projectRoot ? 404 : 200, file);
+      if (options.projectRoot) assert.match(await response.text(), /Build the browser distribution/);
+    }
+    for (const retired of ["guide.html", "guide-ui.js", "managed-worker.js"]) assert.equal((await fetch(`${base}/${retired}`)).status, 404, retired);
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

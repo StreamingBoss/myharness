@@ -1318,7 +1318,10 @@ function initialize(data) {
   prompts = data.prompts;
   locked = data.locked;
   projectInput.value = data.project;
-  document.getElementById("model-name").textContent = data.model;
+  // The browser backend reports model_connected; the Node backend always has its configured model.
+  const modelMissing = data.model_connected === false;
+  document.getElementById("model-name").textContent = modelMissing ? "no model connected" : data.model;
+  document.getElementById("model-chip").classList.toggle("disconnected", modelMissing);
   initialTerminal = "----------------------------------------\nMODEL\n----------------------------------------\nModel: " + data.model + "  (working context: " + data.context_length + " tokens)\n\n";
   terminalEl.textContent = initialTerminal;
   requestView.reset();

@@ -140,7 +140,7 @@ Reset/session actions return JSON; their durable events remain in the transcript
 `typescript/src/browser/harness.ts` exports `BrowserHarness`. It provides the
 same submit/approval/Stop/reset/compact/session/explore contract as Node, with
 IndexedDB sessions, virtual text projects, optional user-granted directory
-handles, and either a scripted demo or the shared fetch-based Ollama adapter.
+handles, and the shared fetch-based Ollama and cloud adapters.
 `typescript/src/browser/worker-host.ts` maps RPC actions to this backend;
 `worker-entry.ts` only starts it and dispatches messages. The browser UI uses a
 transport shim, `browserFetch`, to adapt the existing UI's requests to Worker RPC.
@@ -189,8 +189,9 @@ The browser leaves out the tools it cannot run (`run_command`, `web_search`, and
 unless a local folder with a `.git` directory is open). `bootstrap` lists only the available
 tools and reports the rest in `unavailable_tools` with a reason; the model is never offered
 them, and a direct request for one answers `unsupported: ... : <reason>`.
-The scripted demo is a deterministic model adapter, not an LLM, and labels its
-approximate token counts and prepared replies. Ollama remains an external model
+The scripted demo is a deterministic model adapter, not an LLM. It is kept as a
+test fixture and so that sessions saved with it stay readable; the page no longer
+offers it. Ollama remains an external model
 server; the harness does not move inference into the browser. Its connection
 requires the page's origin allowed by the Ollama server and browser network policy.
 
@@ -299,21 +300,23 @@ HTTP model endpoint rejects client credentials. Model switches validate metadata
 without generating text and commit selection only after success. The backend
 requires idle configuration and starts a new session for changed selections.
 
-## Managed guide and native capability bridge
+## Connecting a model in the browser, and the native capability bridge
 
-The static `guide.html` owns a dedicated managed Worker. A private MessageChannel
-connects its explicitly opened harness tab to the existing WorkerClient contract.
-`ManagedSession` owns storage/vault policy, lifecycle and bridge heartbeats; the guide
-only forwards actions and renders results. Protected connection operations cannot
-restore credentials after asynchronous locking. Shared mode injects MemoryStorage
-before initialization; personal vault records live separately from ordinary sessions.
+The browser edition has one page. `BrowserHarness.bootstrap` reports
+`model_connected`: true once `configureModel` has succeeded for a real provider
+and that provider can be called now. The backend stores that a model was chosen,
+never a credential, so a cloud provider is not connected again after a reload
+while a chosen Ollama model is. `typescript/ui/connect-card.ts` is a view
+controller: it shows the first-run card while `model_connected` is false, and
+forwards `listModels`, `configureModel` and `bootstrap`. It makes no harness
+decision and is not needed to run the backend. Nothing contacts a model service
+until the user chooses one.
 
 `BrowserHarness` accepts runtime capabilities and can attach a BridgeWorkspace,
 remote Git/command adapters and native web search. NativeBridge hosts capabilities
 on authenticated, origin-bound loopback HTTP; it owns no conversation or agent loop.
-The core remains independent of pages, Worker APIs and transport. Standard SDK
-callers retain ownership of injected storage; managed End session disposes it.
-See [implementation details](docs/browser-guide-implementation.md).
+The core remains independent of pages, Worker APIs and transport. The page has no
+pairing control at present: the bridge is being reduced to a tokenizer-only helper.
 
 Native folder selection stays in runtime adapters. `BrowserHarness.selectBridgeProject`
 and `browseProject` use the authenticated bridge's directory capabilities; Worker
@@ -332,8 +335,7 @@ and the existing viewer; no tokenization decisions are implemented in the UI.
 
 Structured backend failures carry source, component, reason and recovery through
 Worker/HTTP adapters into live UI and session replay. Model and bridge boundaries
-tag failures where they occur. Private mode preserves connections across browser
-suspension; shared mode keeps inactivity locking and expiring bridge authority.
+tag failures where they occur.
 
 The optional `--allow-tokenizer` startup grant delegates only llama.cpp lifecycle
 to a Node ManagedTokenizer adapter. It discovers a local Ollama model file or
