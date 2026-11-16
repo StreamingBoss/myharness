@@ -43,7 +43,7 @@ export class DemoModel implements ModelPort {
       if (!payload.tools?.some(tool => tool.function.name === name)) return { answer: `${name} is unavailable or disabled. The scripted model only requests tools included in SENT.` };
       return { call: { function: { name, arguments: args } } };
     }
-    return { answer: 'This is a scripted learning model, not an LLM. Try: List files; Read README.md; Write note.txt: hello; Edit note.txt: hello => goodbye; Search hello; Skill write-readme; Remember 42; What do you remember?; Show instructions. Connect Ollama for arbitrary questions.' };
+    return { answer: 'No model is connected yet. Connect one with the card above: an API key, a server you name, or Ollama on this computer.' };
   }
 
   async request(endpoint: string, payload: unknown): Promise<Record<string, unknown>> {
