@@ -1,5 +1,6 @@
 #pragma once
 // Fault-injection shim for our helper's own branches; never used by the real build.
+// A file named unloadable.gguf cannot be loaded; special texts drive each tokenizer error branch.
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -12,7 +13,8 @@ struct llama_model_params { bool vocab_only = false; };
 inline llama_model_params llama_model_default_params() { return {}; }
 inline llama_model * llama_model_load_from_file(const char * file, llama_model_params params) {
     if (!params.vocab_only) std::abort();
-    return std::string(file) == "missing" ? nullptr : new llama_model;
+    const std::string path(file), broken = "unloadable.gguf";
+    return path.size() >= broken.size() && path.compare(path.size() - broken.size(), broken.size(), broken) == 0 ? nullptr : new llama_model;
 }
 inline void llama_model_free(llama_model * model) { delete model; }
 inline const llama_vocab * llama_model_get_vocab(llama_model *) { static llama_vocab vocab; return &vocab; }

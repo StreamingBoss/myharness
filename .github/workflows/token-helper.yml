@@ -1,0 +1,84 @@
+name: Tokenizer helper downloads
+
+# Builds the optional tokenizer helper for each system and, for a tag such as
+# token-helper-v1, publishes the downloads as a GitHub release.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['token-helper-v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, name: linux-x64, experimental: false }
+          - { os: macos-14, name: macos-arm64, experimental: false }
+          # Not yet run on a real Windows machine: a failure here does not block the other downloads.
+          - { os: windows-2022, name: windows-x64, experimental: true }
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build the helper
+        run: |
+          cmake -S native/tokenizer -B dist/tokenizer -DCMAKE_BUILD_TYPE=Release
+          cmake --build dist/tokenizer --target token-helper --config Release --parallel
+      - name: Assemble the download
+        shell: bash
+        run: |
+          mkdir -p "dist/download/myharness-token-helper"
+          # Multi-config generators (Visual Studio) put the program in a Release folder.
+          cp dist/tokenizer/bin/token-helper* dist/tokenizer/bin/Release/token-helper* "dist/download/myharness-token-helper/" 2>/dev/null || true
+          cp scripts/token-helper-readme.txt "dist/download/myharness-token-helper/README.txt"
+          ls -l "dist/download/myharness-token-helper"
+      - name: Check every line of the helper and the upstream token goldens
+        if: runner.os == 'Linux'
+        run: python3 native/tokenizer/tests/verify.py --llama-source dist/tokenizer/_deps/llama_cpp-src --helper dist/download/myharness-token-helper/token-helper
+      - name: Check the download with the page's own client and a real vocabulary
+        shell: bash
+        run: |
+          npm run build:ts
+          node scripts/smoke-token-helper.mjs dist/download/myharness-token-helper/token-helper* dist/tokenizer/_deps/llama_cpp-src/models/ggml-vocab-qwen2.gguf
+      - name: Archive
+        shell: bash
+        run: |
+          cd dist/download
+          if [ "${{ runner.os }}" = "Windows" ]; then 7z a "myharness-token-helper-${{ matrix.name }}.zip" myharness-token-helper
+          else tar -czf "myharness-token-helper-${{ matrix.name }}.tar.gz" myharness-token-helper; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: myharness-token-helper-${{ matrix.name }}
+          path: |
+            dist/download/*.zip
+            dist/download/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/token-helper-v')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloads
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" downloads/* \
+            --repo "${{ github.repository }}" \
+            --title "MyHarness tokenizer helper ${{ github.ref_name }}" \
+            --notes "Optional helper that shows token pieces for local Ollama models in the MyHarness token viewer. Download the file for your system, unpack it and read README.txt. The downloads are not signed, so macOS and Windows ask for confirmation the first time."

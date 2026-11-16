@@ -1,5 +1,6 @@
 import type { ModelRequest } from '../core.js';
-import { unavailable, type TokenInspection, type TokenizationProgress, type TokenizationStage, type InspectionProgress, TOKENIZATION_PROGRESS } from '../tokenization.js';
+import { tokenPiece, unavailable, type TokenInspection, type InspectionProgress } from '../tokenization.js';
+import type { PromptTokenizer } from '../llama-tokenizer.js';
 import type { OrchestrationLimits } from '../orchestration-limits.js';
 import { CloudAdapter } from '../cloud.js';
 import { ChatCompletionsAdapter } from '../chat-completions.js';
@@ -43,7 +44,6 @@ export class BrowserHarness extends Harness {
   /** Optional tokenizer helper on this computer. `helperEndpoint` is the remembered choice; `helper` the live connection. */
   private helper: TokenHelperClient | undefined;
   private helperEndpoint: string | undefined;
-  private helperInspection = false;
   private constructor(private readonly browser: ResolvedBrowserOptions, private readonly projects: Map<string, StoredProject>, workspace: string, private readonly router: ProviderRouter, private readonly mcpConfig: McpConfigHolder = {}) {
     const runtime: RuntimePort = {
         name: 'browser', supportedTools: TOOL_NAMES.filter(name => name !== 'run_command' && name !== 'web_search'),
@@ -101,23 +101,18 @@ export class BrowserHarness extends Harness {
     if (this.router.selected !== 'ollama' || payload.provider && payload.provider !== 'ollama' || !this.helperEndpoint) return super.inspectModelTokens(payload, signal, progress);
     // A remembered helper reconnects by itself; if it is not running, inspection continues without token pieces.
     if (!this.helper?.connected) await this.connectTokenizer().catch(() => undefined);
-    const info = this.helper?.info;
-    if (!info || !(info.automatic || info.models.length)) return super.inspectModelTokens(payload, signal, progress);
-    if (!info.automatic && !info.models.includes(payload.model)) return unavailable(payload.model, 'ollama', 'The tokenizer helper has no tokenizer configured for this exact Ollama model. Set MYHARNESS_TOKENIZERS where the helper runs and start it again.');
+    const helper = this.helper, info = helper?.info;
+    if (!helper || !info) return super.inspectModelTokens(payload, signal, progress);
     const endpoint = await this.browser.storage.get<string>('settings', 'ollama-url') ?? 'http://localhost:11434';
+    // The helper finds the model file through its own Ollama, so both must mean the same server.
     if (endpoint !== info.ollamaUrl) return unavailable(payload.model, 'ollama', 'The browser and the tokenizer helper use different Ollama URLs. Point both at the same Ollama server before inspecting tokens.');
-    this.helperInspection = true;
-    try { return await this.helper!.call<TokenInspection>('inspectTokens', { payload, ollamaUrl: endpoint }, signal); }
-    finally { this.helperInspection = false; }
-  }
-
-  override async tokenizationProgress(): Promise<TokenizationProgress | null> {
-    const current = await super.tokenizationProgress();
-    if (!current || !this.helperInspection) return current;
-    try {
-      const { stage } = await this.helper!.call<{ stage: TokenizationStage | null }>('inspectionProgress');
-      return stage && Object.hasOwn(TOKENIZATION_PROGRESS, stage) ? { ...current, stage, message: TOKENIZATION_PROGRESS[stage] } : current;
-    } catch { return current; }
+    // The page renders the prompt with Ollama as usual; only the split into tokens comes from the helper.
+    const tokenizer: PromptTokenizer = { alias: payload.model, identity: 'tokenizer helper', async tokenize(content, tokenizeSignal) {
+      const result = await helper.tokenize(payload.model, content, tokenizeSignal);
+      tokenizer.identity = result.identity;
+      return { label: 'Ollama-rendered prompt', tokens: result.tokens.map(token => tokenPiece(token.id, token.bytes)) };
+    } };
+    return new OllamaAdapter(fetch, endpoint, {}, { [payload.model]: tokenizer }).inspectTokens(payload, signal, progress);
   }
 
   /**
@@ -127,18 +122,15 @@ export class BrowserHarness extends Harness {
   async connectTokenizer(endpoint = this.helperEndpoint ?? HELPER_DEFAULT_ENDPOINT): Promise<Record<string, unknown>> {
     const client = new TokenHelperClient(endpoint);
     await client.connect();
-    const previous = this.helper;
     this.helper = client; this.helperEndpoint = endpoint;
-    await previous?.close();
     await this.browser.storage.put('settings', 'tokenizer-helper', { endpoint });
     return this.tokenizerStatus();
   }
   /** Disconnects the helper and stops reconnecting to it. */
   async forgetTokenizer(): Promise<Record<string, unknown>> {
-    const helper = this.helper;
+    this.helper?.close();
     this.helper = undefined; this.helperEndpoint = undefined;
     await this.browser.storage.put('settings', 'tokenizer-helper', undefined);
-    await helper?.close();
     return this.tokenizerStatus();
   }
   /** `enabled`: the user chose to use a helper. `connected`: it answered the last request. No network request is made here. */
@@ -151,7 +143,7 @@ export class BrowserHarness extends Harness {
     this.router.clearKeys();
   }
   override async close(): Promise<void> {
-    await this.lockCredentials(); await this.helper?.close(); await super.close();
+    await this.lockCredentials(); this.helper?.close(); await super.close();
   }
 
   /** Validates and stores an MCP configuration, then reconnects. Header values are not persisted. */

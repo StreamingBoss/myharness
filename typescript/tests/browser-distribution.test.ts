@@ -10,7 +10,7 @@ import { closePanels, openSessions, openSettings, openTools } from './ui-panels.
 import { DemoModel } from '../src/browser/demo.js';
 import type { ModelRequest } from '../src/core.js';
 import { FixtureServer } from './mcp-fixture.js';
-import { TokenHelper, createTokenHelperServer } from '../src/node/token-helper.js';
+import { helperFixture } from './helper-fixture.js';
 import { real, repository } from './git-helpers.js';
 
 async function staticServer(t: { after(callback: () => unknown): void }) {
@@ -126,19 +126,22 @@ test('token viewer: one click connects the tokenizer helper, token pieces appear
     if (request.url === '/api/tags') { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ models: [{ name: 'small:4b' }] })); return; }
     let body = ''; for await (const chunk of request) body += String(chunk);
     if (request.url === '/api/show') { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ template: 'Test model', model_info: { 'general.architecture': 'qwen3', 'qwen3.context_length': 4096 } })); return; }
+    const chat = JSON.parse(body) as ModelRequest & { _debug_render_only?: boolean };
+    // Token inspection asks Ollama to render the saved request without generating.
+    if (chat._debug_render_only) { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ _debug_info: { rendered_template: '<|im_start|>user\nRemember 42<|im_end|>' } })); return; }
     response.setHeader('content-type', 'application/x-ndjson');
-    for await (const chunk of model.streamChat(JSON.parse(body) as ModelRequest)) response.write(chunk + '\n');
+    for await (const chunk of model.streamChat(chat)) response.write(chunk + '\n');
     response.end();
   });
   await new Promise<void>(resolve => ollama.listen(0, '127.0.0.1', resolve)); t.after(() => ollama.close());
   const modelURL = `http://127.0.0.1:${(ollama.address() as { port: number }).port}`;
-  // A real helper process boundary: loopback HTTP with the page's origin allowed. Its Ollama and tokenizer upstreams are scripted.
-  const helper = new TokenHelper({ origins: [base], ollamaUrl: modelURL, tokenizers: { 'small:4b': { url: 'http://tokenizer.test', alias: 'small:4b', identity: 'fixture vocabulary' } },
-    inspectionFetch: async (url: string) => Response.json(url.endsWith('/api/chat') ? { _debug_info: { rendered_template: '<|im_start|>user\nRemember 42<|im_end|>' } } : url.endsWith('/v1/models') ? { data: [{ id: 'small:4b' }] }
-      : { tokens: [{ id: 151644, piece: '<|im_start|>' }, { id: 872, piece: 'user' }, { id: 198, piece: '\n' }, { id: 28590, piece: 'Remember' }, { id: 220, piece: ' ' }, { id: 2983, piece: '42' }, { id: 151645, piece: '<|im_end|>' }] }) });
-  const helperServer = createTokenHelperServer(helper); await new Promise<void>(resolve => helperServer.listen(0, '127.0.0.1', resolve));
-  t.after(() => { helperServer.closeAllConnections(); helperServer.close(); });
-  const helperURL = `http://127.0.0.1:${(helperServer.address() as { port: number }).port}`;
+  // The helper's protocol over real loopback HTTP with the page's origin allowed. The page renders the prompt with
+  // Ollama itself (the scripted server above does not render, so a route below does); the helper only splits it.
+  const text = (value: string) => [...new TextEncoder().encode(value)];
+  const helper = await helperFixture({ origins: [base], ollamaUrl: modelURL, tokens: (model, content) => model !== 'small:4b' || !content.includes('Remember 42') ? undefined : { identity: 'fixture vocabulary',
+    tokens: [{ id: 151644, bytes: text('<|im_start|>') }, { id: 872, bytes: text('user') }, { id: 198, bytes: text('\n') }, { id: 28590, bytes: text('Remember') }, { id: 220, bytes: text(' ') }, { id: 2983, bytes: text('42') }, { id: 151645, bytes: text('<|im_end|>') }] } });
+  t.after(() => helper.close());
+  const helperURL = helper.base;
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] }); t.after(() => browser.close());
   const context = await browser.newContext(), page = await context.newPage(), errors: string[] = []; let helperRequests = 0;
   page.on('pageerror', error => errors.push(error.message));
@@ -160,7 +163,7 @@ test('token viewer: one click connects the tokenizer helper, token pieces appear
   assert.equal(await page.locator('.token-chip').count(), 0); assert.equal(helperRequests, 0);
   assert.equal(await page.locator('#token-helper').isVisible(), true); assert.equal(await page.locator('#token-helper-connect').isVisible(), false);
   await page.locator('#token-helper-setup > summary').click();
-  assert.equal(await page.locator('#token-helper-command').innerText(), `npm run token-helper:ts -- --origin ${base}`);
+  assert.equal(await page.locator('#token-helper-command').innerText(), `./token-helper --origin ${base}`);
   assert.equal(await page.locator('#token-helper input').count(), 0);
   await page.locator('#token-helper-connect').click();
   await page.getByText('Tokenizer helper connected.', { exact: false }).waitFor();

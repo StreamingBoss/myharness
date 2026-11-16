@@ -144,62 +144,60 @@ and dismissal. `browser-distribution.test.ts` runs the same flow in Chromium
 against the built page, including that the page contacts no model service before
 the user chooses one and that the key is absent from IndexedDB.
 
-`token-helper.test.ts` checks the tokenizer helper without a UI: it accepts only
-saved Ollama requests for its own Ollama URL, refuses every former bridge
-operation, serializes and cancels inspections, and replaces the oldest page
-session at its limit. Over real loopback HTTP it refuses other websites, a
-missing `Origin` and a foreign `Host`, and needs no pairing code. A headless
-`BrowserHarness` connects, stores only the helper address, contacts nothing at
-the next startup and reconnects on the first inspection, including after the
-helper stops and starts again. The CLI is run both in process and as a program.
-`token-helper-panel.test.ts` drives the panel's view controller with a scripted
-client. The Chromium test connects with one click, reads the token chips, reloads
-to verify the automatic reconnect, and checks that Forget stops it.
+`token-helper.test.ts` checks the TypeScript side of the tokenizer helper
+without a UI, against `helper-fixture.ts`, a scripted stand-in that speaks the
+helper's protocol over real loopback HTTP with its Host and Origin checks. The
+client handles refusals, a version mismatch, the helper's own explanations and
+an unreachable helper. A headless `BrowserHarness` renders with Ollama, sends
+only the rendered text to the helper, stores only the helper address, contacts
+nothing at the next startup and reconnects on the first inspection, including
+after the helper stops and starts again. `token-helper-panel.test.ts` drives the
+panel's view controller with a scripted client. The Chromium test connects with
+one click, reads the token chips, reloads to verify the automatic reconnect, and
+checks that Forget stops it.
 
 `npm run coverage:ts` includes all backend modules and the connect-card and
 token-helper-panel controllers, and enforces 100% lines, branches, functions and statements per file.
 Test processes use concurrency 2 to avoid competing browser fixtures exhausting
 short execution deadlines. Tests require no live API keys or owner port-5000 access.
 
-`managed-tokenizer.test.ts` exercises real fixture helper child processes: automatic model discovery, explicit remote mappings, reuse/replacement,
-missing binaries, permissions, invalid GGUF, startup exit/timeout/cancellation,
-versioned vocabulary-only readiness checks, removal of inherited llama tool settings, cleanup when the helper is forgotten and
-manual-binding precedence. A headless BrowserHarness requests automatic inspection
-through a real tokenizer helper over HTTP. No live model or owner service is used.
-
 `token-progress.test.ts` verifies stage callbacks, safe rendering/tokenizer
-failures, progress during headless Node inspection and HTTP requests, real helper
-stage forwarding, advisory-status failures, cleanup and immediate Worker
-progress while an inspection is pending. Token viewer smoke tests check
+failures, progress during headless Node inspection and HTTP requests, cleanup and
+immediate Worker progress while an inspection is pending. Token viewer smoke tests check
 visible stage changes and reject delayed progress after final token pieces appear.
 
 
-## Native tokenizer verification
+## Native tokenizer helper verification
 
-Build `native/tokenizer` using the instructions in TOKENIZATION.md, then run:
+Build the helper (`npm run build:token-helper`), then run:
 
 ```bash
 python3 native/tokenizer/tests/verify.py \
-  --llama-source /path/to/the/pinned/llama.cpp \
-  --helper dist/tokenizer/bin/myharness-tokenizer
+  --llama-source dist/tokenizer/_deps/llama_cpp-src \
+  --helper dist/tokenizer/bin/token-helper
 ```
 
-This compiles our helper against a test-only fault-injection shim, exercises every
-explicit success/error branch, and requires 100% executable line coverage using
-gcov. The shim is never linked into the real helper. It then runs the actual
-helper against llama.cpp's Qwen2, GPT-2 and Llama-SPM vocabulary-only GGUFs and
-independent upstream golden token IDs (46 cases per family). Byte-level round
-trips check accented text, emoji, NULs, newlines and special markers. Native logs
-must confirm skipped tensors. No owner weights, Ollama calls, or downloads of
-inference models are involved. Reported fixture startup times are not guarantees
-for an owner's GGUF/filesystem or comparisons with full inference startup.
+This compiles `main.cpp` against a test-only fault-injection shim and requires
+100% executable line coverage using gcov, driving the program over real HTTP:
+refusal of other websites, a missing `Origin` and a foreign `Host`; both
+requests and their malformed, oversized and unknown variants; finding the model
+file through a stand-in Ollama (quoted, drive-letter, adapter, missing, non-GGUF
+and unreadable cases) and through an operator mapping; every tokenizer limit;
+a busy port; and a clean stop. Start at login is checked as exact text for
+Linux, macOS and Windows with `--print-install`, and applied against a scratch
+home folder with a stand-in `systemctl`, so no login entry is created on the
+test machine. The shim is never linked into the real helper. Coverage counts
+only the lines compiled on the test system: the macOS and Windows branches are
+not exercised here.
 
-`tokenizer-process.test.ts` covers bounded/fragmented protocol replies, invalid
-output, input/output limits, concurrent requests, cancellation/timeouts, idle
-exit, permission errors and restarting failed channels. Managed tests exercise
-helper cleanup and ensure the native path never calls HTTP tokenizer endpoints.
-Browser smoke tests verify the vocabulary-only progress wording. Live checks
-with the owner's GGUF remain an optional final parity/performance check.
+It then runs the real helper against llama.cpp's Qwen2, GPT-2 and Llama-SPM
+vocabulary-only GGUFs and independent upstream golden token IDs (46 cases per
+family) over HTTP. Byte-level round trips check accented text, emoji, NULs,
+newlines and special markers. Native logs must confirm skipped tensors. No owner
+weights, Ollama calls, or downloads of inference models are involved.
+
+`scripts/smoke-token-helper.mjs` runs the real program with the page's own
+client code and a real vocabulary; the release workflow runs it on each system.
 
 
 Plain-language errors are covered by `error-messages.test.ts`, including safe
