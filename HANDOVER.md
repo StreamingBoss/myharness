@@ -184,15 +184,31 @@ models can raise the browser's local-network prompt. API keys stay in Worker
 memory only. `DemoModel` and the `demo` provider remain as a deterministic test
 fixture and for sessions saved with them; do not offer them in the page.
 
-The loopback bridge is gone (`node/bridge*.ts`, `browser/bridge.ts`, pairing codes,
-grants, native folders, commands and web search from the website). What remains is
-the optional tokenizer helper: `node/token-helper.ts` and `token-helper-cli.ts`
-(`npm run token-helper:ts`), `browser/token-helper.ts` (client) and
-`helper-protocol.ts` (shared constants and `HelperError`). The helper has two routes
-and one effect, `inspectTokens`. It trusts the browser's `Origin` and `Host` headers
-instead of a pairing code; keep it tokenizer-only, because that is what makes the
-missing code acceptable. Default origin `https://harnessarium.com`, default address
-`http://127.0.0.1:5002`.
+The loopback bridge and the Node tokenizer helper are gone (`node/bridge*.ts`,
+`node/token-helper*.ts`, `node/managed-tokenizer.ts`, `node/tokenizer-process.ts`,
+pairing codes, grants, native folders, commands and web search from the website).
+What remains is one native program, `native/tokenizer/main.cpp`, built as
+`token-helper` (`npm run build:token-helper`). It has two requests, `/v1/info` and
+`/v1/tokenize`, and trusts the browser's `Origin` and `Host` headers instead of a
+pairing code; keep it tokenizer-only, because that is what makes the missing code
+acceptable. Default origin `https://harnessarium.com`, default address
+`http://127.0.0.1:5002`. `browser/token-helper.ts` is its client and
+`helper-protocol.ts` the shared constants and `HelperError`.
+
+Keep harness logic out of the native program. The page renders the prompt with
+Ollama; `BrowserHarness.inspectModelTokens` hands the shared `OllamaAdapter` a
+`PromptTokenizer` that calls the helper. The helper only finds the GGUF (its own
+Ollama's `/api/show`, or `MYHARNESS_TOKENIZER_MODELS`) and tokenizes. It also
+implements `--install`, `--uninstall` and `--print-install` (per-user login entry;
+only `OLLAMA_URL`, `MYHARNESS_TOKENIZER_MODELS` and `MYHARNESS_WSL_MOUNT_ROOT` are
+recorded). `native/tokenizer/tests/verify.py` requires 100% line coverage of
+`main.cpp` on Linux and checks the upstream token goldens over HTTP;
+`.github/workflows/token-helper.yml` builds, checks and, for a `token-helper-v*`
+tag, releases the downloads. The macOS and Windows builds are unverified: their
+`#ifdef` branches (program path, registry, launchctl) have never run.
+`typescript/tests/helper-fixture.ts` is a scripted stand-in speaking the same
+protocol for the TypeScript tests; `scripts/smoke-token-helper.mjs` runs the real
+program with the real client.
 
 `BrowserHarness.connectTokenizer`, `forgetTokenizer` and `tokenizerStatus` are the
 backend actions (same Worker action names). The remembered choice is
@@ -219,27 +235,13 @@ as history and marked superseded. Copilot prerequisites are in
 `docs/copilot-feasibility.md`. All new TS modules and the connect-card controller
 participate in the per-file 100% coverage gate.
 
-Helper token inspection uses operator-owned `MYHARNESS_TOKENIZERS` bindings and
-`OLLAMA_URL`. The browser backend routes saved Ollama requests through the connected
-helper when it reports bindings or automatic startup. The helper renders the prompt
-and calls llama.cpp; it accepts no browser-selected upstream URLs. Setup is in
-TOKENIZATION.md.
-
-The helper always offers on-demand tokenizer startup. `node/managed-tokenizer.ts`
-discovers local Ollama GGUF paths, supports operator `MYHARNESS_TOKENIZER_MODELS`
-mappings and `MYHARNESS_LLAMA_TOKENIZER`, reuses one owned process, and kills it on
-replacement, when the last page session is released, and on shutdown.
-Manual `MYHARNESS_TOKENIZERS` bindings take precedence. No installers run in the helper.
-
 Windows Ollama `FROM` drive paths are translated to standard WSL `/mnt/<drive>`
 paths before GGUF validation. Existing POSIX paths stay unchanged; UNC/relative
 paths require explicit model mappings. Scratch mounted-drive tests cover discovery
 and actual child launch without touching the owner's Ollama or model files.
 
 Token viewer progress now comes from `tokenizationProgress` (Worker) or
-`GET /tokenize/progress` (HTTP). Ollama and ManagedTokenizer report stages; helper
-state is session-scoped and cleared after inspection. BrowserHarness forwards
-that status without a backend timer. The viewer polls with stale-result guards.
+`GET /tokenize/progress` (HTTP). Ollama reports stages. The viewer polls with stale-result guards.
 Renderer/tokenizer failures preserve safe stage-specific explanations; diagnostic
 helper failures also survive the shared inspection boundary. Inspection requests
 have a 260-second helper transport deadline matching their component budgets.
@@ -247,21 +249,14 @@ have a 260-second helper transport deadline matching their component budgets.
 
 ## Vocabulary-only token inspection
 
-Automatic helper inspection owns `myharness-tokenizer`, built from
-`native/tokenizer/` against the pinned llama.cpp revision. It sets `vocab_only`,
-creates no inference context, and returns IDs/raw bytes through private NDJSON.
-`node/tokenizer-process.ts` bounds frames, removes inherited `LLAMA_ARG_*` settings,
-handles readiness and failures, and invalidates/kills interrupted processes.
-`ManagedTokenizer` retains discovery, WSL mappings, file-change reuse keys and
-lifecycle cleanup. `PromptTokenizer` keeps native processes out of the core;
-OllamaAdapter accepts the model-bound capability alongside existing HTTP bindings.
-Manual bindings take precedence. Missing helpers never fall back to full loading.
-
-`MYHARNESS_LLAMA_SERVER` is replaced by `MYHARNESS_LLAMA_TOKENIZER` for automatic
-startup. Build instructions and protocol are in TOKENIZATION.md. Prompt rendering
-still uses Ollama and can reload an evicted model; no unsupported capture during
-normal generation or automatic extra render request is introduced. Remote adapters
-and saved inspection replay retain their existing behavior.
+The tokenizer helper is built from `native/tokenizer/` against the pinned
+llama.cpp revision. It sets `vocab_only`, creates no inference context, and
+returns token IDs and raw bytes. `PromptTokenizer` keeps native code out of the
+core; OllamaAdapter accepts that model-bound capability alongside the Node
+edition's `MYHARNESS_TOKENIZERS` HTTP bindings. Prompt rendering still uses
+Ollama and can reload an evicted model; no unsupported capture during normal
+generation or automatic extra render request is introduced. Remote adapters and
+saved inspection replay retain their existing behavior.
 
 
 User-facing errors use `error-messages.ts` and `failure.ts` to explain what happened
@@ -271,6 +266,6 @@ as `error-messages.js` for both the Node-served UI and browser distribution.
 Approval events/results carry their actual configured wait limits; network,
 command, Git, task and token-inspection failures report their operation limits.
 
-`HELPER_REQUEST_TIMEOUT_MS` (120 seconds) and `HELPER_INSPECTION_TIMEOUT_MS`
-(260 seconds) in `helper-protocol.ts` are the helper client's request deadlines.
+`HELPER_REQUEST_TIMEOUT_MS` (60 seconds) in `helper-protocol.ts` is the helper
+client's request deadline.
 A configured local Ollama does not imply a live network check.
