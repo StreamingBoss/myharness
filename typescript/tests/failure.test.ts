@@ -8,13 +8,13 @@ import { Script } from 'node:vm';
 import { DiagnosticError, failureDetails, failureText } from '../src/failure.js';
 import { BackendError } from '../src/harness.js';
 import { NodeHarness } from '../src/node/harness.js';
-import { BridgeError } from '../src/bridge/protocol.js';
+import { HelperError } from '../src/helper-protocol.js';
 import { WorkerClient, type WorkerPort } from '../src/browser/client.js';
 import { browserFetch } from '../src/browser/fetch.js';
 import type { RpcMessage, RpcRequest } from '../src/browser/worker-host.js';
 
 const action = { message: 'hello', useMemory: true, tools: [], askApproval: true, agent: '', prompt: '' };
-test('diagnostics identify model and bridge failures and retain safe details in saved history', async t => {
+test('diagnostics identify model and tokenizer helper failures and retain safe details in saved history', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'harness-failure-')); t.after(() => rm(root, { recursive: true, force: true }));
   const detail = failureDetails(new Error('HTTP 503'), 'model', 'Ollama / q', 'Start Ollama and retry.');
   assert.deepEqual(failureDetails(new DiagnosticError(detail)), detail);
@@ -24,13 +24,13 @@ test('diagnostics identify model and bridge failures and retain safe details in 
   assert.equal(failureText(new Error('offline'), 'fallback'), 'fallback');
   assert.equal(failureText(new BackendError('offline'), 'fallback'), 'fallback');
   assert.match(failureText(new DiagnosticError(detail), 'fallback'), /Where: Model service.*Ollama/);
-  for (const error of [new Error('HTTP 503'), 'offline', new BridgeError('Bridge connection expired', 401)]) {
+  for (const error of [new Error('HTTP 503'), 'offline', new HelperError('Tokenizer helper connection is unavailable', 401)]) {
     const harness = new NodeHarness({ workspace: root, model: 'q', contextLength: 1000, ollama: { async *streamChat() { throw error; } } });
     const events = []; for await (const event of harness.submit(action)) events.push(event);
     const stopped = events.at(-1)!;
     const failure = stopped.failure as typeof detail;
-    assert.equal(failure.source, error instanceof BridgeError ? 'bridge' : 'model');
-    assert.match(failure.component, error instanceof BridgeError ? /bridge/ : /q/);
+    assert.equal(failure.source, error instanceof HelperError ? 'helper' : 'model');
+    assert.match(failure.component, error instanceof HelperError ? /Tokenizer helper/ : /q/);
     assert.ok(failure.reason); assert.ok(failure.recovery);
     assert.deepEqual(harness.activeSessionRecord().events.at(-1)!.failure, failure);
     await harness.close();

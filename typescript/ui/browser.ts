@@ -1,5 +1,6 @@
 import { failureText } from '../src/failure.js';
 import { CONNECT_CARD_HTML, mountConnectCard } from './connect-card.js';
+import { TOKEN_HELPER_HTML, mountTokenHelperPanel } from './token-helper-panel.js';
 import { ModelPicker } from '../src/browser/model-picker.js';
 import { ModelControls } from '../src/browser/model-controls.js';
 import { WorkerClient, type WorkerPort } from '../src/browser/client.js';
@@ -34,7 +35,6 @@ export async function mountBrowser(): Promise<void> {
   const input = (id: string) => document.getElementById(id) as HTMLInputElement;
   const model = document.getElementById('browser-model') as HTMLSelectElement;
   const local = document.getElementById('browser-local-folder') as HTMLButtonElement;
-  let bridgeConnected = false;
   const connect = document.getElementById('new-session') as HTMLButtonElement;
   connect.title = 'Apply the selected provider, model and budgets, then create and activate an empty conversation. Other saved sessions remain available.';
   let preferredModel = '';
@@ -46,10 +46,8 @@ export async function mountBrowser(): Promise<void> {
     document.getElementById('browser-forget-key')!.hidden = !hosted;
   };
   const renderConnection = (state: Record<string, unknown>) => {
-    bridgeConnected = (state.bridge as { connected: boolean }).connected;
-    local.textContent = bridgeConnected ? 'Choose bridge folder…' : 'Open local folder…';
-    local.disabled = !bridgeConnected && !window_.showDirectoryPicker;
-    local.title = bridgeConnected ? 'Choose any local repository through the bridge. Commands, files and Git use that directory, with the bridge grants and harness approvals.' : window_.showDirectoryPicker ? 'Open a folder with direct browser file access. Shell commands need a bridge folder.' : 'Direct folder access needs a supporting browser. Import a folder copy instead.';
+    local.disabled = !window_.showDirectoryPicker;
+    local.title = window_.showDirectoryPicker ? 'Open a folder with direct browser file access. Approved edits are saved to the original files. A web page cannot run shell commands.' : 'Direct folder access needs a supporting browser. Import a folder copy instead.';
     // A session saved with the retired scripted demo stays readable; the picker offers real providers only.
     mode.value = state.provider === 'demo' ? 'ollama' : String(state.provider);
     input('browser-context-limit').value = String(state.context_length);
@@ -95,6 +93,13 @@ export async function mountBrowser(): Promise<void> {
   const card = mountConnectCard(document, { client, origin: location.origin, render: state => { render(state); void refreshModels(); } });
   window_.addEventListener('myharness:state', event => card.update((event as CustomEvent<Record<string, unknown>>).detail));
   const initial = await client.call('bootstrap') as Record<string, unknown>;
+  // Optional tokenizer helper controls, inside the token viewer. They render backend state and forward actions.
+  const summary = document.getElementById('token-summary');
+  if (summary) summary.insertAdjacentHTML('afterend', TOKEN_HELPER_HTML); else document.getElementById('tokenization')!.insertAdjacentHTML('afterbegin', TOKEN_HELPER_HTML);
+  const helperPanel = mountTokenHelperPanel(document, { client, origin: location.origin });
+  window_.addEventListener('myharness:state', event => helperPanel.update((event as CustomEvent<Record<string, unknown>>).detail));
+  const exploreView = document.getElementById('explore-view') as HTMLSelectElement;
+  exploreView.addEventListener('change', () => { if (exploreView.value === 'tokens') void helperPanel.shown().catch(failure); });
   render(initial);
   // Listing models contacts the provider, and for Ollama the local network. Before a model is connected,
   // wait until the user opens Settings instead of probing on every page load.
@@ -113,7 +118,7 @@ export async function mountBrowser(): Promise<void> {
   input('browser-api-key').addEventListener('change', () => void refreshModels());
   window_.MYHARNESS_NEW_SESSION = () => controls.newSession();
   document.getElementById('browser-forget-key')!.addEventListener('click', async () => { await controls.forget(); await refreshModels(); });
-  local.addEventListener('click', async () => { try { if (bridgeConnected) { window_.dispatchEvent(new CustomEvent('myharness:browse-bridge')); return; } const handle = await window_.showDirectoryPicker!({ mode: 'readwrite' }); await client.call('attachLocalFolder', { handle }); location.reload(); } catch (error) { failure(error); } });
+  local.addEventListener('click', async () => { try { const handle = await window_.showDirectoryPicker!({ mode: 'readwrite' }); await client.call('attachLocalFolder', { handle }); location.reload(); } catch (error) { failure(error); } });
   document.getElementById('browser-folder-copy-picker')!.addEventListener('click', () => input('browser-folder-copy').click());
   document.getElementById('browser-folder-copy')!.addEventListener('change', async event => {
     try {

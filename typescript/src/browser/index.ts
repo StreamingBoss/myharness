@@ -5,7 +5,7 @@ export { DemoModel } from './demo.js';
 export { OllamaAdapter } from '../ollama.js';
 
 export { MemoryStorage } from './storage.js';
-export { BridgeClient, BridgeWorkspace } from './bridge.js';
+export { TokenHelperClient } from './token-helper.js';
 
 export { TOKENIZATION_PROGRESS, type TokenizationProgress, type TokenizationStage, type InspectionProgress } from '../tokenization.js';
 

@@ -300,7 +300,7 @@ HTTP model endpoint rejects client credentials. Model switches validate metadata
 without generating text and commit selection only after success. The backend
 requires idle configuration and starts a new session for changed selections.
 
-## Connecting a model in the browser, and the native capability bridge
+## Connecting a model in the browser, and the tokenizer helper
 
 The browser edition has one page. `BrowserHarness.bootstrap` reports
 `model_connected`: true once `configureModel` has succeeded for a real provider
@@ -312,43 +312,51 @@ forwards `listModels`, `configureModel` and `bootstrap`. It makes no harness
 decision and is not needed to run the backend. Nothing contacts a model service
 until the user chooses one.
 
-`BrowserHarness` accepts runtime capabilities and can attach a BridgeWorkspace,
-remote Git/command adapters and native web search. NativeBridge hosts capabilities
-on authenticated, origin-bound loopback HTTP; it owns no conversation or agent loop.
-The core remains independent of pages, Worker APIs and transport. The page has no
-pairing control at present: the bridge is being reduced to a tokenizer-only helper.
+The browser runtime has no native capability bridge any more: a web page reads
+virtual projects or user-granted folders and cannot run commands or web search.
+The one optional native capability is token inspection for local Ollama models,
+supplied by a **tokenizer helper** (`typescript/src/node/token-helper.ts`,
+started with `npm run token-helper:ts`). It is a loopback HTTP host with two
+routes, `/v1/connect` and `/v1/call`, and one effect: render a saved Ollama
+request and tokenize it. It owns no conversation or agent loop, reads no project
+files and accepts no upstream address from the browser. Every request must carry
+the helper's own `Host` and an `Origin` from its startup list (default
+`https://harnessarium.com`); there is no pairing code. `/v1/connect` returns a
+random session token that only separates page sessions.
 
-Native folder selection stays in runtime adapters. `BrowserHarness.selectBridgeProject`
-and `browseProject` use the authenticated bridge's directory capabilities; Worker
-and page controls forward these actions. Each explicitly selected repository has
-its own bridge workspace adapter, and native tool requests carry that workspace
-root. Commands, files and Git therefore use the chosen repository without changing
-grants, approval enforcement or another session's working directory.
+`BrowserHarness.connectTokenizer`, `forgetTokenizer` and `tokenizerStatus` are
+the callable interface, with Worker actions of the same names. Connecting stores
+the helper's loopback address in browser storage (no secret), so a later backend
+knows the user chose a helper. It contacts nothing at startup; the first
+inspection, or the token view's panel, reconnects. A helper that is not running
+leaves inspection working without token pieces. `typescript/ui/token-helper-panel.ts`
+renders `bootstrap().tokenizer` and forwards those actions; it decides nothing.
 
 Saved-request token inspection remains a shared Harness operation. BrowserHarness
-uses the inspection adapter hook to forward Ollama requests to a paired bridge
-with exact model bindings and matching Ollama endpoint. NativeBridge validates
+uses the inspection adapter hook to forward Ollama requests to a connected helper
+with exact model bindings and matching Ollama endpoint. The helper validates
 requests and uses fixed operator-configured endpoints for rendering and llama.cpp
 tokenization. It exposes no arbitrary HTTP proxy or provider credential transport.
 Structured TokenInspection evidence and cancellation use existing backend events
 and the existing viewer; no tokenization decisions are implemented in the UI.
 
 Structured backend failures carry source, component, reason and recovery through
-Worker/HTTP adapters into live UI and session replay. Model and bridge boundaries
-tag failures where they occur.
+Worker/HTTP adapters into live UI and session replay. Model and helper boundaries
+tag failures where they occur (`source: 'helper'`; `'bridge'` remains readable in
+sessions saved earlier).
 
-The optional `--allow-tokenizer` startup grant delegates only llama.cpp lifecycle
-to a Node ManagedTokenizer adapter. It discovers a local Ollama model file or
-uses an operator-owned exact-model path mapping, validates its GGUF header, and
-spawns a fixed executable without a shell. One owned process is reused, with
-startup deadlines/cancellation and cleanup on release, expiry and shutdown.
-Explicit external tokenizer bindings take precedence. The UI cannot choose
-executables, paths or launch arguments; no general command grant is required.
+The helper delegates llama.cpp lifecycle to a Node ManagedTokenizer adapter. It
+discovers a local Ollama model file or uses an operator-owned exact-model path
+mapping, validates its GGUF header, and spawns a fixed executable without a shell.
+One owned process is reused, with startup deadlines/cancellation and cleanup when
+the last page session is released and on shutdown. Explicit external tokenizer
+bindings take precedence. The UI cannot choose executables, paths or launch
+arguments.
 
 Token inspection exposes ephemeral structured progress through
 `Harness.tokenizationProgress()`, Worker action `tokenizationProgress`, and
-`GET /tokenize/progress`. Model/tokenizer adapters own stage callbacks. For paired
-inspection, the browser backend reads the authenticated bridge's per-connection
+`GET /tokenize/progress`. Model/tokenizer adapters own stage callbacks. For helper
+inspection, the browser backend reads the helper's per-session
 `inspectionProgress`; no source paths or prompt text enter progress. The existing
 viewer polls and renders this state with request/session guards. Polling is not
 needed for backend execution, and completion/failure/cancellation clears progress.

@@ -1,7 +1,7 @@
 export { timeoutDuration } from './error-messages.js';
 import { explainError, timeoutDuration } from './error-messages.js';
 /** Safe, structured diagnostics shared by headless backends and their transports. */
-export type FailureSource = 'model' | 'harness' | 'bridge' | 'transport';
+export type FailureSource = 'model' | 'harness' | 'bridge' | 'helper' | 'transport';
 export interface FailureDetails { source: FailureSource; component: string; reason: string; recovery: string; timeoutMs?: number }
 export class DiagnosticError extends Error {
   constructor(readonly failure: FailureDetails) { super(failure.reason); }
@@ -21,7 +21,7 @@ export function presentFailure(failure: FailureDetails | undefined, fallback: st
   const reason = failure ? failure.reason : fallback;
   const explanation = explainError(reason);
   if (!failure && !explanation) return fallback;
-  const sources = { model: 'Model service', harness: 'Harness', bridge: 'Connection to your local computer', transport: 'Browser connection to the harness' };
+  const sources = { model: 'Model service', harness: 'Harness', bridge: 'Connection to your local computer', helper: 'Tokenizer helper on this computer', transport: 'Browser connection to the harness' };
   const where = failure ? `\nWhere: ${sources[failure.source]} (${failure.component})` : '';
   const message = explanation ? explanation.message : `The ${sources[failure!.source].toLowerCase()} could not complete this action.`;
   const next = explanation ? explanation.next : failure!.recovery;

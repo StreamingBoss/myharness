@@ -46,7 +46,7 @@ export function browserFetch(client: WorkerClient) {
         else if (route === '/bootstrap' || route === '/sessions' || route === '/mcp') action = route.slice(1);
         else if (route === '/mcp/config') action = 'mcpConfiguration';
         else if (route === '/mcp/registry') { action = 'mcpRegistry'; payload = Object.fromEntries(url.searchParams); }
-        else if (route === '/browse') { action = 'browse'; const path = url.searchParams.get('path'); payload = path ? { path } : {}; if (url.searchParams.get('bridge') === '1') payload.bridge = true; }
+        else if (route === '/browse') { action = 'browse'; const path = url.searchParams.get('path'); payload = path ? { path } : {}; }
       } else if (method === 'POST') {
         if (route === '/sessions') action = 'newSession';
         else if (route === '/sessions/import') { action = 'importSession'; status = 201; }

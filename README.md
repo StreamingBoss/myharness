@@ -520,19 +520,28 @@ unchanged minimal `harness.py` example. The retired full backend lives under
 The browser edition runs both UI and backend on the learner's machine. The Node
 edition remains available for shell tools, the HTTP API and the terminal runner.
 
-## Local bridge
+## Tokenizer helper (optional)
 
-The separate Guide & Setup page, its linked second tab, the shared-computer and
-personal modes and the passphrase vault have been removed. Model connection now
-happens in the harness page itself (see [Run entirely in the browser](#run-entirely-in-the-browser)).
+The browser edition needs nothing installed. One thing a web page cannot do is
+show how a local Ollama model splits a request into tokens, because that needs
+the model's vocabulary file. An optional helper program on your computer does
+that and nothing else:
 
-The loopback bridge (`npm run bridge:ts`) and its backend actions
-(`BrowserHarness.attachBridge`, `detachBridge`, `selectBridgeProject`) still exist
-and are tested without a UI, but the page no longer offers a way to pair one.
-The bridge is being reduced to an optional tokenizer-only helper reached from the
-token viewer. Until then, use the Node edition (`./web.sh` or `npm run start:ts`)
-for shell commands, web search and Ollama token pieces; see
-[TOKENIZATION.md](TOKENIZATION.md).
+```bash
+npm run token-helper:ts                                   # serves https://harnessarium.com
+npm run token-helper:ts -- --origin http://localhost:5001   # serves another page
+```
+
+Then open **Tokens** in the harness, open **Show token pieces for my Ollama
+model (optional)** and click **Connect**. There is no pairing code: the helper
+only answers the websites it was started for. After the first Connect the page
+reconnects by itself whenever the helper is running; **Forget helper** stops
+that. The helper needs the `myharness-tokenizer` program built once; see
+[TOKENIZATION.md](TOKENIZATION.md#browser-harness-through-the-tokenizer-helper).
+
+The earlier loopback bridge (pairing codes, native files, shell commands, web
+search from the website) has been removed. Use the Node edition (`./web.sh` or
+`npm run start:ts`) for shell commands and web search.
 
 [Copilot feasibility](docs/copilot-feasibility.md) records the research on a
 Copilot provider; it is not implemented.
