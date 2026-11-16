@@ -182,7 +182,6 @@ export class BrowserHarness extends Harness {
     try { if (selected) await this.setProject(previous.workspace); }
     finally { await bridge.close(); }
   }
-  async bridgeHeartbeat(): Promise<void> { await this.bridge?.heartbeat(); }
   override async lockCredentials(reason?: string): Promise<void> {
     await super.lockCredentials(reason);
     this.mcpConfig.value = undefined;
@@ -192,9 +191,6 @@ export class BrowserHarness extends Harness {
   override async close(): Promise<void> {
     await this.lockCredentials(); await super.close();
   }
-
-  /** Managed experiment owns its storage; ordinary SDK callers retain their injected store. */
-  closeStorage(): void { this.browser.storage.close(); }
 
   /** Validates and stores an MCP configuration, then reconnects. Header values are not persisted. */
   override async configureMcp(value: unknown): Promise<Record<string, unknown>> {
@@ -207,8 +203,17 @@ export class BrowserHarness extends Harness {
     return this.reloadMcp();
   }
 
+  /** Remembers that the user chose a model. Credentials are never stored, so a cloud provider is not ready again after a reload. */
+  override async configureModel(raw: ModelConfiguration, startNewSession = false): Promise<void> {
+    await super.configureModel(raw, startNewSession);
+    await this.browser.storage.put('settings', 'model-connected', true);
+  }
+
   override async bootstrap(): Promise<Record<string, unknown>> {
-    return { ...await super.bootstrap(), bridge: this.bridgeStatus(), workspace_kind: this.bridgeWorkspaces.has(this.state.workspace) ? 'paired local workspace' : this.projects.get(this.state.workspace)?.handle ? 'local folder (direct disk access)' : 'virtual workspace (browser storage)', ollama_url: await this.browser.storage.get<string>('settings', 'ollama-url') ?? 'http://localhost:11434' };
+    const state = await super.bootstrap();
+    // The page shows its connect card from this flag: a real model was chosen and its provider can be called now.
+    const connected = state.ready === true && state.provider !== 'demo' && await this.browser.storage.get<boolean>('settings', 'model-connected') === true;
+    return { ...state, model_connected: connected, bridge: this.bridgeStatus(), workspace_kind: this.bridgeWorkspaces.has(this.state.workspace) ? 'paired local workspace' : this.projects.get(this.state.workspace)?.handle ? 'local folder (direct disk access)' : 'virtual workspace (browser storage)', ollama_url: await this.browser.storage.get<string>('settings', 'ollama-url') ?? 'http://localhost:11434' };
   }
 
   async listModels(raw: ModelConfiguration): Promise<ModelOption[]> {

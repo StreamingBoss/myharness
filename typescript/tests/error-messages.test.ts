@@ -9,13 +9,10 @@ import { readFile } from 'node:fs/promises';
 import { Script } from 'node:vm';
 
 const examples = [
-  ['Shared-computer session locked because bridge heartbeat failed', 'Your conversation is still available'],
   ['bridge heartbeat failed', 'connection to your local computer was lost'],
-  ['locked after inactivity', 'not used the harness'], ['The Guide session has ended', 'experiment has ended'],
-  ['Guide connection timed out', 'connect to Guide'], ['Bridge is disconnected', 'connect to your local computer'],
+  ['Bridge is disconnected', 'connect to your local computer'],
   ['Pairing code is expired', 'code is no longer valid'], ['Origin is not allowed', 'browser could not access'],
-  ['Credentials were locked', 'connections were locked'], ['Could not unlock this vault', 'saved keys could not be unlocked'],
-  ['Enter an API key before continuing', 'valid access key'], ['Credential saving is disabled', 'shared-computer mode'],
+  ['Credentials were locked', 'connections were locked'], ['Enter an API key before continuing', 'valid access key'],
   ['HTTP 429', 'usage limit'], ['HTTP 404', 'could not be found'], ['HTTP 503', 'could not be reached'],
   ['The model returned an empty reply', 'usable answer'], ['Provider stream ended before completion', 'stopped before'],
   ['Invalid tool arguments', 'missing or invalid information'], ['nobody answered the approval request', 'not run'],
@@ -44,15 +41,15 @@ test('friendly diagnostics preserve source and technical details and explain pre
   const detail = failureDetails('bridge heartbeat failed. [Time limit: 2 minutes]', 'bridge', 'Local bridge', 'Retry.');
   const text = presentFailure(detail, 'failed');
   assert.match(text, /local computer was lost/); assert.match(text, /Where: Connection to your local computer/);
-  assert.match(text, /Keep the harness tab open/); assert.match(text, /reconnect the local bridge/); assert.match(text, /API key/);
+  assert.match(text, /bridge program is still running/); assert.match(text, /pair it again/);
   assert.match(text, /Time limit: 2 minutes/); assert.match(text, /Technical details: bridge heartbeat failed/);
   assert.match(presentFailure(failureDetails('unknown internal error', 'model', 'Ollama', 'Retry.', 180_000), ''), /Time limit: 3 minutes/);
   assert.match(presentFailure(failureDetails('unknown internal error', 'harness', 'Harness', 'Retry.'), ''), /harness could not complete/);
   assert.match(presentFailure(failureDetails('Backend Worker stopped', 'transport', 'Browser', 'Retry.'), ''), /Browser connection/);
   assert.equal(presentFailure(undefined, 'ordinary explanation'), 'ordinary explanation');
-  assert.match(presentFailure(undefined, 'Guide connection timed out. [Time limit: 10 seconds]'), /Time limit: 10 seconds/);
-  assert.match(failureText(new DiagnosticError(detail), ''), /Keep the harness tab open/);
-  assert.match(failureText(new Error('offline'), 'Guide connection timed out'), /Open harness button/);
+  assert.match(presentFailure(undefined, 'Model request timed out. [Time limit: 10 seconds]'), /Time limit: 10 seconds/);
+  assert.match(failureText(new DiagnosticError(detail), ''), /pair it again/);
+  assert.match(failureText(new Error('offline'), 'Backend Worker is closed'), /Reload this page/);
 });
 test('model and bridge network failures report their configured request limits without leaking raw exceptions', async () => {
   const offline = async () => { throw new Error('PRIVATE secret in network exception'); };

@@ -102,6 +102,12 @@ truncation can differ from this separately rendered/tokenized prompt.
 
 ## Browser harness through the local bridge
 
+> The Guide & Setup page that paired the bridge has been removed, so the browser
+> page currently has no pairing control. The bridge is being reduced to an optional
+> tokenizer-only helper paired from the token viewer. Until that lands, use the Node
+> edition for Ollama token pieces. The backend path below (`BrowserHarness.attachBridge`)
+> is unchanged and still tested.
+
 The paired bridge can render Ollama prompts and call the matching llama.cpp
 server on behalf of the browser. The browser needs access to the bridge, but
 llama.cpp does not need browser CORS settings or a public listening address.
@@ -145,7 +151,7 @@ npm run bridge:ts -- --workspace "$(pwd)" --origin http://localhost:5001 --port 
 
 Use your page's exact origin. Add the existing writes, commands or Git-write flags
 only for those capabilities; token inspection does not need general Bash grants.
-Hard-refresh Guide & Setup and pair using the new code. Connect Ollama with the
+Pair using the new code. Connect Ollama with the
 same URL as the bridge's `OLLAMA_URL` (default `http://localhost:11434`), select the
 exact model ID, and send a message in the linked harness. Open **Explore →
 tokenization of a saved request → Inspect selected request**.

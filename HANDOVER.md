@@ -164,38 +164,33 @@ fabricated; generation usage is separate. The PR1 legacy Gemini/Vertex adapters
 and Ollama injection remain supported. Authenticated cloud checks are optional
 and currently unverified: no credentials were supplied for this change.
 
-## Guide, vault and bridge
+## Connect card and bridge
 
-The new separate entrypoint is `web/guide.html`; `ui/guide.ts` forwards setup actions
-to `ManagedSession` through `managed-worker.js`. Shared mode uses MemoryStorage,
-personal vaults use Web Crypto/IndexedDB, and ChannelWorker/SessionRelay link the
-existing harness page. End session and locking handle simultaneous tab cleanup and
-in-flight configuration. Missed page heartbeats do not end a session. Shared-computer
-bridge pairings have a 120-second lease; private-computer pairings remain valid
-until explicit release or bridge process exit. Only shared mode locks after ten
-minutes without user interaction. A private-mode bridge heartbeat failure does
-not clear unrelated model credentials; bridge requests report their own failures.
-Automatic shared-mode locks report inactivity or bridge-heartbeat/pairing expiry
-as the cancellation cause in stopped events and tool results. An explicit Stop
-still reports "stopped by the user"; unanswered approvals remain denied.
+The browser edition has one entry page. Guide & Setup, the linked second tab,
+`ManagedSession`, the vault, shared/personal modes and the scripted demo option
+were removed. `BrowserHarness.bootstrap` reports `model_connected`;
+`ui/connect-card.ts` renders the first-run card from it and forwards `listModels`
+and `configureModel`. `ui/browser.ts` inserts the card above `#messages`. The page
+must not contact a model service before the user chooses one: listing Ollama
+models can raise the browser's local-network prompt. API keys stay in Worker
+memory only. `DemoModel` and the `demo` provider remain as a deterministic test
+fixture and for sessions saved with them; do not offer them in the page.
+
+The bridge backend actions remain callable and tested, but no page pairs a bridge.
+The planned next step reduces the bridge to a tokenizer-only helper paired from
+the token viewer. `scripts/build-browser.mjs` now empties `dist/browser` first so
+retired pages are never shipped from an older build.
+
 Explorer views request live model metadata only for the model-template view
 (`describe_model` in HTTP/Worker, the optional second `explore` argument headlessly).
 Workspace refresh and model-description failures return safe warnings alongside
 available session snapshots; transport failures are displayed instead of leaving
 the explorer blank.
-Reloading the linked harness tab replaces its private port without clearing the
-managed session or bridge credentials. Page unload detaches the client; closing
-the tab is detected by the guide. Backend requests register resumed activity.
 Project-folder changes fetch fresh backend state so tool availability and browser
-workspace status update immediately without a page reload or bridge re-pairing.
-Guide setup changes notify only its linked harness tab. That view fetches backend
-state so bridge tools appear after pairing and disappear after credential locking.
-Guide's Unpair bridge calls backend `detachBridge`: it restores the pre-bridge
-runtime/workspace, keeps model credentials and conversation, and cancels pending
-pairing. The linked view refreshes its tools after unpairing too.
-Requests against an ended managed session return 410 with Guide recovery
-instructions; they do not replace this lifecycle failure with the generic
-credential/vault error. Safe errors carry structured `failure` details: source,
+workspace status update immediately without a page reload.
+`detachBridge` restores the pre-bridge runtime/workspace, keeps model credentials
+and conversation, and cancels pending pairing.
+Safe errors carry structured `failure` details: source,
 component, reason and recovery. Worker and HTTP adapters preserve those details;
 the harness renders them for live errors and replay. Provider response bodies and
 credentials must never be copied into diagnostics.
@@ -212,10 +207,10 @@ Writes, Bash and Git mutations require explicit startup flags. Pairing codes are
 single use; bridge tokens are not persisted. Ordinary browser mode still cannot
 start processes without a bridge. Keep owner services/settings untouched.
 
-The existing preview/proposal remain intact. Delivery details and the remaining
-Copilot prerequisites are in `docs/browser-guide-implementation.md` and
-`docs/copilot-feasibility.md`. All new TS modules and guide controllers participate
-in the per-file 100% coverage gate.
+The earlier Guide proposal and delivery notes in `docs/browser-guide-*.md` are kept
+as history and marked superseded. Copilot prerequisites are in
+`docs/copilot-feasibility.md`. All new TS modules and the connect-card controller
+participate in the per-file 100% coverage gate.
 
 Bridge token inspection uses operator-owned `MYHARNESS_TOKENIZERS` bindings and
 `OLLAMA_URL`. The browser backend routes saved Ollama requests through the paired
@@ -263,15 +258,11 @@ and saved inspection replay retain their existing behavior.
 
 User-facing errors use `error-messages.ts` and `failure.ts` to explain what happened
 and how to continue. The raw diagnostic remains intact in events and exports, and
-is shown under Technical details in chat and Guide. The shared formatter is built
+is shown under Technical details in chat and in the connect card. The shared formatter is built
 as `error-messages.js` for both the Node-served UI and browser distribution.
 Approval events/results carry their actual configured wait limits; network,
 command, Git, task and token-inspection failures report their operation limits.
 
 `BRIDGE_CONNECTION_TIMEOUT_MS` in `bridge/protocol.ts` is the single source for
-shared-mode bridge expiry, ordinary bridge request deadlines and the lock message.
-Its current value is 120 seconds. Private pairings still remain valid until release.
-Guide polls the read-only `connectionStatus` backend action and refreshes on focus,
-so automatic locks replace stale success messages. It reports model configuration
-separately from bridge connectivity; configured local Ollama does not imply a live
-network check. Polling does not count as user activity or extend an inactivity lock.
+bridge lease expiry and ordinary bridge request deadlines. Its current value is
+120 seconds. A configured local Ollama does not imply a live network check.

@@ -1,5 +1,11 @@
 # Guide & Setup implementation
 
+> **Superseded.** The Guide & Setup page, its linked tab, the shared and personal
+> modes and the credential vault described here were removed. The browser edition
+> now has one page with a connect card; see README.md and ARCHITECTURE.md. This
+> file is kept as a record of the earlier design.
+
+
 The separate `guide.html` page implements the first delivery in
 [browser-guide-connections-plan.md](browser-guide-connections-plan.md).
 The existing preview and proposal remain unchanged.

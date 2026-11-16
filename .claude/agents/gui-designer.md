@@ -1,6 +1,6 @@
 ---
 name: gui-designer
-description: Designs and implements MyHarness UI look and feel (layout, tokens, light/dark theme, responsive behaviour, accessibility). Use for any change to web/templates/index.html, web/static/*, web/guide.html or the typescript/ui files that affects how the interface looks or is laid out.
+description: Designs and implements MyHarness UI look and feel (layout, tokens, light/dark theme, responsive behaviour, accessibility). Use for any change to web/templates/index.html, web/static/* or the typescript/ui files that affects how the interface looks or is laid out.
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: opus
 ---

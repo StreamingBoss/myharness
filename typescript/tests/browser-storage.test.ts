@@ -52,16 +52,18 @@ test('browser startup loads the packaged library, reports fetch failures and clo
   t.mock.method(globalThis, 'fetch', async () => Response.json(library));
   const started = await loadBrowserHarness('startup', 'http://static/library.json');
   assert.equal(started.state.workspace, '/workspace');
-  assert.equal(started.state.model, 'scripted-demo');
-  assert.equal((await started.bootstrap()).provider, 'demo');
+  // No model is connected at startup: the default is Ollama and the page is told to show its connect card.
+  assert.equal(started.state.model, 'qwen3:8b');
+  const first = await started.bootstrap(); assert.equal(first.provider, 'ollama'); assert.equal(first.model_connected, false);
   await started.configureModel({ provider: 'demo' });
+  // The retired scripted demo stays loadable for saved sessions and tests, but never counts as a connected model.
+  assert.equal((await started.bootstrap()).model_connected, false);
   const demoSession = started.activeSessionRecord().id;
   const migrated = await loadBrowserHarness('startup', 'http://static/library.json');
   assert.equal(migrated.state.model, 'scripted-demo');
   assert.equal(migrated.state.provider, 'demo');
   assert.equal((await migrated.getSession(demoSession)).model, 'scripted-demo');
   assert.equal(migrated.activeSessionRecord().id, demoSession);
-  assert.equal((await loadBrowserHarness('startup', 'http://static/library.json')).state.model, 'scripted-demo');
   assert.ok(sdk.BrowserHarness); assert.ok(sdk.WorkerClient); assert.ok(sdk.DemoModel); assert.ok(sdk.OllamaAdapter);
   t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 404 })); await assert.rejects(loadBrowserHarness('failed', 'http://static/library.json'), /instruction library/);
   t.mock.method(globalThis, 'fetch', async () => Response.json({ ...library, workspace: { '.': '' } }));

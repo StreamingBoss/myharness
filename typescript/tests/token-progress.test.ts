@@ -11,8 +11,6 @@ import { NativeBridge, createBridgeServer } from '../src/node/bridge.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { createHarnessServer } from '../src/node/http.js';
 import { WorkerHost } from '../src/browser/worker-host.js';
-import { ManagedSession } from '../src/browser/managed.js';
-import { ManagedHost } from '../src/browser/managed-host.js';
 import { WorkerClient, type WorkerPort } from '../src/browser/client.js';
 import { browserFetch } from '../src/browser/fetch.js';
 import { DiagnosticError } from '../src/failure.js';
@@ -83,15 +81,15 @@ test('browser progress forwards real bridge stages and tolerates missing, unknow
   await harness.detachBridge();
 });
 
-test('Worker and managed transports expose progress immediately while inspection is pending', async t => {
-  for (const managed of [false, true]) {
+test('the Worker transport exposes progress immediately while inspection is pending', async t => {
+  {
     const entered = gate(), finish = gate();
     const harness = await BrowserHarness.open({ storage: new MemoryStorage(), library: { agents: {}, skills: {}, prompts: {} }, seed: {}, model: payload.model, modelPort: { async *streamChat() {}, async inspectTokens(_request, _signal, progress) { progress!('loading'); entered.open(); await finish.wait; throw new Error('failed'); } } });
-    const session = new ManagedSession(harness, true); t.after(() => session.end());
+    t.after(() => harness.close());
     const messages: RpcMessage[] = [];
     let receive!: (event: { data?: RpcMessage }) => void;
     const send = (message: RpcMessage) => { messages.push(message); receive({ data: message }); };
-    const host = managed ? new ManagedHost(session, send) : new WorkerHost(async () => harness, send);
+    const host = new WorkerHost(async () => harness, send);
     const port: WorkerPort = { postMessage(request: RpcRequest) { void host.handle(request); }, addEventListener(type, callback) { if (type === 'message') receive = callback; }, removeEventListener() {}, terminate() {} };
     const client = new WorkerClient(port), fetch_ = browserFetch(client);
     const index = await saved(harness), pending = client.call('tokenize', { event_index: index }); await entered.wait;
