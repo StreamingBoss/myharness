@@ -123,7 +123,7 @@ test('scripted model demonstrates memory, tool availability, editing, skills, ca
   assert.match((await run('remember 42')).map(chunk => chunk.message.content).join(''), /42/); messages.push({ role: 'user', content: 'Remember 42' }); assert.match((await run('What do you remember?')).map(chunk => chunk.message.content).join(''), /42/);
   messages.length = 0; assert.match((await run('what do you remember')).map(chunk => chunk.message.content).join(''), /No earlier/);
   assert.match((await run('show instructions')).map(chunk => chunk.message.content).join(''), /No system/); messages.push({ role: 'system', content: 'Rules' }); assert.match((await run('show instructions')).map(chunk => chunk.message.content).join(''), /Rules/);
-  assert.match((await run('anything')).map(chunk => chunk.message.content).join(''), /scripted learning model/);
+  assert.match((await run('anything')).map(chunk => chunk.message.content).join(''), /No model is connected yet/);
   const controller = new AbortController(); controller.abort(); assert.deepEqual(await collect(demo.streamChat({ model: DEMO_MODEL, messages: [], stream: true, options: { num_ctx: 1 } }, controller.signal)), []);
   const controller2 = new AbortController(), source = demo.streamChat({ model: DEMO_MODEL, messages: [{ role: 'user', content: 'hello' }], stream: true, options: { num_ctx: 1 } }, controller2.signal); await source.next(); controller2.abort(); assert.equal((await source.next()).done, true);
   assert.match(String((await demo.request('show', {})).template), /no LLM/); assert.ok((await demo.request('chat', { messages: [{ role: 'system', content: 'rules' }, { role: 'user', content: 'older conversation' }] })).message); await assert.rejects(demo.request('tags', {}), /only chat/);
