@@ -20,10 +20,10 @@ export async function loadHarness(env: NodeJS.ProcessEnv = process.env): Promise
   const ollama = new OllamaAdapter(fetch, env.OLLAMA_URL ?? 'http://localhost:11434', tokenizerBindings(env.MYHARNESS_TOKENIZERS ?? '{}'));
   const router = new ProviderRouter(fetch, { ollama,
     ...(provider === 'vertex' ? { vertex: new GeminiAdapter(fetch, { kind: 'vertex', project: env.GOOGLE_CLOUD_PROJECT ?? '', location: env.GOOGLE_CLOUD_LOCATION ?? 'global', accessToken: env.GOOGLE_ACCESS_TOKEN ?? '' }) } : {})
-  }, provider, { gemini: env.GEMINI_API_KEY ?? '', openai: env.OPENAI_API_KEY ?? '', anthropic: env.ANTHROPIC_API_KEY ?? '' });
+  }, provider, { gemini: env.GEMINI_API_KEY ?? '', openai: env.OPENAI_API_KEY ?? '', anthropic: env.ANTHROPIC_API_KEY ?? '', openrouter: env.OPENROUTER_API_KEY ?? '' });
   const contextLength = Number(env.MYHARNESS_CONTEXT_LENGTH ?? (provider === 'ollama' ? await ollama.contextLength(model) : 8192));
   if (!Number.isInteger(contextLength) || contextLength <= 0) throw new Error('MYHARNESS_CONTEXT_LENGTH must be a positive integer');
-  const maxOutput = env.MYHARNESS_MAX_OUTPUT_TOKENS === undefined ? (['gemini', 'openai', 'anthropic'].includes(provider) ? 2048 : undefined) : Number(env.MYHARNESS_MAX_OUTPUT_TOKENS);
+  const maxOutput = env.MYHARNESS_MAX_OUTPUT_TOKENS === undefined ? (['gemini', 'openai', 'anthropic', 'openrouter'].includes(provider) ? 2048 : undefined) : Number(env.MYHARNESS_MAX_OUTPUT_TOKENS);
   if (maxOutput !== undefined && (!Number.isInteger(maxOutput) || maxOutput <= 0 || maxOutput >= contextLength)) throw new Error('MYHARNESS_MAX_OUTPUT_TOKENS must be positive and smaller than context length');
   const savedSettings = existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, 'utf8')) : {};
   const savedAllow = savedSettings.allowSubagents === true;

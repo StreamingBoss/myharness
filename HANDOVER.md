@@ -157,6 +157,14 @@ the backend; browser controls only forward RPC actions and render bootstrap.
 Provider-tagged continuation items and tool-call IDs survive session export and
 compaction retention. Current tool results are serialized from canonical memory.
 
+`openrouter.ts` is a separate adapter for OpenRouter's Chat Completions API (provider
+`openrouter`, `OPENROUTER_API_KEY` on Node). Its model IDs contain a slash, so
+`configuredModel` accepts one only for this provider. The continuation is the single
+assistant message as returned, including `reasoning_details`; streamed fragments are
+merged by index and type. It calls a detached `fetch`, as `cloud.ts` does: a browser's
+native fetch throws when invoked as a method. Its request body is covered by the
+Request-tab tests.
+
 Keys never enter saved requests, sessions, settings or exports. Browser reload
 requires reconnection; Node supplies environment keys. Do not log provider error
 bodies or headers. Native cloud count/token inspection is unavailable rather than

@@ -3,6 +3,7 @@ import type { ModelPort } from './harness.js';
 import type { FetchLike } from './ollama.js';
 import { LegacyModelAdapter, PROVIDERS, type ModelAdapter, type ModelDescription, type ModelEvent, type ModelResult, type Provider } from './model.js';
 import { CloudAdapter, type CloudProvider } from './cloud.js';
+import { OpenRouterAdapter } from './openrouter.js';
 import { unavailable, type TokenInspection, type InspectionProgress } from './tokenization.js';
 
 export interface ModelConfiguration { provider?: string; mode?: string; model?: string; url?: string; apiKey?: string; contextLength?: number; maxOutputTokens?: number }
@@ -13,12 +14,13 @@ export function modelConfiguration(value: Record<string, unknown>): ModelConfigu
   return value as ModelConfiguration;
 }
 export function providerName(value: string): Provider {
-  if (!PROVIDERS.includes(value as Provider)) throw new Error('Choose MYHARNESS_PROVIDER or browser provider: demo, ollama, gemini, openai, anthropic or vertex.');
+  if (!PROVIDERS.includes(value as Provider)) throw new Error('Choose MYHARNESS_PROVIDER or browser provider: demo, ollama, gemini, openai, anthropic, openrouter or vertex.');
   return value as Provider;
 }
 export function configuredModel(provider: Provider, model?: string): string {
   const result = model?.trim() || (provider === 'gemini' ? 'gemini-3.8-flash' : provider === 'demo' ? 'scripted-demo' : provider === 'ollama' ? 'qwen3:8b' : '');
-  if (!result || /[\s/?#]/.test(result)) throw new Error('Enter an explicit API model ID.');
+  // OpenRouter IDs name the vendor first, such as openai/gpt-5 or deepseek/deepseek-chat:free.
+  if (!result || (provider === 'openrouter' ? /[\s?#]|^\/|\/$|\/\// : /[\s/?#]/).test(result)) throw new Error('Enter an explicit API model ID.');
   return result;
 }
 
@@ -26,7 +28,7 @@ export function configuredModel(provider: Provider, model?: string): string {
 export class ProviderRouter implements ModelAdapter {
   selected: Provider;
   private readonly keys = new Map<string, string>();
-  constructor(private readonly fetch_: FetchLike, private readonly ports: Partial<Record<Provider, ModelPort>>, selected: Provider = 'ollama', keys: Partial<Record<CloudProvider, string>> = {}) {
+  constructor(private readonly fetch_: FetchLike, private readonly ports: Partial<Record<Provider, ModelPort>>, selected: Provider = 'ollama', keys: Partial<Record<CloudProvider | 'openrouter', string>> = {}) {
     this.selected = selected;
     for (const [provider, key] of Object.entries(keys)) this.keys.set(provider, key);
   }
@@ -36,6 +38,7 @@ export class ProviderRouter implements ModelAdapter {
   setLegacy(provider: Provider, port: ModelPort): void { this.ports[provider] = port; }
   adapter(provider: string = this.selected, key?: string): ModelAdapter {
     const name = providerName(provider);
+    if (name === 'openrouter') return new OpenRouterAdapter(this.fetch_, key ?? this.keys.get(name) ?? '');
     if (name === 'gemini' || name === 'openai' || name === 'anthropic') return new CloudAdapter(name, this.fetch_, key ?? this.keys.get(name) ?? '');
     const port = this.ports[name]; if (!port) throw new Error(`Provider ${name} is not configured in this runtime.`);
     return new LegacyModelAdapter(port);

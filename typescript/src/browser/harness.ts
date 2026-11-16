@@ -2,6 +2,7 @@ import type { ModelRequest } from '../core.js';
 import { unavailable, type TokenInspection, type TokenizationProgress, type TokenizationStage, type InspectionProgress, TOKENIZATION_PROGRESS } from '../tokenization.js';
 import type { OrchestrationLimits } from '../orchestration-limits.js';
 import { CloudAdapter } from '../cloud.js';
+import { OpenRouterAdapter } from '../openrouter.js';
 import type { ModelOption } from '../model.js';
 import { ProviderRouter, modelConfiguration, providerName, type ModelConfiguration } from '../providers.js';
 import { DemoModel } from './demo.js';
@@ -185,7 +186,7 @@ export class BrowserHarness extends Harness {
       return new OllamaAdapter(fetch, url.href.replace(/\/$/, '')).listModels();
     }
     const adapter = this.router.adapter(provider, value.apiKey);
-    if (adapter instanceof CloudAdapter) return adapter.listModels();
+    if (adapter instanceof CloudAdapter || adapter instanceof OpenRouterAdapter) return adapter.listModels();
     throw new BackendError('Choose a real model provider to list models.');
   }
 

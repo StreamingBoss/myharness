@@ -7,11 +7,11 @@ export const CONNECT_CARD_HTML = `<section id="connect-card" aria-labelledby="co
 <h2 id="connect-title">Connect a model</h2>
 <p class="note">The harness runs in this page. The model is a separate service: the harness sends it requests and shows you each one. Choose where your model runs.</p>
 <div class="connect-choices">
-<button id="connect-choose-key" type="button" aria-pressed="false" title="Use a model hosted by Gemini, OpenAI or Anthropic. Requests go from this page to that provider and are billed to your account."><strong>Use an API key</strong><span>Gemini, OpenAI or Anthropic, billed to your account</span></button>
+<button id="connect-choose-key" type="button" aria-pressed="false" title="Use a model hosted by Gemini, OpenAI, Anthropic or OpenRouter. Requests go from this page to that provider and are billed to your account."><strong>Use an API key</strong><span>Gemini, OpenAI, Anthropic or OpenRouter, billed to your account</span></button>
 <button id="connect-choose-ollama" type="button" aria-pressed="false" title="Use a model that Ollama runs on this computer. Choosing this makes the page look for Ollama, so your browser may ask to allow local-network access."><strong>Use Ollama on this computer</strong><span>A local model: requests stay on your machine</span></button>
 </div>
 <div id="connect-key" class="connect-step" hidden>
-<label>Provider <select id="connect-provider" title="The service that runs the model."><option value="gemini">Gemini</option><option value="openai">OpenAI GPT</option><option value="anthropic">Anthropic Claude</option></select></label>
+<label>Provider <select id="connect-provider" title="The service that runs the model."><option value="gemini">Gemini</option><option value="openai">OpenAI GPT</option><option value="anthropic">Anthropic Claude</option><option value="openrouter">OpenRouter (many models, one key)</option></select></label>
 <label>API key <input id="connect-api-key" type="password" autocomplete="off" placeholder="Paste your key" title="Sent from this page directly to the provider. Kept in memory only: never saved in sessions, settings or exports."></label>
 <button id="connect-list" type="button" title="Ask the provider which models this key can use. No model request is sent.">List models</button>
 <p class="note">The key is kept in memory only and is never saved. After reloading the page, enter it again.</p>
@@ -42,7 +42,7 @@ export interface ConnectCardOptions {
   render(state: Record<string, unknown>): void;
 }
 type Choice = 'key' | 'ollama';
-const CLOUD = ['gemini', 'openai', 'anthropic'];
+const CLOUD = ['gemini', 'openai', 'anthropic', 'openrouter'];
 
 /** View controller only: it lists and connects models through backend actions and renders `model_connected`. */
 export function mountConnectCard(document_: Document, options: ConnectCardOptions): { update(state: Record<string, unknown>): void } {

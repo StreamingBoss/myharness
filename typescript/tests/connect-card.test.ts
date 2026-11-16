@@ -54,6 +54,14 @@ test('a saved cloud session without its key asks for the key again, once', () =>
   assert.equal(f.get('connect-status').textContent, 'kept');
 });
 
+test('OpenRouter is offered on the API-key path, and a saved OpenRouter session asks for its key again', () => {
+  assert.match(CONNECT_CARD_HTML, /<option value="openrouter">OpenRouter/);
+  const f = fixture();
+  f.card.update({ model_connected: false, ready: false, provider: 'openrouter' });
+  assert.equal(f.get('connect-key').hidden, false); assert.equal(f.get('connect-provider').value, 'openrouter');
+  assert.match(f.get('connect-status').textContent, /keys are never saved/);
+});
+
 test('the API-key path lists models with the key, connects through the backend and clears the key field', async () => {
   const f = fixture();
   await f.click('connect-choose-key');
