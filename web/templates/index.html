@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>myharness</title>
+<script src="/static/i18n.js"></script>
 <script src="/static/marked.min.js"></script>
 <script src="/static/purify.min.js"></script>
 <script>try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch {}</script>
@@ -11,11 +12,12 @@
 <body>
 
 <header id="app-header">
-  <div class="brand">MyHarness <span>·</span> lab</div>
+  <div class="brand" translate="no">MyHarness <span>·</span> lab</div>
   <span class="chip" id="model-chip" title="The model this session sends requests to."><span class="dot"></span><span id="model-name"></span></span>
   <div class="header-actions">
     <button id="sessions-btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="sessions-panel" title="Open the list of saved sessions: load one to continue it, start a new one, rename, export or import.">Session: <strong id="session-title">…</strong> ▾</button>
     <button id="open-settings" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="settings-drawer" title="Open the settings: model, instructions, project folder and connections.">Settings</button>
+    <select id="ui-language" aria-label="Language" title="Interface language. The choice is saved in this browser. Only the interface is translated: what the harness sends to the model, and what the model answers, are unchanged."></select>
     <button id="theme-toggle" type="button" title="Switch between the light and dark theme. Without a choice, the theme follows your system setting. Display preference only, stored in this browser."></button>
   </div>
 </header>
@@ -95,7 +97,7 @@
       </div>
     </div>
     <div id="confirm-clear" class="confirm" role="alertdialog" aria-label="Clear conversation" hidden>
-      <span><strong>Clear this conversation?</strong> Its messages are removed from memory and from the screen. This cannot be undone.</span>
+      <span data-i18n-html><strong>Clear this conversation?</strong> Its messages are removed from memory and from the screen. This cannot be undone.</span>
       <span class="buttons"><button id="clear-cancel" type="button" title="Keep the conversation and close this question.">Cancel</button><button id="clear-yes" class="danger" type="button" title="Empty the memory and all panels, and unlock the system prompt and agent.">Clear</button></span>
     </div>
   </div>
@@ -151,7 +153,7 @@
   <div id="request-view" hidden></div>
   <div id="internals-pane" hidden>
     <div class="pane-header" id="internals-header" title="Model API exchanges. SENT (orange): the full request, rebuilt every time; your new message is in red. RECEIVED (green): the model's response with its statistics; the model's message is in blue. TOKENS: input + output tokens out of the context window. PREFIX REUSE: how much of this request is identical to the previous one; a provider prompt cache or Ollama's KV cache can reuse that part, while trimming, compaction and system-prompt changes break it. TIMING: prefill reads the whole prompt in parallel (compute-bound, repeated every round), decode writes one token at a time (memory-bandwidth-bound); an Ollama prefill that looks implausibly fast reused its KV cache. TURN TIMELINE: every round of a tool-using turn sends the whole conversation again. TOOL and FILE CHANGE: what the harness ran for the model.">Internals: every model request (SENT) and response (RECEIVED), with tokens and timing. Hover for what each block means.</div>
-    <pre id="terminal">----------------------------------------
+    <pre id="terminal" translate="no">----------------------------------------
 MODEL
 ----------------------------------------
 Model: loading…
@@ -186,11 +188,12 @@ Model: loading…
     <button id="mcp-registry-go" type="submit" value="search" title="Search the selected MCP registry using the text entered above.">Search</button>
     <button id="mcp-registry-close" type="button" title="Close the MCP registry dialog. Saved configuration entries remain in the harness.">Close</button>
   </form>
-  <div class="registry-note">Servers from the selected MCP registry. Entries are published by their authors and not reviewed. <b>Preview tools</b> connects once to a remote server, lists what it offers and disconnects; nothing is called. Choose <b>Show configuration → Add to harness</b> to save and reload a server, or copy its configuration into your MCP configuration file and choose <b>Reload MCP servers</b> (browser edition: <b>Import MCP config</b>).</div>
+  <div class="registry-note" data-i18n-html>Servers from the selected MCP registry. Entries are published by their authors and not reviewed. <b>Preview tools</b> connects once to a remote server, lists what it offers and disconnects; nothing is called. Choose <b>Show configuration → Add to harness</b> to save and reload a server, or copy its configuration into your MCP configuration file and choose <b>Reload MCP servers</b> (browser edition: <b>Import MCP config</b>).</div>
   <div id="mcp-registry-results" role="status"></div>
   <button id="mcp-registry-more" type="button" hidden title="Fetch the next page of matching servers from the selected registry.">More results</button>
 </dialog>
 
+<script>MyHarnessI18n.apply(document.body); MyHarnessI18n.menu(document.getElementById("ui-language"));</script>
 <script src="/error-messages.js"></script>
 <script src="/static/tokenization.js"></script>
 <script src="/static/vocabulary.js"></script>

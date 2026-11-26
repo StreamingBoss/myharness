@@ -362,6 +362,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok-soft); }
 .header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 #theme-toggle { margin-left: 0; }
+#ui-language { padding: 5px 8px; border: 1px solid var(--btn-border); border-radius: 6px; background: var(--btn-bg); color: var(--btn-fg); font: inherit; font-size: 13px; }
 #context-line { flex-shrink: 0; padding: 4px 16px; border-bottom: 1px solid var(--border); font-size: 12px; background: var(--surface); color: var(--fg-muted); }
 #context-meter { font-size: 12px; font-weight: normal; }
 #context-bar { width: 160px; height: 7px; margin-left: 8px; vertical-align: middle; }

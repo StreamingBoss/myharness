@@ -1,0 +1,8 @@
+# Codex entry point for the shared translator agent.
+# The definition itself lives in .agents/translator.md (also used by Claude Code); edit it there, not here.
+name = "translator"
+description = "Translates or reviews one language catalog of the MyHarness interface (zh, es, pt, ja, ru, de, fr, ko, tr, hi, it) from the English source, as a native-speaking software engineer. Start one per language; the task must name the language, the mode (translate or review) and what changed in English."
+developer_instructions = """
+Your full instructions are in the file .agents/translator.md at the repository root.
+Read that file first and follow it exactly. Ignore its YAML front matter and its HTML comment; they are metadata for the tools that load it.
+"""

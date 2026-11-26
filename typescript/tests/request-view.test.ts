@@ -32,6 +32,7 @@ interface RequestViewClass {
 // The view script only defines classes at load time, so it runs here without a DOM.
 function loadRequestView(): RequestViewClass {
   const context = createContext({});
+  new Script(readFileSync('web/static/i18n.js', 'utf8')).runInContext(context);
   new Script(readFileSync('web/static/request-view.js', 'utf8')).runInContext(context);
   return (context as unknown as { RequestView: RequestViewClass }).RequestView;
 }

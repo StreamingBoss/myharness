@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Script } from 'node:vm';
 import test from 'node:test';
+import { english } from '../src/text.js';
 
 test('project controls render refreshed backend state and report rejected projects or failed refreshes', async () => {
   const html = await readFile('web/static/app.js', 'utf8');
@@ -11,7 +12,7 @@ test('project controls render refreshed backend state and report rejected projec
     const requests: { url: string; options: RequestInit | undefined }[] = [], events: { type: string; detail: unknown }[] = [], dividers: string[] = [];
     const projectError = { textContent: 'old error' };
     const context = {
-      formatFailure: (_failure: unknown, reason: string) => reason,
+      formatFailure: (_failure: unknown, reason: string) => reason, t: english.t,
       projectInput: { value: '/new-project' }, projectError,
       api: (path: string) => path,
       backendFetch: async (url: string, options?: RequestInit) => {
