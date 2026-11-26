@@ -4,6 +4,7 @@ class OrchestrationPanel {
     this.request = request; this.cursors = new Map(); this.pending = false; this.sessionId = '';
     this.root = document.createElement('section'); this.root.id = 'orchestration'; this.root.hidden = true;
     this.root.style.cssText = 'padding:10px;border-bottom:1px solid var(--border-strong);font:13px system-ui;max-height:55vh;overflow:auto';
+    // Static markup; its texts are translated by MyHarnessI18n.apply below.
     this.root.innerHTML = `<h3>Goals and subagents</h3>
       <p>The master chooses tasks, models and limits within host permissions. These values are shown for inspection.</p>
       <button id="close-orchestration" type="button" title="Hide the inspector. Running work continues.">Close inspector</button>
@@ -12,14 +13,15 @@ class OrchestrationPanel {
       <details><summary>Host permissions and limits</summary><pre id="orchestration-settings"></pre></details>
       <div id="child-list"></div>
       <details id="run-details"><summary>Run events and approvals</summary><div id="run-approvals"></div><pre id="run-events" style="white-space:pre-wrap;max-height:200px;overflow:auto"></pre></details>`;
+    MyHarnessI18n.apply(this.root);
     const header = parent.querySelector('.pane-header'); header.after(this.root);
     this.toggle = document.createElement('button'); this.toggle.id = 'under-the-hood'; this.toggle.type = 'button';
-    this.toggle.title = 'Inspect goals, running subagents, their results and chosen settings. Opening or closing does not change execution.';
-    this.toggle.setAttribute('aria-controls', 'orchestration'); this.toggle.setAttribute('aria-expanded', 'false'); this.toggle.textContent = 'Under the hood';
+    this.toggle.title = MyHarnessI18n.t('Inspect goals, running subagents, their results and chosen settings. Opening or closing does not change execution.');
+    this.toggle.setAttribute('aria-controls', 'orchestration'); this.toggle.setAttribute('aria-expanded', 'false'); this.toggle.textContent = MyHarnessI18n.t('Under the hood');
     this.attention = document.createElement('button'); this.attention.id = 'orchestration-attention'; this.attention.hidden = true;
-    this.attention.title = 'Open pending master or subagent approvals. Unanswered approvals never authorize effects.';
-    this.stop = document.createElement('button'); this.stop.id = 'stop-orchestration'; this.stop.textContent = 'Stop'; this.stop.hidden = true;
-    this.stop.title = 'Cancel the active master run and all children, including pending approvals. Results remain inspectable.';
+    this.attention.title = MyHarnessI18n.t('Open pending master or subagent approvals. Unanswered approvals never authorize effects.');
+    this.stop = document.createElement('button'); this.stop.id = 'stop-orchestration'; this.stop.textContent = MyHarnessI18n.t('Stop'); this.stop.hidden = true;
+    this.stop.title = MyHarnessI18n.t('Cancel the active master run and all children, including pending approvals. Results remain inspectable.');
     this.stop.onclick = () => this.perform(() => this.call('/runs/cancel', 'POST', {}));
     this.error = document.createElement('span'); this.error.id = 'orchestration-error'; this.error.setAttribute('role', 'alert');
     header.append(this.toggle, this.attention, this.stop, this.error);
@@ -34,7 +36,7 @@ class OrchestrationPanel {
   el(id) { return this.root.querySelector('#' + id); }
   async call(path, method = 'GET', value) {
     const response = await this.request(path, { method, ...(value === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) }) });
-    const result = await response.json(); if (!response.ok) throw new Error(globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.presentFailure(result.failure, result.error || 'Backend request failed') : result.error || 'Backend request failed'); return result;
+    const result = await response.json(); if (!response.ok) throw new Error(globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.presentFailure(result.failure, result.error || MyHarnessI18n.t('Backend request failed'), MyHarnessI18n) : result.error || MyHarnessI18n.t('Backend request failed')); return result;
   }
   async perform(work) { try { this.error.textContent = ''; await work(); await this.refresh(); } catch (error) { this.error.textContent = error.message; } }
   initialize(data) {
@@ -51,12 +53,13 @@ class OrchestrationPanel {
       if (sessionId !== this.sessionId) return;
       const live = state.run && ['running', 'stopping'].includes(state.run.status);
       const active = state.children.filter(child => ['running', 'stopping'].includes(child.status)).length;
-      this.toggle.textContent = 'Under the hood' + (active ? ` · ${active} running` : '');
+      this.toggle.textContent = MyHarnessI18n.t('Under the hood') + (active ? ' · ' + MyHarnessI18n.t('{count} running', { count: active }) : '');
       this.stop.hidden = !live && !active;
       this.el('cancel-run').disabled = !live && !active;
-      this.el('goal-status').textContent = state.goal ? `${state.goal.phase}: ${state.goal.objective}\n${state.goal.criteria}\nRounds: ${state.goal.rounds}/${state.goal.max_rounds}; shared requests: ${state.goal.model_requests}/${state.goal.max_requests}\nTimeout: ${state.goal.timeout_ms} ms\n${state.run ? `Run: ${state.run.status}; deadline ${state.run.deadline_at}\n` : ''}${state.goal.evidence || state.goal.blocker || ''}` : 'No autonomous goal. The master can configure one when the task needs continuation.';
+      const t = MyHarnessI18n.t;
+      this.el('goal-status').textContent = state.goal ? `${state.goal.phase}: ${state.goal.objective}\n${state.goal.criteria}\n${t('Rounds: {rounds}/{max}; shared requests: {requests}/{maxRequests}', { rounds: state.goal.rounds, max: state.goal.max_rounds, requests: state.goal.model_requests, maxRequests: state.goal.max_requests })}\n${t('Timeout: {ms} ms', { ms: state.goal.timeout_ms })}\n${state.run ? t('Run: {status}; deadline {deadline}', { status: state.run.status, deadline: state.run.deadline_at }) + '\n' : ''}${state.goal.evidence || state.goal.blocker || ''}` : t('No autonomous goal. The master can configure one when the task needs continuation.');
       const failed = [state.run, ...state.children.map(child => child.run)].find(run => run?.status === 'error');
-      if (failed) this.error.textContent = globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.presentFailure(undefined, failed.reason || 'Agent execution failed. Open Under the hood for details.') : failed.reason || 'Agent execution failed. Open Under the hood for details.';
+      if (failed) this.error.textContent = globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.presentFailure(undefined, failed.reason || t('Agent execution failed. Open Under the hood for details.'), MyHarnessI18n) : failed.reason || t('Agent execution failed. Open Under the hood for details.');
       this.children(state.children);
       const runs = [...(state.run ? [state.run] : []), ...state.children.map(child => child.run).filter(Boolean)];
       for (const run of runs) {
@@ -72,7 +75,7 @@ class OrchestrationPanel {
   }
   updateAttention() {
     const count = this.el('run-approvals').children.length;
-    this.attention.hidden = !count; this.attention.textContent = `Approval needed (${count})`;
+    this.attention.hidden = !count; this.attention.textContent = MyHarnessI18n.t('Approval needed ({count})', { count });
   }
   children(children) {
     const list = this.el('child-list');
@@ -81,15 +84,16 @@ class OrchestrationPanel {
       if (!card) {
         card = document.createElement('details'); card.className = 'child-agent'; card.dataset.agentId = child.id;
         card.append(document.createElement('summary'), document.createElement('pre'));
-        const stop = document.createElement('button'); stop.type = 'button'; stop.textContent = 'Stop child';
-        stop.title = 'Cancel this child attempt and pending approvals. Preserve partial results; other agents can continue.';
+        const stop = document.createElement('button'); stop.type = 'button'; stop.textContent = MyHarnessI18n.t('Stop child');
+        stop.title = MyHarnessI18n.t('Cancel this child attempt and pending approvals. Preserve partial results; other agents can continue.');
         stop.onclick = () => this.perform(() => this.call(`/agents/${child.id}/interrupt`, 'POST', {})); card.append(stop); list.append(card);
       }
-      card.querySelector('summary').textContent = `${child.task} — ${child.status}, attempt ${child.attempt} (${child.provider}/${child.model})`;
+      const t = MyHarnessI18n.t;
+      card.querySelector('summary').textContent = `${child.task} — ${child.status}, ${t('attempt {number}', { number: child.attempt })} (${child.provider}/${child.model})`;
       const run = child.run;
       const elapsed = run ? Math.max(0, Math.floor((Date.parse(run.ended_at || new Date().toISOString()) - Date.parse(run.started_at)) / 1000)) : 0;
       const text = card.querySelector('pre'); text.style.whiteSpace = 'pre-wrap';
-      text.textContent = `Task: ${child.task}\nModel: ${child.provider}/${child.model}\nStatus: ${child.status}\nElapsed: ${elapsed} seconds\nDeadline: ${run?.deadline_at || 'settled'}\nTimeout: ${child.timeout_ms} ms\nTools: ${(child.tools || []).join(', ')}\n\n${child.result || 'No output yet'}\n\nAttempt history:\n${(child.attempts || []).map(attempt => `${attempt.status}: ${attempt.result}`).join('\n')}`;
+      text.textContent = `${t('Task:')} ${child.task}\n${t('Model:')} ${child.provider}/${child.model}\n${t('Status:')} ${child.status}\n${t('Elapsed: {count} seconds', { count: elapsed })}\n${t('Deadline:')} ${run?.deadline_at || t('settled')}\n${t('Timeout: {ms} ms', { ms: child.timeout_ms })}\n${t('Tools:')} ${(child.tools || []).join(', ')}\n\n${child.result || t('No output yet')}\n\n${t('Attempt history:')}\n${(child.attempts || []).map(attempt => `${attempt.status}: ${attempt.result}`).join('\n')}`;
       card.querySelector('button').disabled = !['running', 'stopping'].includes(child.status);
     }
     const ids = new Set(children.map(child => child.id)); for (const card of [...list.children]) if (!ids.has(card.dataset.agentId)) card.remove();
@@ -97,11 +101,11 @@ class OrchestrationPanel {
   event(frame) {
     const child = frame.type === 'agent_event' ? frame.child_id : null, event = child ? frame.event : frame;
     if (child) { if (Number(event.sequence) <= (this.cursors.get(event.run_id) ?? -1)) return; this.cursors.set(event.run_id, event.sequence); }
-    const prefix = child ? `Child ${child}` : `Agent ${frame.agent_id}`;
+    const prefix = child ? MyHarnessI18n.t('Child {id}', { id: child }) : MyHarnessI18n.t('Agent {id}', { id: frame.agent_id });
     if (event.type === 'approval' && ![...this.el('run-approvals').children].some(card => card.dataset.approvalId === event.id)) {
       const card = document.createElement('div'); card.dataset.approvalId = event.id; const title = document.createElement('pre'); title.textContent = `${prefix}: ${event.title}\n${event.detail}`; card.append(title);
-      for (const [label, approved] of [['Approve', true], ['Deny', false]]) {
-        const button = document.createElement('button'); button.textContent = label; button.title = approved ? 'Allow this proposed effect once.' : 'Reject this effect without executing it.';
+      for (const [label, approved] of [[MyHarnessI18n.t('Approve'), true], [MyHarnessI18n.t('Deny'), false]]) {
+        const button = document.createElement('button'); button.textContent = label; button.title = approved ? MyHarnessI18n.t('Allow this proposed effect once.') : MyHarnessI18n.t('Reject this effect without executing it.');
         button.onclick = () => this.perform(async () => { await this.call('/approve', 'POST', { id: event.id, approved }); card.remove(); this.updateAttention(); }); card.append(button);
       }
       this.el('run-approvals').append(card);

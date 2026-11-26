@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Script } from 'node:vm';
 import { DiagnosticError, failureDetails, failureText } from '../src/failure.js';
+import { english } from '../src/text.js';
 import { BackendError } from '../src/harness.js';
 import { NodeHarness } from '../src/node/harness.js';
 import { HelperError } from '../src/helper-protocol.js';
@@ -57,7 +58,7 @@ test('chat diagnostics render the same details in live errors and replay without
   const output: string[] = [];
   const context = { formatFailure: undefined as unknown as (failure: unknown, fallback: string) => string, responseError: undefined as unknown as (data: unknown) => Error, displayError: undefined as unknown as (error: Error) => string,
     replaySessionEvent: undefined as unknown as (event: unknown) => void,
-    printBlock: (_title: string, text: string) => output.push(text), addDivider: (text: string) => output.push(text) };
+    printBlock: (_title: string, text: string) => output.push(text), addDivider: (text: string) => output.push(text), t: english.t };
   new Script(helper).runInNewContext(context);
   const failure = failureDetails('HTTP 503', 'model', 'Ollama / q', 'Start Ollama and retry.');
   const displayed = context.displayError(context.responseError({ error: failure.reason, failure }));
@@ -69,7 +70,7 @@ test('chat diagnostics render the same details in live errors and replay without
   assert.deepEqual(output, [displayed, displayed]);
   output.length = 0; context.replaySessionEvent({ type: 'stopped', reason: 'stopped by the user' });
   assert.deepEqual(output, ['stopped by the user', 'stopped by the user']);
-  assert.match(html, /printBlock\("STOPPED", formatFailure\(event.failure, event.reason\)\)/);
+  assert.match(html, /printBlock\(t\("STOPPED"\), formatFailure\(event.failure, event.reason\)\)/);
 });
 
 

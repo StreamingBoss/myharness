@@ -1,8 +1,9 @@
 import { failureText } from '../src/failure.js';
+import { pageTranslator } from '../src/text.js';
 import type { ModelOption } from '../src/model.js';
 import type { ModelClient } from '../src/browser/model-controls.js';
 
-/** First-run card markup. The page inserts it above the chat; the controller below only wires it. */
+/** First-run card markup. The page inserts it above the chat and translates it; the controller below only wires it. */
 export const CONNECT_CARD_HTML = `<section id="connect-card" aria-labelledby="connect-title" hidden>
 <h2 id="connect-title">Connect a model</h2>
 <p class="note">The harness runs in this page. The model is a separate service: the harness sends it requests and shows you each one. Choose where your model runs.</p>
@@ -11,7 +12,7 @@ export const CONNECT_CARD_HTML = `<section id="connect-card" aria-labelledby="co
 <button id="connect-choose-ollama" type="button" aria-pressed="false" title="Use a model that Ollama runs on this computer. Choosing this makes the page look for Ollama, so your browser may ask to allow local-network access."><strong>Use Ollama on this computer</strong><span>A local model: requests stay on your machine</span></button>
 </div>
 <div id="connect-key" class="connect-step" hidden>
-<label>Provider <select id="connect-provider" title="The service that runs the model."><option value="gemini">Gemini</option><option value="openai">OpenAI GPT</option><option value="anthropic">Anthropic Claude</option><option value="openrouter">OpenRouter (many models, one key)</option><option value="mistral">Mistral</option><option value="groq">Groq</option><option value="cerebras">Cerebras</option><option value="custom">Custom (OpenAI-compatible)</option></select></label>
+<label>Provider <select id="connect-provider" title="The service that runs the model."><option value="gemini" translate="no">Gemini</option><option value="openai" translate="no">OpenAI GPT</option><option value="anthropic" translate="no">Anthropic Claude</option><option value="openrouter">OpenRouter (many models, one key)</option><option value="mistral" translate="no">Mistral</option><option value="groq" translate="no">Groq</option><option value="cerebras" translate="no">Cerebras</option><option value="custom">Custom (OpenAI-compatible)</option></select></label>
 <label id="connect-custom" hidden>Server address <input id="connect-custom-url" placeholder="https://host/v1 or http://localhost:1234/v1" spellcheck="false" title="The address of a server that speaks OpenAI-style Chat Completions, such as LM Studio, llama.cpp, vLLM or a company gateway. It must allow this website (CORS). Plain http works only for this computer or your local network."></label>
 <label>API key <input id="connect-api-key" type="password" autocomplete="off" placeholder="Paste your key" title="Sent from this page directly to the provider. Kept in memory only: never saved in sessions, settings or exports."></label>
 <button id="connect-list" type="button" title="Ask the provider which models this key can use. No model request is sent.">List models</button>
@@ -19,7 +20,7 @@ export const CONNECT_CARD_HTML = `<section id="connect-card" aria-labelledby="co
 </div>
 <div id="connect-ollama" class="connect-step" hidden>
 <div id="connect-ollama-help" hidden>
-<p>This page could not reach Ollama at <code id="connect-ollama-shown"></code>. Ollama only answers websites it was told to allow. Quit Ollama if it is running, start it with this page allowed, then try again:</p>
+<p data-i18n-html>This page could not reach Ollama at <code id="connect-ollama-shown"></code>. Ollama only answers websites it was told to allow. Quit Ollama if it is running, start it with this page allowed, then try again:</p>
 <p class="connect-os">macOS or Linux</p><pre id="connect-ollama-command"></pre>
 <p class="connect-os">Windows (PowerShell)</p><pre id="connect-ollama-command-windows"></pre>
 <p class="note">Your browser may also ask to allow this site to reach devices on your local network.</p>
@@ -48,6 +49,7 @@ const CLOUD = ['gemini', 'openai', 'anthropic', 'openrouter', 'mistral', 'groq',
 /** View controller only: it lists and connects models through backend actions and renders `model_connected`. */
 export function mountConnectCard(document_: Document, options: ConnectCardOptions): { update(state: Record<string, unknown>): void } {
   const node = (id: string) => document_.getElementById(id) as HTMLInputElement;
+  const text = pageTranslator(), { t } = text;
   const status = (message: string) => { node('connect-status').textContent = message; };
   let choice: Choice | undefined, dismissed = false, generation = 0, prompted = false;
   const settings = (): Record<string, unknown> => choice === 'ollama'
@@ -63,8 +65,8 @@ export function mountConnectCard(document_: Document, options: ConnectCardOption
   const list = async () => {
     reset();
     const current = generation, local = choice === 'ollama', { model: _model, ...query } = settings();
-    if (query.provider === 'custom' ? !node('connect-custom-url').value.trim() : !local && !query.apiKey) { status(query.provider === 'custom' ? 'Enter your server address first.' : 'Paste your API key first.'); return; }
-    status(local ? 'Looking for Ollama…' : 'Listing models…');
+    if (query.provider === 'custom' ? !node('connect-custom-url').value.trim() : !local && !query.apiKey) { status(query.provider === 'custom' ? t('Enter your server address first.') : t('Paste your API key first.')); return; }
+    status(local ? t('Looking for Ollama…') : t('Listing models…'));
     let models: ModelOption[];
     try { models = await options.client.call('listModels', query) as ModelOption[]; }
     catch (error) {
@@ -74,11 +76,11 @@ export function mountConnectCard(document_: Document, options: ConnectCardOption
         node('connect-ollama-command').textContent = `OLLAMA_ORIGINS=${options.origin} ollama serve`;
         node('connect-ollama-command-windows').textContent = `$env:OLLAMA_ORIGINS="${options.origin}"; ollama serve`;
         node('connect-ollama-help').hidden = false; status('');
-      } else status(failureText(error, (error as Error).message));
+      } else status(failureText(error, (error as Error).message, text));
       return;
     }
     if (current !== generation) return;
-    if (!models.length) { status(local ? 'Ollama is running but has no model installed. Install one, for example with “ollama pull qwen3:8b”, then try again.' : 'This key has no chat models available.'); return; }
+    if (!models.length) { status(local ? t('Ollama is running but has no model installed. Install one, for example with “ollama pull qwen3:8b”, then try again.') : t('This key has no chat models available.')); return; }
     node('connect-model').replaceChildren(...models.map(model => { const option = document_.createElement('option'); option.value = model.id; option.textContent = model.label; return option; }));
     node('connect-model').value = models[0]!.id;
     node('connect-models').hidden = false; status('');
@@ -93,12 +95,12 @@ export function mountConnectCard(document_: Document, options: ConnectCardOption
   node('connect-dismiss').addEventListener('click', () => { dismissed = true; node('connect-card').hidden = true; });
   node('connect-go').addEventListener('click', async () => {
     const button = node('connect-go'), value = settings();
-    node('connect-api-key').value = ''; button.disabled = true; status('Connecting…');
+    node('connect-api-key').value = ''; button.disabled = true; status(t('Connecting…'));
     try {
       await options.client.call('configureModel', value);
       status('');
       options.render(await options.client.call('bootstrap') as Record<string, unknown>);
-    } catch (error) { node('connect-models').hidden = true; status(failureText(error, (error as Error).message)); }
+    } catch (error) { node('connect-models').hidden = true; status(failureText(error, (error as Error).message, text)); }
     finally { button.disabled = false; }
   });
   return {
@@ -108,7 +110,7 @@ export function mountConnectCard(document_: Document, options: ConnectCardOption
       if (!prompted && state.model_connected !== true && state.ready === false && CLOUD.includes(String(state.provider))) {
         prompted = true; show('key'); node('connect-provider').value = String(state.provider);
         node('connect-custom').hidden = state.provider !== 'custom';
-        status(state.provider === 'custom' ? 'This session used a custom server. Its address and key are never saved, so enter them again to continue.' : 'This session used an API key, and keys are never saved. Enter it again to continue.');
+        status(state.provider === 'custom' ? t('This session used a custom server. Its address and key are never saved, so enter them again to continue.') : t('This session used an API key, and keys are never saved. Enter it again to continue.'));
       }
     },
   };

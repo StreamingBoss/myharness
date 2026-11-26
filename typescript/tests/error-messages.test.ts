@@ -66,7 +66,7 @@ test('the browser uses the shared explanations and hides technical diagnostics b
   const source = html.slice(html.indexOf('function addDivider('), html.indexOf('async function resetMemory('));
   class Element { className = ''; textContent = ''; children: Element[] = []; append(...elements: Element[]) { this.children.push(...elements); } }
   const messages = { children: [] as Element[], scrollTop: 0, scrollHeight: 100, appendChild(element: Element) { this.children.push(element); } };
-  const context = { document: { createElement: () => new Element() }, messagesEl: messages, addDivider: undefined as unknown as (text: string) => void };
+  const context = { document: { createElement: () => new Element() }, messagesEl: messages, t: (text: string) => text, addDivider: undefined as unknown as (text: string) => void };
   new Script(source).runInNewContext(context);
   context.addDivider(presentFailure(failureDetails('HTTP 503'), ''));
   assert.match(messages.children[0]!.textContent, /could not be reached/);

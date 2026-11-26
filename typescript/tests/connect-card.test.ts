@@ -56,7 +56,7 @@ test('a saved cloud session without its key asks for the key again, once', () =>
 
 test('OpenRouter, Mistral, Groq and Cerebras are offered on the API-key path, and a saved session asks for its key again', () => {
   for (const provider of ['openrouter', 'mistral', 'groq', 'cerebras']) {
-    assert.match(CONNECT_CARD_HTML, new RegExp(`<option value="${provider}">`));
+    assert.match(CONNECT_CARD_HTML, new RegExp(`<option value="${provider}"[ >]`));
     const f = fixture();
     f.card.update({ model_connected: false, ready: false, provider });
     assert.equal(f.get('connect-key').hidden, false); assert.equal(f.get('connect-provider').value, provider);

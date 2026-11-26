@@ -1,7 +1,9 @@
+// Interface language (static/i18n.js): t() and tn() take the English text; numbers follow the language's format.
+const { t, tn } = MyHarnessI18n;
 (function () {
   const root = document.documentElement, button = document.getElementById("theme-toggle");
   const effective = () => root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  const paint = () => { button.textContent = effective() === "dark" ? "Light theme" : "Dark theme"; };
+  const paint = () => { button.textContent = effective() === "dark" ? t("Light theme") : t("Dark theme"); };
   button.addEventListener("click", () => {
     root.dataset.theme = effective() === "dark" ? "light" : "dark";
     try { localStorage.setItem("theme", root.dataset.theme); } catch {}
@@ -55,7 +57,7 @@ const orchestrationPanel = new OrchestrationPanel(document.getElementById('chat-
 const sessionSelect = document.getElementById("session-select");
 const sessionStatus = document.getElementById("session-status");
 
-function markSessionSaving() { sessionStatus.textContent = "saving…"; }
+function markSessionSaving() { sessionStatus.textContent = t("saving…"); }
 async function saveSessionSettings() {
   if (!session.id) return;
   markSessionSaving();
@@ -64,38 +66,43 @@ async function saveSessionSettings() {
   try {
     const response = await backendFetch(api("/sessions/" + session.id), {method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({settings})});
     if (!response.ok) throw responseError(await response.json());
-    session = await response.json(); sessionStatus.textContent = "saved";
-  } catch (error) { sessionStatus.textContent = "Save failed: " + displayError(error); }
+    session = await response.json(); sessionStatus.textContent = t("saved");
+  } catch (error) { sessionStatus.textContent = t("Save failed:") + " " + displayError(error); }
 }
 
+// "New session" is the backend's placeholder name until the first message names the session: shown translated.
+const sessionName = name => name === "New session" ? t("New session") : name;
+// Where an agent or skill comes from: the MyHarness library ("harness"), the project folder, or a saved session.
+const sourceLabel = source => ({ harness: t("harness"), project: t("project"), "saved session": t("saved session") })[source] || source;
 function fillSessionSelect(items, selected) {
   sessionSelect.replaceChildren();
   for (const item of items) {
-    const date = new Date(item.created_at).toLocaleString();
-    sessionSelect.add(new Option(item.name + " — " + date + " — " + item.workspace, item.id));
+    const date = new Date(item.created_at).toLocaleString(MyHarnessI18n.locale);
+    sessionSelect.add(new Option(sessionName(item.name) + " — " + date + " — " + item.workspace, item.id));
   }
   sessionSelect.value = selected;
   const active = items.find(item => item.id === selected);
-  document.getElementById("session-title").textContent = active ? active.name : "…";
+  document.getElementById("session-title").textContent = active ? sessionName(active.name) : "…";
 }
 function updateContextMeter(used, windowSize = contextLength) {
   const usage = windowSize ? 100 * used / windowSize : 0;
   const percent = Math.round(usage);
   contextMeter.className = used == null ? "" : (usage >= 90 ? "red" : usage >= 75 ? "amber" : "");
-  contextMeter.firstChild.textContent = "context: " + (used == null ? "—" : used.toLocaleString("en")) +
-    " / " + windowSize.toLocaleString("en") + (used == null ? "" : " (" + percent + "%)");
+  contextMeter.firstChild.textContent = used == null
+    ? t("context: — / {size}", { size: windowSize })
+    : t("context: {used} / {size} ({percent}%)", { used, size: windowSize, percent });
   document.getElementById("context-bar").value = used == null ? 0 : Math.min(100, percent);
 }
 
 function handleContextEvent(event) {
   if (event.action === "compact_request") {
-    printBlock("SENT to model — compaction", JSON.stringify(event.wire_request || event.payload, null, 2), "sent");
+    printBlock(t("SENT to model — compaction"), JSON.stringify(event.wire_request || event.payload, null, 2), "sent");
   } else if (event.action === "compact_response") {
-    printBlock("RECEIVED from model — compaction", JSON.stringify(event.response, null, 2), "received");
+    printBlock(t("RECEIVED from model — compaction"), JSON.stringify(event.response, null, 2), "received");
   } else {
     addDivider(formatFailure(event.failure, event.reason));
-    printBlock("CONTEXT — " + event.action, formatFailure(event.failure, event.reason) + (event.summary ? "\n\n" + event.summary : ""));
-    if (event.summary) renderChatBubble("assistant", "[Summary of earlier conversation]\n" + event.summary);
+    printBlock(t("CONTEXT — {action}", { action: event.action }), formatFailure(event.failure, event.reason) + (event.summary ? "\n\n" + event.summary : ""));
+    if (event.summary) renderChatBubble("assistant", t("[Summary of earlier conversation]") + "\n" + event.summary);
   }
   if (event.memory !== undefined) memoryEl.textContent = event.memory;
   if (event.skill_context) activeSkillContext = event.skill_context;
@@ -124,7 +131,7 @@ compactBtn.addEventListener("click", async () => {
       if (done) break;
     }
   } catch (error) {
-    handleContextEvent({action: "error", reason: "Compaction failed:\n" + displayError(error)});
+    handleContextEvent({action: "error", reason: t("Compaction failed:") + "\n" + displayError(error)});
   } finally {
     setControlsDisabled(false);
     activeSkillContext = null;
@@ -185,45 +192,58 @@ function printBlock(title, body, className = "") {
 
 function printModelRequest(event, saved) {
   requestView.addRequest(event);
-  if (event.wire_request) printBlock('SENT to ' + event.provider + (saved ? ' (saved)' : ''), nativeRequestParts(event.wire_request), 'sent');
-  else printBlock('SENT to model' + (saved ? ' (saved)' : ''), event.parts, 'sent');
-  if (event.prefix_text) printBlock('PREFIX REUSE', event.prefix_text);
+  if (event.wire_request) printBlock(saved ? t('SENT to {provider} (saved)', { provider: event.provider }) : t('SENT to {provider}', { provider: event.provider }), nativeRequestParts(event.wire_request), 'sent');
+  else printBlock(saved ? t('SENT to model (saved)') : t('SENT to model'), event.parts, 'sent');
+  if (event.prefix_text) printBlock(t('PREFIX REUSE'), event.prefix_text);
 }
 
 function replaySessionEvent(event) {
   // Replay is display-only: it never calls the model, tools, approvals, or project endpoints.
-  if (event.type === "chat_user") renderChatBubble("user", (event.source === "harness" ? "[Harness continuation]\n" : "") + (event.content || ""));
+  if (event.type === "chat_user") renderChatBubble("user", (event.source === "harness" ? t("[Harness continuation]") + "\n" : "") + (event.content || ""));
   else if (event.type === "request") printModelRequest(event, true);
   else if (event.type === "response") {
     requestView.addResponse(event);
-    printBlock("RECEIVED from model (saved)", event.parts, "received");
-    if (event.tokens) printBlock("TOKENS", event.tokens);
-    if (event.timing_text) printBlock("TIMING", event.timing_text);
+    printBlock(t("RECEIVED from model (saved)"), event.parts, "received");
+    if (event.tokens) printBlock(t("TOKENS"), event.tokens);
+    if (event.timing_text) printBlock(t("TIMING"), event.timing_text);
     if (event.tokens_in !== undefined) updateContextMeter(event.tokens_in, event.context_length);
-  } else if (event.type === "turn_timing") printBlock("TURN TIMELINE", event.timeline_text);
+  } else if (event.type === "turn_timing") printBlock(t("TURN TIMELINE"), event.timeline_text);
   else if (event.type === "thinking") renderChatBubble("thinking", event.content || "");
   else if (event.type === "chunk") { if (event.content) renderChatBubble("assistant", event.content); }
   else if (event.type === "tool") {
-    printBlock("TOOL — the harness ran " + event.name, "arguments: " + event.arguments + "\nresult:    " + (/^(error:|unsupported:|unavailable:)/.test(event.result) ? formatFailure(event.failure, event.result) : event.result));
-    addDivider("used tool " + event.name);
+    printToolBlock(event);
+    addDivider(t("used tool {name}", { name: event.name }));
     renderPlan(event);
   } else if (event.type === "command") {
-    printBlock("COMMAND — " + (event.approved ? event.status : denialLabel(event)), "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
+    printCommandBlock(event);
   } else if (event.type === "change") {
-    printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (" + denialLabel(event) + ")"), (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
+    printChangeBlock(event);
   } else if (event.type === "action") printActionBlock(event);
   else if (event.type === "mcp") renderMcpEvent(event, false);
-  else if (event.type === "mcp_prompt") addDivider("used MCP prompt " + event.name + " from " + event.server);
+  else if (event.type === "mcp_prompt") addDivider(t("used MCP prompt {name} from {server}", { name: event.name, server: event.server }));
   else if (event.type === "context") handleContextEvent(event);
-  else if (event.type === "project_instructions") addDivider("— project instructions refreshed" + (event.changed ? " (changed)" : "") + " —");
-  else if (event.type === "reset") addDivider("— memory reset —");
+  else if (event.type === "project_instructions") addDivider(event.changed ? t("— project instructions refreshed (changed) —") : t("— project instructions refreshed —"));
+  else if (event.type === "reset") addDivider(t("— memory reset —"));
   else if (event.type === "guard") renderGuardEvent(event);
-  else if (event.type === "stopped") { printBlock("STOPPED", formatFailure(event.failure, event.reason)); addDivider(formatFailure(event.failure, event.reason)); }
+  else if (event.type === "stopped") { printBlock(t("STOPPED"), formatFailure(event.failure, event.reason)); addDivider(formatFailure(event.failure, event.reason)); }
 }
 
 // A loop-hygiene guard fired in the backend: the reminder it added to the conversation is shown verbatim.
 function printActionBlock(event) {
-  printBlock("ACTION — " + event.name + (event.approved ? "" : " (" + denialLabel(event) + ")"), event.title + "\n\n" + event.detail + (event.approved ? "\n\nresult: " + event.result : ""));
+  printBlock(event.approved ? t("ACTION — {name}", { name: event.name }) : t("ACTION — {name} ({outcome})", { name: event.name, outcome: denialLabel(event) }), event.title + "\n\n" + event.detail + (event.approved ? "\n\n" + t("result:") + " " + event.result : ""));
+}
+// Log blocks shared by the live turn and session replay. Labels are translated; what the harness ran is shown as is.
+function toolResultText(event) {
+  return /^(error:|unsupported:|unavailable:)/.test(event.result) ? formatFailure(event.failure, event.result) : event.result;
+}
+function printToolBlock(event) {
+  printBlock(t("TOOL — the harness ran {name}", { name: event.name }), t("arguments:") + " " + event.arguments + "\n" + t("result:") + " " + toolResultText(event));
+}
+function printCommandBlock(event) {
+  printBlock(t("COMMAND — {status}", { status: event.approved ? event.status : denialLabel(event) }), "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
+}
+function printChangeBlock(event) {
+  printBlock(event.approved ? t("FILE CHANGE — {path} (written)", { path: event.path }) : t("FILE CHANGE — {path} ({outcome})", { path: event.path, outcome: denialLabel(event) }), (event.note ? t("note:") + " " + event.note + "\n\n" : "") + event.diff);
 }
 
 // update_plan: the model's checklist, shown in the chat. Text only; nothing here is a harness decision.
@@ -236,8 +256,8 @@ function renderPlan(event) {
 }
 
 function renderGuardEvent(event) {
-  printBlock("GUARD — repeated tool call (" + event.tool + " x" + event.count + ", " + event.level + " reminder added to the conversation)", event.content);
-  addDivider("harness reminded the model: repeated " + event.tool);
+  printBlock(t("GUARD — repeated tool call ({tool} x{count}, {level} reminder added to the conversation)", { tool: event.tool, count: event.count, level: event.level }), event.content);
+  addDivider(t("harness reminded the model: repeated {tool}", { tool: event.tool }));
 }
 
 function replaySession() {
@@ -276,18 +296,18 @@ function completeReply(event, bubble, text) {
 
 // Backend diagnostics survive transport and session replay; text is rendered safely.
 function formatFailure(failure, fallback) {
-  if (globalThis.MyHarnessErrors) return globalThis.MyHarnessErrors.presentFailure(failure, fallback);
+  if (globalThis.MyHarnessErrors) return globalThis.MyHarnessErrors.presentFailure(failure, fallback, MyHarnessI18n);
   if (!failure) return fallback;
-  return "Source: " + failure.source + " — " + failure.component + "\n" +
-    "Reason: " + failure.reason + "\n" + "Next: " + failure.recovery;
+  return t("Source:") + " " + failure.source + " — " + failure.component + "\n" +
+    t("Reason:") + " " + failure.reason + "\n" + t("Next:") + " " + failure.recovery;
 }
 function responseError(data) {
-  const error = new Error(data.error || "Request failed.");
+  const error = new Error(data.error || t("Request failed."));
   error.failure = data.failure;
   return error;
 }
 function displayError(error) {
-  return formatFailure(error.failure, "The request could not be completed. Check the connection and try again.\n\nTechnical details: " + error.message);
+  return formatFailure(error.failure, t("The request could not be completed. Check the connection and try again.") + "\n\n" + t("Technical details:") + " " + error.message);
 }
 
 // A message sent while a turn runs waits here, in order, and is sent when that turn ends.
@@ -298,9 +318,8 @@ let stopRequested = false;
 
 function showQueue() {
   queueNote.hidden = !queuedMessages.length;
-  queueNote.textContent = queuedMessages.length === 1
-    ? "1 message queued. It is sent when the current answer ends."
-    : queuedMessages.length + " messages queued. They are sent one after another when the current answer ends.";
+  queueNote.textContent = tn("{count} message queued. It is sent when the current answer ends.",
+    "{count} messages queued. They are sent one after another when the current answer ends.", queuedMessages.length);
 }
 
 // After Stop, queued messages go back into the message box, oldest first, so nothing is sent without the user.
@@ -387,7 +406,7 @@ async function runTurn(text) {
           printModelRequest(event, false);
           memoryEl.textContent = event.memory;
         } else if (event.type === "skill") {
-          addDivider("— skill loaded: " + event.name + " —");
+          addDivider(t("— skill loaded: {name} —", { name: event.name }));
         } else if (event.type === "thinking") {
           if (!thinkingDiv) thinkingDiv = renderChatBubble("thinking", "");
           thinkingText += event.content;
@@ -403,17 +422,16 @@ async function runTurn(text) {
           [assistantDiv, replyText] = completeReply(event, assistantDiv, replyText);
           updateContextMeter(event.tokens_in, event.context_length);
           requestView.addResponse(event);
-          printBlock("RECEIVED from model", event.parts, "received");
-          printBlock("TOKENS", event.tokens);
-          if (event.timing_text) printBlock("TIMING", event.timing_text);
+          printBlock(t("RECEIVED from model"), event.parts, "received");
+          printBlock(t("TOKENS"), event.tokens);
+          if (event.timing_text) printBlock(t("TIMING"), event.timing_text);
           memoryEl.textContent = event.memory;
         } else if (event.type === "turn_timing") {
-          printBlock("TURN TIMELINE", event.timeline_text);
+          printBlock(t("TURN TIMELINE"), event.timeline_text);
         } else if (event.type === "tool") {
-          printBlock("TOOL — the harness ran " + event.name,
-                     "arguments: " + event.arguments + "\nresult:    " + (/^(error:|unsupported:|unavailable:)/.test(event.result) ? formatFailure(event.failure, event.result) : event.result));
+          printToolBlock(event);
           memoryEl.textContent = event.memory;
-          addDivider("used tool " + event.name);
+          addDivider(t("used tool {name}", { name: event.name }));
           renderPlan(event);
           // text after a tool run goes in new bubbles, below the tool note
           assistantDiv = null;
@@ -421,13 +439,13 @@ async function runTurn(text) {
           thinkingDiv = null;
           thinkingText = "";
         } else if (event.type === "approval" && event.server !== undefined) {
-          changeBox = renderChangeBox("MCP tool " + event.tool + " on server '" + event.server + "' wants to run with these arguments:",
+          changeBox = renderChangeBox(t("MCP tool {tool} on server '{server}' wants to run with these arguments:", { tool: event.tool, server: event.server }),
                                       event.arguments, mcpHints(event.annotations));
           addApprovalButtons(changeBox, event.id);
         } else if (event.type === "mcp") {
           renderMcpEvent(event, true);
         } else if (event.type === "mcp_prompt") {
-          addDivider("used MCP prompt " + event.name + " from " + event.server);
+          addDivider(t("used MCP prompt {name} from {server}", { name: event.name, server: event.server }));
         } else if (event.type === "approval" && event.title !== undefined) {
           changeBox = renderChangeBox(event.title, event.detail);
           addApprovalButtons(changeBox, event.id);
@@ -439,34 +457,32 @@ async function runTurn(text) {
           printActionBlock(event);
         } else if (event.type === "approval") {
           changeBox = event.command !== undefined
-            ? renderChangeBox("run_command wants to run, in " + projectInput.value + ":",
+            ? renderChangeBox(t("run_command wants to run, in {folder}:", { folder: projectInput.value }),
                               "$ " + event.command)
-            : renderChangeBox(event.name + " wants to change " + event.path, event.diff,
+            : renderChangeBox(t("{tool} wants to change {path}", { tool: event.name, path: event.path }), event.diff,
                               event.note);
           addApprovalButtons(changeBox, event.id);
         } else if (event.type === "command") {
-          if (!changeBox) changeBox = renderChangeBox("run_command ran:", "$ " + event.command);
+          if (!changeBox) changeBox = renderChangeBox(t("run_command ran:"), "$ " + event.command);
           if (event.approved) {
             const out = document.createElement("pre");
             out.className = "command-output";
-            out.textContent = event.output || "(no output)";
+            out.textContent = event.output || t("(no output)");
             changeBox.querySelector(".change-actions").before(out);
           }
           setChangeStatus(changeBox, event.approved, event.status, denialLabel(event));
           changeBox = null;
-          printBlock("COMMAND — " + (event.approved ? event.status : denialLabel(event)),
-                     "$ " + event.command + (event.approved ? "\n\n" + event.output : ""));
+          printCommandBlock(event);
         } else if (event.type === "change") {
           if (!changeBox) changeBox = renderChangeBox(event.path, event.diff, event.note);
-          setChangeStatus(changeBox, event.approved, "written", denialLabel(event));
+          setChangeStatus(changeBox, event.approved, t("written"), denialLabel(event));
           changeBox = null;
-          printBlock("FILE CHANGE — " + event.path + (event.approved ? " (written)" : " (" + denialLabel(event) + ")"),
-                     (event.note ? "note: " + event.note + "\n\n" : "") + event.diff);
+          printChangeBlock(event);
         } else if (event.type === "guard") {
           renderGuardEvent(event);
           memoryEl.textContent = event.memory;
         } else if (event.type === "stopped") {
-          printBlock("STOPPED", formatFailure(event.failure, event.reason));
+          printBlock(t("STOPPED"), formatFailure(event.failure, event.reason));
           addDivider(formatFailure(event.failure, event.reason));
           if (event.memory) memoryEl.textContent = event.memory;
         }
@@ -474,8 +490,8 @@ async function runTurn(text) {
     }
 
   } catch (error) {
-    printBlock("STOPPED", "Chat request failed:\n" + displayError(error));
-    addDivider("Chat request failed:\n" + displayError(error));
+    printBlock(t("STOPPED"), t("Chat request failed:") + "\n" + displayError(error));
+    addDivider(t("Chat request failed:") + "\n" + displayError(error));
   } finally {
     turnRunning = false;
     setControlsDisabled(false);
@@ -540,9 +556,9 @@ document.getElementById("mcp-config-save").addEventListener("click", async () =>
     const response = await backendFetch(api("/mcp/config"), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) });
     const data = await response.json();
     if (!response.ok) throw responseError(data);
-    message.textContent = "Saved and reconnected.";
+    message.textContent = t("Saved and reconnected.");
     const boot = await backendFetch(api("/bootstrap")); initialize(await boot.json());
-  } catch (error) { message.textContent = "Save failed: " + displayError(error); }
+  } catch (error) { message.textContent = t("Save failed:") + " " + displayError(error); }
 });
 const mcpFindBtn = document.getElementById("mcp-find");
 const registryDialog = document.getElementById("mcp-registry");
@@ -553,15 +569,15 @@ document.getElementById("mcp-registry-close").addEventListener("click", () => re
 document.getElementById("mcp-registry-more").addEventListener("click", () => searchRegistry(true));
 
 const EXPLORE_NOTES = {
-  memory: "The messages the harness keeps and re-sends with every request. The model keeps nothing itself. Tool calls and results are stored too; the system message is not. The model's thinking is kept only while a tool loop runs (Ollama) and is dropped when the turn ends.",
-  system: "The library prompt chosen at the top. It's the first part of the system message, at the very start of every request.",
-  agent: "The agent's instructions, added after the system prompt in the same system message. Its tools line presets the tool checkboxes.",
-  project: "AGENTS.md from the project folder root, added after the agent and before the skills. Read again for every model call: edits and project-folder changes apply immediately, even while the agent and system prompt are locked. Only AGENTS.md is used.",
-  mcp: "MCP servers from the backend's configuration file. The harness connects to each, detects its protocol era (modern 2026-07-28 or a legacy initialize handshake), and turns what it reports into tools, instructions, resources and prompts. Use a prompt by typing /mcp__server__prompt followed by its arguments. The wire log shows the JSON-RPC messages.",
-  tools: "The checked tools, exactly as the harness sends them: a separate 'tools' field of the request, next to 'messages'. The model's template then turns them into text inside the system part; see 'final prompt'.",
-  skills: "Green = text present in the harness context: names/descriptions in the system message, instruction lines in retained messages or the active turn. Updates as skills load via use_skill, /name or read_file; clears when that text leaves memory. Ollama may truncate overflowing requests without reporting which text remains. Skills are skills/<name>/SKILL.md files, in myharness or in the project folder.",
-  template: "Comes with the model, from Ollama (/api/show). The template is the program that turns the system message, the tools and the conversation into the single text the model reads. The parameters are the model's default settings. The KV cache estimate shows how much memory the harness's working context reserves for this model.",
-  final: "An illustrative Qwen prompt reconstruction for the next request, including project instructions, tools and conversation. This is generated locally, not captured from Ollama; a different model template or Ollama version may render different text. SENT shows the actual API payload. Highlighted: special tokens and structural tags.",
+  memory: t("The messages the harness keeps and re-sends with every request. The model keeps nothing itself. Tool calls and results are stored too; the system message is not. The model's thinking is kept only while a tool loop runs (Ollama) and is dropped when the turn ends."),
+  system: t("The library prompt chosen at the top. It's the first part of the system message, at the very start of every request."),
+  agent: t("The agent's instructions, added after the system prompt in the same system message. Its tools line presets the tool checkboxes."),
+  project: t("AGENTS.md from the project folder root, added after the agent and before the skills. Read again for every model call: edits and project-folder changes apply immediately, even while the agent and system prompt are locked. Only AGENTS.md is used."),
+  mcp: t("MCP servers from the backend's configuration file. The harness connects to each, detects its protocol era (modern 2026-07-28 or a legacy initialize handshake), and turns what it reports into tools, instructions, resources and prompts. Use a prompt by typing /mcp__server__prompt followed by its arguments. The wire log shows the JSON-RPC messages."),
+  tools: t("The checked tools, exactly as the harness sends them: a separate 'tools' field of the request, next to 'messages'. The model's template then turns them into text inside the system part; see 'final prompt'."),
+  skills: t("Green = text present in the harness context: names/descriptions in the system message, instruction lines in retained messages or the active turn. Updates as skills load via use_skill, /name or read_file; clears when that text leaves memory. Ollama may truncate overflowing requests without reporting which text remains. Skills are skills/<name>/SKILL.md files, in myharness or in the project folder."),
+  template: t("Comes with the model, from Ollama (/api/show). The template is the program that turns the system message, the tools and the conversation into the single text the model reads. The parameters are the model's default settings. The KV cache estimate shows how much memory the harness's working context reserves for this model."),
+  final: t("An illustrative Qwen prompt reconstruction for the next request, including project instructions, tools and conversation. This is generated locally, not captured from Ollama; a different model template or Ollama version may render different text. SENT shows the actual API payload. Highlighted: special tokens and structural tags."),
 };
 
 function currentTools() {
@@ -598,59 +614,57 @@ function renderSkills(data, context) {
   }
   if (!data.skills.length) {
     exploreEl.textContent = data.skills_listed
-      ? "(no skills: add skills/<name>/SKILL.md files)"
-      : "(no skills sent: use_skill is unchecked)";
+      ? t("(no skills: add skills/<name>/SKILL.md files)")
+      : t("(no skills sent: use_skill is unchecked)");
     exploreNote.textContent = EXPLORE_NOTES.skills;
     return;
   }
   const listCost = Math.round(data.skills_section.length / 4);
   const fullCost = Math.round(data.skills.reduce((n, s) => n + s.body.length, 0) / 4);
-  exploreNote.textContent = EXPLORE_NOTES.skills + "  (list ~" + listCost +
-    " tokens on every request" +
-    "; all full skills ~" + fullCost.toLocaleString("en") + " tokens)";
-  append("SENT ON EVERY REQUEST (in the system message)\n\n");
+  exploreNote.textContent = EXPLORE_NOTES.skills + "  " + t("(list ~{list} tokens on every request; all full skills ~{full} tokens)", { list: listCost, full: fullCost });
+  append(t("SENT ON EVERY REQUEST (in the system message)") + "\n\n");
   const firstEntry = data.skills_section.indexOf("\n- ");
   append(data.skills_section.slice(0, firstEntry),
     data.skills.some(s => context[s.name]?.listed));
   for (const s of data.skills) {
     append("\n- " + s.name + ": " + s.description, context[s.name]?.listed,
-      "Green when this name and description are in the system message.");
+      t("Green when this name and description are in the system message."));
   }
-  append("\n\n\nLOADED ONLY WHEN USED\n");
+  append("\n\n\n" + t("LOADED ONLY WHEN USED") + "\n");
   for (const s of data.skills) {
     const state = context[s.name] || {};
-    append("\n" + "-".repeat(40) + "\n" + s.name + " (" + s.source + ")\n" +
+    append("\n" + "-".repeat(40) + "\n" + s.name + " (" + sourceLabel(s.source) + ")\n" +
       "-".repeat(40) + "\n", state.body_loaded,
-      "Green when all of these instructions are present in the harness context.");
+      t("Green when all of these instructions are present in the harness context."));
     const loadedLines = new Set(state.loaded_lines || []);
     s.body.split("\n").forEach((line, i) => {
       append(line + "\n", state.body_loaded || loadedLines.has(i),
-        "Green when this instruction line is present in the harness context.");
+        t("Green when this instruction line is present in the harness context."));
     });
   }
 }
 
 function mcpText(mcp) {
-  if (!mcp.supported) return "MCP is unavailable: " + mcp.reason;
-  const lines = ["Configuration: " + mcp.source];
-  if (mcp.error) lines.push("Configuration error: " + formatFailure(undefined, mcp.error));
-  if (!mcp.servers.length) lines.push("", "(no MCP servers configured)");
+  if (!mcp.supported) return t("MCP is unavailable:") + " " + mcp.reason;
+  const lines = [t("Configuration:") + " " + mcp.source];
+  if (mcp.error) lines.push(t("Configuration error:") + " " + formatFailure(undefined, mcp.error));
+  if (!mcp.servers.length) lines.push("", t("(no MCP servers configured)"));
   for (const server of mcp.servers) lines.push("", ...mcpServerLines(server));
   return lines.join("\n");
 }
 
 function mcpServerLines(server) {
   const lines = ["== " + server.name + " — " + server.status + (server.transport ? " (" + server.transport + ")" : "")];
-  if (server.error) lines.push("error: " + formatFailure(undefined, server.error));
-  if (server.era) lines.push("protocol: " + server.protocol_version + " (" + server.era + (server.era === "modern" ? ": server/discover, metadata on every request" : ": initialize handshake") + ")");
-  if (server.server_info) lines.push("server: " + JSON.stringify(server.server_info) + " (self-reported)");
-  if (server.instructions) lines.push("instructions (added to the system message when its tools are checked):", "  " + server.instructions.replaceAll("\n", "\n  "));
-  for (const tool of server.tools) lines.push("tool " + tool.qualified + ": " + tool.description + (tool.annotations ? "  hints " + JSON.stringify(tool.annotations) : ""));
-  if (server.resources) lines.push("resources: " + server.resources + " (read with list_mcp_resources / read_mcp_resource)");
-  for (const prompt of server.prompts) lines.push("prompt /" + prompt.qualified + " " + prompt.arguments.map(arg => arg.required ? "<" + arg.name + ">" : "[" + arg.name + "]").join(" ") + (prompt.description ? ": " + prompt.description : ""));
-  for (const warning of server.warnings) lines.push("warning: " + warning);
-  if (server.stderr.length) lines.push("stderr (last lines):", ...server.stderr.map(line => "  " + line));
-  if (server.log.length) lines.push("wire log:", ...server.log.map(entry => "  " + entry.direction.padEnd(8) + " " + entry.text));
+  if (server.error) lines.push(t("error:") + " " + formatFailure(undefined, server.error));
+  if (server.era) lines.push(t("protocol:") + " " + server.protocol_version + " (" + server.era + ": " + (server.era === "modern" ? t("server/discover, metadata on every request") : t("initialize handshake")) + ")");
+  if (server.server_info) lines.push(t("server:") + " " + JSON.stringify(server.server_info) + " " + t("(self-reported)"));
+  if (server.instructions) lines.push(t("instructions (added to the system message when its tools are checked):"), "  " + server.instructions.replaceAll("\n", "\n  "));
+  for (const tool of server.tools) lines.push(t("tool") + " " + tool.qualified + ": " + tool.description + (tool.annotations ? "  " + t("hints") + " " + JSON.stringify(tool.annotations) : ""));
+  if (server.resources) lines.push(t("resources:") + " " + server.resources + " " + t("(read with list_mcp_resources / read_mcp_resource)"));
+  for (const prompt of server.prompts) lines.push(t("prompt") + " /" + prompt.qualified + " " + prompt.arguments.map(arg => arg.required ? "<" + arg.name + ">" : "[" + arg.name + "]").join(" ") + (prompt.description ? ": " + prompt.description : ""));
+  for (const warning of server.warnings) lines.push(t("warning:") + " " + warning);
+  if (server.stderr.length) lines.push(t("stderr (last lines):"), ...server.stderr.map(line => "  " + line));
+  if (server.log.length) lines.push(t("wire log:"), ...server.log.map(entry => "  " + entry.direction.padEnd(8) + " " + entry.text));
   return lines;
 }
 
@@ -667,18 +681,18 @@ function renderRegistryOption(option) {
   row.append(element("span", option.label));
   const output = element("pre"); output.hidden = true;
   if (option.preview) {
-    const authLabel = element("label", "Authorization header (optional) ");
+    const authLabel = element("label", t("Authorization header (optional)") + " ");
     const auth = element("input"); auth.type = "password"; auth.autocomplete = "off";
     auth.placeholder = "Bearer …";
-    auth.title = authLabel.title = "Full Authorization header sent only for this tool preview, for example Bearer <token>. Cleared after sending; it is not saved as server configuration.";
+    auth.title = authLabel.title = t("Full Authorization header sent only for this tool preview, for example Bearer <token>. Cleared after sending; it is not saved as server configuration.");
     authLabel.append(auth);
     row.append(authLabel);
-    row.append(element("div", "For servers requiring authentication, enter the full header value. Used for this preview only; cleared after sending. OAuth sign-in is unavailable.", "registry-note"));
-    const preview = element("button", "Preview tools");
+    row.append(element("div", t("For servers requiring authentication, enter the full header value. Used for this preview only; cleared after sending. OAuth sign-in is unavailable."), "registry-note"));
+    const preview = element("button", t("Preview tools"));
     preview.type = "button";
-    preview.title = "Connect once to " + option.preview.url + ", list its tools, prompts and resources, then disconnect. No tool is called.";
+    preview.title = t("Connect once to {url}, list its tools, prompts and resources, then disconnect. No tool is called.", { url: option.preview.url });
     preview.addEventListener("click", async () => {
-      preview.disabled = true; output.hidden = false; output.textContent = "connecting…";
+      preview.disabled = true; output.hidden = false; output.textContent = t("connecting…");
       try {
         const body = JSON.stringify({ ...option.preview, ...(auth.value.trim() ? { headers: { Authorization: auth.value.trim() } } : {}) });
         auth.value = "";
@@ -686,16 +700,16 @@ function renderRegistryOption(option) {
         const data = await response.json();
         if (!response.ok) throw responseError(data);
         output.textContent = mcpServerLines(data).join("\n");
-      } catch (error) { output.textContent = "Preview failed: " + displayError(error); }
+      } catch (error) { output.textContent = t("Preview failed:") + " " + displayError(error); }
       finally { auth.value = ""; preview.disabled = false; }
     });
     row.append(preview);
   }
-  const config = element("button", option.config ? "Show configuration" : "How to add");
+  const config = element("button", option.config ? t("Show configuration") : t("How to add"));
   config.type = "button";
-  config.title = "Show the generated server configuration and setup notes. For supported entries, edit the JSON and credentials before adding the server to the harness.";
-  const copy = element("button", "Copy"); copy.type = "button"; copy.hidden = true;
-  copy.title = "Copy the generated configuration snippet to the clipboard. Edits in the configuration field below are saved only with Add to harness.";
+  config.title = t("Show the generated server configuration and setup notes. For supported entries, edit the JSON and credentials before adding the server to the harness.");
+  const copy = element("button", t("Copy")); copy.type = "button"; copy.hidden = true;
+  copy.title = t("Copy the generated configuration snippet to the clipboard. Edits in the configuration field below are saved only with Add to harness.");
   const snippet = option.config ? JSON.stringify(option.config, null, 2) : "";
   config.addEventListener("click", () => {
     output.hidden = false;
@@ -703,20 +717,20 @@ function renderRegistryOption(option) {
     copy.hidden = !snippet;
   });
   copy.addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(snippet); copy.textContent = "Copied"; }
-    catch { copy.textContent = "Select the text to copy"; }
+    try { await navigator.clipboard.writeText(snippet); copy.textContent = t("Copied"); }
+    catch { copy.textContent = t("Select the text to copy"); }
   });
   const editor = element("textarea"); editor.hidden = true; editor.value = snippet;
-  editor.title = "JSON entries to add to or replace in the harness MCP configuration. Replace placeholders with values or Node environment references such as ${TOKEN}. Same-named server entries are replaced; other servers are preserved.";
-  editor.setAttribute("aria-label", "MCP configuration to add"); editor.rows = 10;
+  editor.title = t("JSON entries to add to or replace in the harness MCP configuration. Replace placeholders with values or Node environment references such as ${TOKEN}. Same-named server entries are replaced; other servers are preserved.");
+  editor.setAttribute("aria-label", t("MCP configuration to add")); editor.rows = 10;
   editor.style.width = "100%";
-  const tokenLabel = element("label", "Authorization header to save (optional) "); tokenLabel.hidden = true;
+  const tokenLabel = element("label", t("Authorization header to save (optional)") + " "); tokenLabel.hidden = true;
   const token = element("input"); token.type = "password"; token.autocomplete = "off"; token.placeholder = "Bearer …";
-  token.title = tokenLabel.title = "Full Authorization header to apply to the entries being added, for example Bearer <token>. Node saves it in the MCP config file; browser headers remain in memory. The field clears after sending.";
+  token.title = tokenLabel.title = t("Full Authorization header to apply to the entries being added, for example Bearer <token>. Node saves it in the MCP config file; browser headers remain in memory. The field clears after sending.");
   tokenLabel.append(token);
-  const saveNote = element("div", "Edit placeholders above or enter the full Authorization header below if needed. Node saves credentials in the MCP config file; the browser keeps headers in memory only. Adding a package starts its command.", "registry-note"); saveNote.hidden = true;
-  const add = element("button", "Add to harness"); add.type = "button"; add.hidden = true;
-  add.title = "Save this entry in the harness MCP configuration and reload servers. Package entries start their configured command.";
+  const saveNote = element("div", t("Edit placeholders above or enter the full Authorization header below if needed. Node saves credentials in the MCP config file; the browser keeps headers in memory only. Adding a package starts its command."), "registry-note"); saveNote.hidden = true;
+  const add = element("button", t("Add to harness")); add.type = "button"; add.hidden = true;
+  add.title = t("Save this entry in the harness MCP configuration and reload servers. Package entries start their configured command.");
   config.addEventListener("click", () => { add.hidden = editor.hidden = tokenLabel.hidden = saveNote.hidden = !option.config; });
   add.addEventListener("click", async () => {
     add.disabled = true;
@@ -728,11 +742,11 @@ function renderRegistryOption(option) {
       const response = await backendFetch(api("/mcp/add"), { method: "POST", headers: { "Content-Type": "application/json" }, body });
       const data = await response.json();
       if (!response.ok) throw responseError(data);
-      output.textContent = "Saved to " + data.source + "\n\n" + mcpText(data);
+      output.textContent = t("Saved to {source}", { source: data.source }) + "\n\n" + mcpText(data);
       const boot = await backendFetch(api("/bootstrap"));
       initialize(await boot.json());
-      add.textContent = "Added";
-    } catch (error) { output.textContent = "Could not add MCP server: " + displayError(error); add.disabled = false; }
+      add.textContent = t("Added");
+    } catch (error) { output.textContent = t("Could not add MCP server:") + " " + displayError(error); add.disabled = false; }
   });
   row.append(config, copy, output, editor, saveNote, tokenLabel, add);
   return row;
@@ -742,13 +756,13 @@ function renderRegistryServer(server) {
   card.append(element("h3", server.title + (server.version ? " " + server.version : "") + (server.status !== "active" ? " (" + server.status + ")" : "")));
   card.append(element("div", server.name + (server.repository ? " · " + server.repository : server.website ? " · " + server.website : ""), "registry-name"));
   if (server.description) card.append(element("div", server.description));
-  if (!server.options.length) card.append(element("div", "No remote URL or package is listed.", "registry-option"));
+  if (!server.options.length) card.append(element("div", t("No remote URL or package is listed."), "registry-option"));
   for (const option of server.options) card.append(renderRegistryOption(option));
   return card;
 }
 async function searchRegistry(more) {
   const results = document.getElementById("mcp-registry-results"), moreBtn = document.getElementById("mcp-registry-more");
-  if (!more) { results.replaceChildren(element("div", "searching…")); registryCursor = ""; }
+  if (!more) { results.replaceChildren(element("div", t("searching…"))); registryCursor = ""; }
   moreBtn.hidden = true;
   const query = new URLSearchParams({ search: document.getElementById("mcp-registry-search").value.trim(), source: document.getElementById("mcp-registry-source").value });
   if (more && registryCursor) query.set("cursor", registryCursor);
@@ -758,9 +772,9 @@ async function searchRegistry(more) {
     if (!response.ok) throw responseError(data);
     if (!more) results.replaceChildren();
     for (const server of data.servers) results.append(renderRegistryServer(server));
-    if (!results.children.length) results.append(element("div", "No servers found."));
+    if (!results.children.length) results.append(element("div", t("No servers found.")));
     registryCursor = data.nextCursor; moreBtn.hidden = !registryCursor;
-  } catch (error) { results.replaceChildren(element("div", "Registry search failed: " + displayError(error))); }
+  } catch (error) { results.replaceChildren(element("div", t("Registry search failed:") + " " + displayError(error))); }
 }
 
 async function reloadMcp() {
@@ -771,7 +785,7 @@ async function reloadMcp() {
     const boot = await backendFetch(api("/bootstrap"));
     initialize(await boot.json());
   } catch (error) {
-    exploreNote.textContent = "Reload failed: " + displayError(error);
+    exploreNote.textContent = t("Reload failed:") + " " + displayError(error);
   } finally { mcpReloadBtn.disabled = false; }
 }
 
@@ -792,12 +806,12 @@ async function refreshExplorer() {
   if (view === 'log') { memoryEl.hidden = true; exploreEl.hidden = true; exploreNote.textContent = ''; return; }
   if (view === 'vocabulary') {
     memoryEl.hidden = true; exploreEl.hidden = true;
-    exploreNote.textContent = 'Every token the selected model can read or write, in ID order. Search for a word to see whether it is one token or several.';
+    exploreNote.textContent = t('Every token the selected model can read or write, in ID order. Search for a word to see whether it is one token or several.');
     await vocabularyViewer.refresh(); return;
   }
   if (view === 'tokens') {
     memoryEl.hidden = true; exploreEl.hidden = true;
-    exploreNote.textContent = 'Inspect the saved request for a specific model call. Source, coverage and limitations appear below.';
+    exploreNote.textContent = t('Inspect the saved request for a specific model call. Source, coverage and limitations appear below.');
     await tokenViewer.refresh(session.id); return;
   }
   memoryEl.hidden = !showMemory;
@@ -809,8 +823,8 @@ async function refreshExplorer() {
   }
   exploreNote.textContent = note;
   if (showMcp) {
-    mcpServerStatus.textContent = "Loading MCP server status…";
-    document.getElementById("mcp-config-source").textContent = "Loading configuration…";
+    mcpServerStatus.textContent = t("Loading MCP server status…");
+    document.getElementById("mcp-config-source").textContent = t("Loading configuration…");
     await Promise.all([
       (async () => {
         try {
@@ -818,18 +832,18 @@ async function refreshExplorer() {
           const status = await response.json();
           if (!response.ok) throw responseError(status);
           mcpServerStatus.textContent = mcpText(status);
-        } catch (error) { mcpServerStatus.textContent = "Could not read MCP server status: " + displayError(error); }
+        } catch (error) { mcpServerStatus.textContent = t("Could not read MCP server status:") + " " + displayError(error); }
       })(),
       (async () => {
         try {
           const response = await backendFetch(api("/mcp/config"));
           const configuration = await response.json();
           if (!response.ok) throw responseError(configuration);
-          document.getElementById("mcp-config-source").textContent = "Editable source: " + configuration.source;
+          document.getElementById("mcp-config-source").textContent = t("Editable source:") + " " + configuration.source;
           mcpConfigText.value = JSON.stringify(configuration.config, null, 2);
           document.getElementById("mcp-config-save").disabled = !configuration.editable;
-          document.getElementById("mcp-config-message").textContent = configuration.editable ? "" : "This runtime does not support editing MCP configuration.";
-        } catch (error) { document.getElementById("mcp-config-source").textContent = "Could not read configuration: " + displayError(error); }
+          document.getElementById("mcp-config-message").textContent = configuration.editable ? "" : t("This runtime does not support editing MCP configuration.");
+        } catch (error) { document.getElementById("mcp-config-source").textContent = t("Could not read configuration:") + " " + displayError(error); }
       })(),
     ]);
     return;
@@ -852,7 +866,7 @@ async function refreshExplorer() {
     if (!resp.ok) throw responseError(data);
   } catch (error) {
     if (exploreView.value === view) {
-      exploreEl.textContent = "Could not load this explorer view. " + displayError(error);
+      exploreEl.textContent = t("Could not load this explorer view.") + " " + displayError(error);
       exploreNote.textContent = note;
     }
     return;
@@ -862,31 +876,31 @@ async function refreshExplorer() {
   note += " " + warnings;
   let text;
   if (view === "system") {
-    text = data.prompt_name ? data.system_prompt : "(no system prompt selected)";
+    text = data.prompt_name ? data.system_prompt : t("(no system prompt selected)");
   } else if (view === "agent") {
     text = data.agent
-      ? "agent: " + data.agent_name + " (" + data.agent.source + ")\ntools: " +
-        (data.agent.tools.join(", ") || "(none)") + "\n\n" + data.agent.prompt
-      : "(no agent selected)";
+      ? t("agent:") + " " + data.agent_name + " (" + sourceLabel(data.agent.source) + ")\n" + t("tools:") + " " +
+        (data.agent.tools.join(", ") || t("(none)")) + "\n\n" + data.agent.prompt
+      : t("(no agent selected)");
   } else if (view === "project") {
     text = data.project_instructions
       ? data.project_instructions[0] + "\n\n" + data.project_instructions[1]
-      : "none: create AGENTS.md in the project folder";
+      : t("none: create AGENTS.md in the project folder");
   } else if (view === "tools") {
-    text = data.tools === "[]" ? "(no tools checked: the request has no 'tools' field)" : data.tools;
+    text = data.tools === "[]" ? t("(no tools checked: the request has no 'tools' field)") : data.tools;
   } else if (view === "skills") {
     skillsExplorerData = data;
     renderSkills(data, activeSkillContext || data.skill_context);
     exploreNote.textContent += " " + warnings;
     return;
   } else if (view === "template") {
-    text = "TEMPLATE\n\n" + data.template + "\n\nPARAMETERS\n\n" + data.parameters +
-      (data.kv_text ? "\n\nKV CACHE (estimate)\n\n" + data.kv_text : "");
+    text = t("TEMPLATE") + "\n\n" + data.template + "\n\n" + t("PARAMETERS") + "\n\n" + data.parameters +
+      (data.kv_text ? "\n\n" + t("KV CACHE (estimate)") + "\n\n" + data.kv_text : "");
   } else {
     text = data.final;
   }
   if (view !== "template" && view !== "skills") {
-    note += "  (~" + Math.round(text.length / 4).toLocaleString("en") + " tokens)";
+    note += "  " + t("(~{count} tokens)", { count: Math.round(text.length / 4) });
   }
   exploreNote.textContent = note;
   if (view === "final") showHighlighted(text);
@@ -929,25 +943,25 @@ function renderMarkdown(div, text) {
 function mcpHints(annotations) {
   if (!annotations || typeof annotations !== "object") return "";
   const hints = Object.entries(annotations).map(([key, value]) => key + "=" + JSON.stringify(value)).join(", ");
-  return hints ? "server hints, not verified by the harness: " + hints : "";
+  return hints ? t("server hints, not verified by the harness:") + " " + hints : "";
 }
 
 function renderMcpEvent(event, live) {
   const label = event.server + "/" + event.tool;
   if (live) {
-    if (!changeBox) changeBox = renderChangeBox("MCP tool " + label + ":", event.arguments);
+    if (!changeBox) changeBox = renderChangeBox(t("MCP tool {name}:", { name: label }), event.arguments);
     if (event.approved) {
       const out = document.createElement("pre");
       out.className = "command-output";
-      out.textContent = event.result || "(no content)";
+      out.textContent = event.result || t("(no content)");
       changeBox.querySelector(".change-actions").before(out);
     }
-    setChangeStatus(changeBox, event.approved, event.is_error ? "ran: the server reported an error" : "ran", denialLabel(event));
+    setChangeStatus(changeBox, event.approved, event.is_error ? t("ran: the server reported an error") : t("ran"), denialLabel(event));
     changeBox = null;
   }
-  const wire = event.request ? "\n\nJSON-RPC request:\n" + JSON.stringify(event.request, null, 2) + "\n\nJSON-RPC response:\n" + JSON.stringify(event.response, null, 2) : "";
-  printBlock("MCP — " + label + (event.approved ? " over " + event.transport + ", protocol " + event.protocol_version : " (" + denialLabel(event) + ")"),
-             "arguments: " + event.arguments + (event.approved ? "\nresult:    " + (/^(error:|unsupported:|unavailable:)/.test(event.result) ? formatFailure(event.failure, event.result) : event.result) + wire : ""));
+  const wire = event.request ? "\n\n" + t("JSON-RPC request:") + "\n" + JSON.stringify(event.request, null, 2) + "\n\n" + t("JSON-RPC response:") + "\n" + JSON.stringify(event.response, null, 2) : "";
+  printBlock(event.approved ? t("MCP — {name} over {transport}, protocol {version}", { name: label, transport: event.transport, version: event.protocol_version }) : t("MCP — {name} ({outcome})", { name: label, outcome: denialLabel(event) }),
+             t("arguments:") + " " + event.arguments + (event.approved ? "\n" + t("result:") + " " + toolResultText(event) + wire : ""));
 }
 
 function renderChangeBox(title, diff, note) {
@@ -959,7 +973,7 @@ function renderChangeBox(title, diff, note) {
   if (note) {
     const noteEl = document.createElement("div");
     noteEl.className = "change-note";
-    noteEl.textContent = "Note: " + note + ".";
+    noteEl.textContent = t("Note: {note}.", { note });
     titleEl.appendChild(noteEl);
   }
   const pre = document.createElement("pre");
@@ -982,11 +996,11 @@ function renderChangeBox(title, diff, note) {
 function addApprovalButtons(box, id) {
   const actions = box.querySelector(".change-actions");
   const deny = document.createElement("button");
-  deny.title = "Reject this proposed action. The harness sends the denial to the model without executing the effect.";
-  deny.textContent = "Deny";
+  deny.title = t("Reject this proposed action. The harness sends the denial to the model without executing the effect.");
+  deny.textContent = t("Deny");
   const approve = document.createElement("button");
-  approve.title = "Allow this proposed action once. Later effects still require their own approval.";
-  approve.textContent = "Approve";
+  approve.title = t("Allow this proposed action once. Later effects still require their own approval.");
+  approve.textContent = t("Approve");
   approve.className = "approve";
   for (const [button, approved] of [[deny, false], [approve, true]]) {
     button.addEventListener("click", () => {
@@ -1003,10 +1017,10 @@ function addApprovalButtons(box, id) {
 
 // Why an action did not run: the backend reports how the approval ended; the UI only words it.
 function denialLabel(event) {
-  return event.outcome === "unavailable" ? (event.approval_timeout_ms === undefined ? "no answer" : "Not run: no approval within " + (globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.timeoutDuration(event.approval_timeout_ms) : event.approval_timeout_ms / 1000 + " seconds")) : event.outcome === "cancelled" ? "cancelled" : "refused";
+  return event.outcome === "unavailable" ? (event.approval_timeout_ms === undefined ? t("no answer") : t("Not run: no approval within {duration}", { duration: globalThis.MyHarnessErrors ? globalThis.MyHarnessErrors.timeoutDuration(event.approval_timeout_ms, MyHarnessI18n) : tn("{count} second", "{count} seconds", event.approval_timeout_ms / 1000) })) : event.outcome === "cancelled" ? t("cancelled") : t("refused");
 }
 
-function setChangeStatus(box, approved, doneLabel, denial = "refused") {
+function setChangeStatus(box, approved, doneLabel, denial = t("refused")) {
   const actions = box.querySelector(".change-actions");
   const status = document.createElement("span");
   status.className = "change-status " + (approved ? "approved" : "refused");
@@ -1047,33 +1061,34 @@ let prompts = [];
 let locked = null;
 let conversationLocked = false;
 
-promptSelect.add(new Option("none", ""));
+function promptLabel(p) {
+  return p.fits ? t("{name} (~{count} tokens)", { name: p.name, count: p.tokens }) : t("{name} (~{count} tokens) — too big for the context window", { name: p.name, count: p.tokens });
+}
+promptSelect.add(new Option(t("none"), ""));
 for (const p of prompts) {
-  const label = p.name + " (~" + p.tokens.toLocaleString("en") + " tokens)" +
-                (p.fits ? "" : " — too big for the context window");
-  const option = new Option(label, p.name);
+  const option = new Option(promptLabel(p), p.name);
   option.disabled = !p.fits;
   promptSelect.add(option);
 }
 if (session.snapshots?.prompt?.name && !prompts.some(p => p.name === session.snapshots.prompt.name)) {
-  promptSelect.add(new Option(session.snapshots.prompt.name + " (saved with this session)", session.snapshots.prompt.name));
+  promptSelect.add(new Option(t("{name} (saved with this session)", { name: session.snapshots.prompt.name }), session.snapshots.prompt.name));
 }
 if (session.snapshots?.agent?.name && !agents.some(a => a.name === session.snapshots.agent.name)) {
   agents.push({name: session.snapshots.agent.name, source: "saved session", tools: session.snapshots.agent.value?.tools || []});
 }
 
 promptSelect.addEventListener("change", () => {
-  addDivider("— system prompt: " + (promptSelect.value || "none") + " —");
+  addDivider(t("— system prompt: {name} —", { name: promptSelect.value || t("none") }));
 });
 
 function fillAgentSelect() {
   const previous = agentSelect.value;
-  agentSelect.replaceChildren(new Option("none", ""));
+  agentSelect.replaceChildren(new Option(t("none"), ""));
   for (const a of agents) {
-    agentSelect.add(new Option(a.name + " (" + a.source + ")", a.name));
+    agentSelect.add(new Option(a.name + " (" + sourceLabel(a.source) + ")", a.name));
   }
   if (previous && !agents.some((a) => a.name === previous)) {
-    addDivider("— agent " + previous + " not in this project: agent set to none —");
+    addDivider(t("— agent {name} not in this project: agent set to none —", { name: previous }));
   } else {
     agentSelect.value = previous;
   }
@@ -1089,7 +1104,7 @@ agentSelect.addEventListener("change", () => {
     }
     syncToolGroups();
   }
-  addDivider("— agent: " + agentSelect.selectedOptions[0].textContent + " —");
+  addDivider(t("— agent: {name} —", { name: agentSelect.selectedOptions[0].textContent }));
 });
 
 async function setProject() {
@@ -1106,11 +1121,11 @@ async function setProject() {
   projectError.textContent = "";
   const stateResponse = await backendFetch(api("/bootstrap"));
   if (!stateResponse.ok) {
-    projectError.textContent = "Project changed, but its state could not be refreshed. Refresh the page to reconnect.";
+    projectError.textContent = t("Project changed, but its state could not be refreshed. Refresh the page to reconnect.");
     return;
   }
   window.dispatchEvent(new CustomEvent("myharness:state", {detail: await stateResponse.json()}));
-  addDivider("— project folder: " + result.path + " —");
+  addDivider(t("— project folder: {path} —", { path: result.path }));
 }
 
 const browseBtn = document.getElementById("browse");
@@ -1142,7 +1157,7 @@ async function browse(path) {
   for (const name of result.folders) {
     browserEntry(name + "/", () => browse(result.path.replace(/\/$/, "") + "/" + name));
   }
-  if (!result.folders.length) browserEntry("(no sub-folders)", null, "empty");
+  if (!result.folders.length) browserEntry(t("(no sub-folders)"), null, "empty");
   browserEl.hidden = false;
 }
 
@@ -1168,12 +1183,12 @@ projectInput.addEventListener("keydown", (e) => {
 function addDivider(text) {
   const divider = document.createElement("div");
   divider.className = "reset-divider";
-  const marker = "\n\nTechnical details: ";
+  const label = t("Technical details:"), marker = "\n\n" + label + " ";
   const split = text.indexOf(marker);
   divider.textContent = split < 0 ? text : text.slice(0, split);
   if (split >= 0) {
     const details = document.createElement("details"), summary = document.createElement("summary"), diagnostic = document.createElement("pre");
-    summary.textContent = "Technical details";
+    summary.textContent = label.replace(/\s*[:：]$/, "");
     diagnostic.textContent = text.slice(split + marker.length);
     details.append(summary, diagnostic); divider.append(details);
   }
@@ -1202,6 +1217,13 @@ async function clearConversation() {
   input.focus();
 }
 
+// Tool families are identified by their English name; only the label shown is translated.
+function familyLabel(family) {
+  if (family === "MCP resources:") return t("MCP resources:");
+  if (family.startsWith("MCP ")) return family;
+  const labels = { Files: t("Files"), Search: t("Search"), Git: t("Git"), Workflow: t("Workflow"), Agents: t("Agents"), Goals: t("Goals"), Other: t("Other") };
+  return labels[family] || family;
+}
 function renderTools(tools) {
   const list = document.getElementById("tool-list");
   list.replaceChildren();
@@ -1225,7 +1247,7 @@ function renderTools(tools) {
       const groupBox = document.createElement("input");
       groupBox.type = "checkbox";
       groupBox.className = "tool-group-checkbox";
-      groupBox.title = "Turn every tool in '" + family + "' on or off at once. Each active tool's description is sent with every request, so fewer active tools means fewer input tokens.";
+      groupBox.title = t("Turn every tool in '{group}' on or off at once. Each active tool's description is sent with every request, so fewer active tools means fewer input tokens.", { group: familyLabel(family) });
       groupBox.addEventListener("change", () => {
         for (const box of column.querySelectorAll(".tool-checkbox")) box.checked = groupBox.checked;
         syncToolGroups();
@@ -1233,25 +1255,25 @@ function renderTools(tools) {
         setTimeout(refreshExplorer);
       });
       const groupName = document.createElement("span");
-      groupName.textContent = family;
+      groupName.textContent = familyLabel(family);
       const groupLabel = document.createElement("label");
       groupLabel.append(groupBox, groupName);
       const cost = document.createElement("span");
       cost.className = "tool-group-cost";
-      cost.title = "Estimated context tokens added on every request: selected tools / all tools in this group. Uses about four characters per token. Excludes call arguments and results; model-specific framing is extra. Turning Tools off adds none.";
+      cost.title = t("Estimated context tokens added on every request: selected tools / all tools in this group. Uses about four characters per token. Excludes call arguments and results; model-specific framing is extra. Turning Tools off adds none.");
       heading.append(groupLabel);
       if (tool.source === "mcp") {
         heading.className = "mcp-group";
         heading.title = tool.server
-          ? "Tools reported by the MCP server '" + tool.server + "'. The harness forwards calls to the server and asks for approval. See Explore → MCP servers."
-          : "Harness tools for reading MCP resources. Reads are not approved; the content enters the conversation.";
+          ? t("Tools reported by the MCP server '{server}'. The harness forwards calls to the server and asks for approval. See the MCP tab.", { server: tool.server })
+          : t("Harness tools for reading MCP resources. Reads are not approved; the content enters the conversation.");
       }
       column.append(heading, cost); groups.set(family, column);
     }
     const label = document.createElement("label");
     label.className = "toggle tool";
-    label.title = "What the model is told: \"" + tool.description + "\"\n\nWhen Tools is enabled and this tool is checked, its definition is added to the context on every request and costs ≈" + tool.tokens + " tokens.\nEstimated context cost, using about four characters per token. Excludes call arguments and results; model-specific framing is extra.";
-    if (tool.source === "mcp") label.title += "\nMCP tools are off in new sessions: tick them to offer them to the model.";
+    label.title = t("What the model is told: \"{description}\"", { description: tool.description }) + "\n\n" + t("When Tools is enabled and this tool is checked, its definition is added to the context on every request and costs ≈{count} tokens.", { count: tool.tokens }) + "\n" + t("Estimated context cost, using about four characters per token. Excludes call arguments and results; model-specific framing is extra.");
+    if (tool.source === "mcp") label.title += "\n" + t("MCP tools are off in new sessions: tick them to offer them to the model.");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.title = label.title;
@@ -1274,7 +1296,7 @@ function renderTools(tools) {
     const menu = document.createElement("details");
     menu.className = "tool-menu";
     const summary = document.createElement("summary");
-    summary.title = "Show or hide this group's tools. The group checkbox above ticks or unticks all of them.";
+    summary.title = t("Show or hide this group's tools. The group checkbox above ticks or unticks all of them.");
     const items = document.createElement("div");
     items.className = "tool-menu-items";
     items.append(...labels);
@@ -1299,9 +1321,9 @@ function syncToolGroups() {
     groupBox.disabled = boxes.length > 0 && boxes[0].disabled;
     const totalTokens = boxes.reduce((sum, box) => sum + Number(box.dataset.tokens), 0);
     const selectedTokens = boxes.filter(box => toolsCheckbox.checked && box.checked).reduce((sum, box) => sum + Number(box.dataset.tokens), 0);
-    column.querySelector(".tool-group-cost").textContent = "≈" + selectedTokens + " / ≈" + totalTokens + " tokens";
+    column.querySelector(".tool-group-cost").textContent = t("≈{selected} / ≈{total} tokens", { selected: selectedTokens, total: totalTokens });
     const summary = column.querySelector("summary");
-    if (summary) summary.textContent = ticked + " of " + boxes.length + " tools active";
+    if (summary) summary.textContent = tn("{count} of {total} tool active", "{count} of {total} tools active", boxes.length, { count: ticked, total: boxes.length });
   }
   updateActiveTools();
 }
@@ -1309,8 +1331,8 @@ function updateActiveTools() {
   const boxes = [...document.querySelectorAll("#tool-list .tool-checkbox")];
   const active = boxes.filter(box => toolsCheckbox.checked && box.checked);
   const tokens = active.reduce((sum, box) => sum + Number(box.dataset.tokens), 0);
-  document.getElementById("active-tools-count").textContent = active.length + " of " + boxes.length + " active";
-  document.getElementById("active-tools-tokens").textContent = "≈" + tokens.toLocaleString("en") + " tokens sent with every request";
+  document.getElementById("active-tools-count").textContent = t("{count} of {total} active", { count: active.length, total: boxes.length });
+  document.getElementById("active-tools-tokens").textContent = t("≈{count} tokens sent with every request", { count: tokens });
 }
 
 function initialize(data) {
@@ -1324,21 +1346,21 @@ function initialize(data) {
   projectInput.value = data.project;
   // The browser backend reports model_connected; the Node backend always has its configured model.
   const modelMissing = data.model_connected === false;
-  document.getElementById("model-name").textContent = modelMissing ? "no model connected" : data.model;
+  document.getElementById("model-name").textContent = modelMissing ? t("no model connected") : data.model;
   document.getElementById("model-chip").classList.toggle("disconnected", modelMissing);
-  initialTerminal = "----------------------------------------\nMODEL\n----------------------------------------\nModel: " + data.model + "  (working context: " + data.context_length + " tokens)\n\n";
+  initialTerminal = SEP + "\n" + t("MODEL") + "\n" + SEP + "\n" + t("Model: {model}  (working context: {count} tokens)", { model: data.model, count: data.context_length }) + "\n\n";
   terminalEl.textContent = initialTerminal;
   requestView.reset();
   memoryEl.textContent = data.memory;
   renderTools(data.tools);
   fillSessionSelect(data.sessions, session.id);
-  promptSelect.replaceChildren(new Option("none", ""));
+  promptSelect.replaceChildren(new Option(t("none"), ""));
   for (const p of prompts) {
-    const option = new Option(p.name + " (~" + p.tokens.toLocaleString("en") + " tokens)" + (p.fits ? "" : " — too big for the context window"), p.name);
+    const option = new Option(promptLabel(p), p.name);
     option.disabled = !p.fits;
     promptSelect.add(option);
   }
-  if (session.snapshots?.prompt?.name && !prompts.some(p => p.name === session.snapshots.prompt.name)) promptSelect.add(new Option(session.snapshots.prompt.name + " (saved with this session)", session.snapshots.prompt.name));
+  if (session.snapshots?.prompt?.name && !prompts.some(p => p.name === session.snapshots.prompt.name)) promptSelect.add(new Option(t("{name} (saved with this session)", { name: session.snapshots.prompt.name }), session.snapshots.prompt.name));
   if (session.snapshots?.agent?.name && !agents.some(a => a.name === session.snapshots.agent.name)) agents.push({name: session.snapshots.agent.name, source: "saved session", tools: session.snapshots.agent.value?.tools || []});
   fillAgentSelect();
   conversationLocked = Boolean(locked);
@@ -1367,8 +1389,8 @@ function initialize(data) {
 Promise.resolve(window.MYHARNESS_READY).then(() => {
   window.addEventListener("myharness:state", event => initialize(event.detail));
   return backendFetch(api("/bootstrap"));
-}).then(response => response.ok ? response.json() : Promise.reject(new Error("Could not load backend state."))).then(initialize).catch(error => {
-  terminalEl.textContent = initialTerminal + "\nBackend unavailable: " + displayError(error);
+}).then(response => response.ok ? response.json() : Promise.reject(new Error(t("Could not load backend state.")))).then(initialize).catch(error => {
+  terminalEl.textContent = initialTerminal + "\n" + t("Backend unavailable:") + " " + displayError(error);
 });
 
 document.getElementById("show-thinking").addEventListener("change", (e) => {
@@ -1395,7 +1417,7 @@ async function loadSelectedSession() {
     if (!response.ok) throw responseError(result);
     location.reload();
   } catch (error) {
-    sessionStatus.textContent = displayError(error) || "Could not load this session.";
+    sessionStatus.textContent = displayError(error) || t("Could not load this session.");
     sessionSelect.value = session.id;
   }
 }
@@ -1407,9 +1429,9 @@ document.getElementById("new-session").addEventListener("click", async () => {
   location.reload();
 });
 document.getElementById("rename-session").addEventListener("click", async () => {
-  const name = prompt("Session name:", session.name); if (!name || !name.trim()) return;
+  const name = prompt(t("Session name:"), sessionName(session.name)); if (!name || !name.trim()) return;
   const response = await backendFetch(api("/sessions/" + session.id), {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name})});
-  if (!response.ok) { sessionStatus.textContent = "Save failed: " + displayError(error); return; }
+  if (!response.ok) { sessionStatus.textContent = t("Save failed:") + " " + displayError(responseError(await response.json())); return; }
   session = await response.json();
   const listing = await (await backendFetch(api("/sessions"))).json(); fillSessionSelect(listing.sessions, session.id);
 });
@@ -1420,7 +1442,7 @@ document.getElementById("import-session").addEventListener("change", async (e) =
   try {
     const response = await backendFetch(api("/sessions/import"), {method:"POST", headers:{"Content-Type":"application/json"}, body:await file.text()});
     const result = await response.json(); if (!response.ok) throw responseError(result);
-    fillSessionSelect(result.sessions, session.id); sessionStatus.textContent = "imported";
+    fillSessionSelect(result.sessions, session.id); sessionStatus.textContent = t("imported");
   } catch (error) { sessionStatus.textContent = displayError(error); }
   e.target.value = "";
 });
@@ -1453,11 +1475,11 @@ const confirmClear = document.getElementById("confirm-clear");
 clearBtn.addEventListener("click", () => { confirmClear.hidden = false; document.getElementById("clear-cancel").focus(); });
 document.getElementById("clear-cancel").addEventListener("click", () => { confirmClear.hidden = true; clearBtn.focus(); });
 document.getElementById("clear-yes").addEventListener("click", () => { confirmClear.hidden = true; clearConversation(); });
-resetBtn.addEventListener("click", () => resetMemory("— memory reset —"));
+resetBtn.addEventListener("click", () => resetMemory(t("— memory reset —")));
 memoryCheckbox.addEventListener("change", () => {
   compactBtn.disabled = !memoryCheckbox.checked;
-  if (memoryCheckbox.checked) addDivider("— harness memory on —");
-  else resetMemory("— harness memory off: memory cleared —");
+  if (memoryCheckbox.checked) addDivider(t("— harness memory on —"));
+  else resetMemory(t("— harness memory off: memory cleared —"));
 });
 function fitInput() {
   input.style.height = "auto";

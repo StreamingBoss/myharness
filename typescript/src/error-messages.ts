@@ -1,6 +1,9 @@
+import { english, type Translator } from './text.js';
+
 /** Plain-language explanations. Raw diagnostics remain available for troubleshooting. */
 export interface ErrorExplanation { message: string; next: string }
-const explanations: [RegExp, string, string][] = [
+/** Exported so the interface-language catalogs can list these texts (scripts/i18n-keys.mjs). */
+export const explanations: [RegExp, string, string][] = [
   [/Tokenizer helper (unavailable|is disconnected|connection is unavailable|denied)|not allowed to use the tokenizer helper/i, 'The page could not use the tokenizer helper on this computer.', 'You can keep chatting. Check that the helper is running and was started for this website, then reconnect it in the token viewer.'],
   [/Origin|loopback|local.network permission|HTTP loopback/i, 'The browser could not access the local service.', 'Check the service address in Settings and allow local-network access if your browser asks. The service must allow this website address, including http or https and its port.'],
   [/credential.*locked|credentials were locked|cancelled by credential locking/i, 'Your connections were locked, so this operation was stopped.', 'Reconnect your model in Settings: enter its API key again, or choose Ollama.'],
@@ -36,10 +39,11 @@ export function explainError(reason: string): ErrorExplanation | undefined {
   return match ? { message: match[1], next: match[2] } : undefined;
 }
 /** Durations come from the actual operation limits, including custom settings. */
-export function timeoutDuration(ms: number): string {
-  if (ms < 1000) return `${ms} ${ms === 1 ? 'millisecond' : 'milliseconds'}`;
+export function timeoutDuration(ms: number, text: Translator = english): string {
+  if (ms < 1000) return text.tn('{count} millisecond', '{count} milliseconds', ms);
   const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
+  if (seconds < 60) return text.tn('{count} second', '{count} seconds', seconds);
   const minutes = Math.floor(seconds / 60), remainder = seconds % 60;
-  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}${remainder ? ` ${remainder} ${remainder === 1 ? 'second' : 'seconds'}` : ''}`;
+  const whole = text.tn('{count} minute', '{count} minutes', minutes);
+  return remainder ? text.t('{minutes} {seconds}', { minutes: whole, seconds: text.tn('{count} second', '{count} seconds', remainder) }) : whole;
 }

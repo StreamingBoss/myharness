@@ -1,4 +1,5 @@
 import { failureText } from '../src/failure.js';
+import { pageTranslator } from '../src/text.js';
 import { CONNECT_CARD_HTML, mountConnectCard } from './connect-card.js';
 import { TOKEN_HELPER_HTML, mountTokenHelperPanel } from './token-helper-panel.js';
 import { ModelPicker } from '../src/browser/model-picker.js';
@@ -7,6 +8,7 @@ import { WorkerClient, type WorkerPort } from '../src/browser/client.js';
 import { browserFetch, reportBrowserMcpConfig } from '../src/browser/fetch.js';
 
 interface BrowserWindow extends Window {
+  MyHarnessI18n?: { apply(root: Element | null): void };
   MYHARNESS_FETCH?: ReturnType<typeof browserFetch>;
   MYHARNESS_NEW_SESSION?: () => Promise<void>;
   MYHARNESS_EXPORT_SESSION?: (id: string) => Promise<void>;
@@ -22,21 +24,24 @@ function download(name: string, value: unknown): void {
 
 export async function mountBrowser(): Promise<void> {
   const window_ = window as BrowserWindow;
+  const text = pageTranslator(), { t } = text;
+  // Markup added by this module is translated like the page (static/i18n.js); English when no catalog is loaded.
+  const translate = (root: Element | null) => window_.MyHarnessI18n?.apply(root);
   const url = new URL('backend-worker.js', import.meta.url);
   const namespace = new URLSearchParams(location.search).get('database'); if (namespace) url.searchParams.set('database', namespace);
   const client = new WorkerClient(new Worker(url, { type: 'module' }) as unknown as WorkerPort);
   window_.harness = client; window_.MYHARNESS_FETCH = browserFetch(client);
   window_.MYHARNESS_EXPORT_SESSION = async id => { const session = await client.call('getSession', { id }) as { name: string }; download(session.name + '.json', session); };
   const bar = document.createElement('div'); bar.id = 'browser-runtime';
-  bar.innerHTML = '<strong>Harness backend: browser Worker</strong> · <span id="browser-mode-label"></span><br><label title="Choose a model provider, then start a new session to apply the selected model and budgets.">Model <select id="browser-model-mode" title="Choose the model provider. Ollama connects to a server on this computer; cloud providers require an API key. Use New Session to apply the selection and create an empty conversation."><option value="ollama">Local Ollama</option><option value="gemini">Gemini</option><option value="openai">OpenAI GPT</option><option value="anthropic">Anthropic Claude</option><option value="openrouter">OpenRouter (many models, one key)</option><option value="mistral">Mistral</option><option value="groq">Groq</option><option value="cerebras">Cerebras</option><option value="custom">Custom (OpenAI-compatible)</option></select></label> <input id="browser-ollama-url" aria-label="Ollama URL" value="http://localhost:11434" title="Base URL of the Ollama server, for example http://localhost:11434. The server must allow this page origin. Changing the URL refreshes the model list; starting a session applies it."><select id="browser-model" aria-label="Model ID" title="Choose a model available from the selected provider." disabled><option value="">Loading models…</option></select><input id="browser-custom-url" aria-label="Server address" placeholder="https://host/v1 or http://localhost:1234/v1" hidden title="Address of a server that speaks OpenAI-style Chat Completions, such as LM Studio, llama.cpp, vLLM or a company gateway. It must allow this page origin (CORS). Plain http works only for this computer or your local network. Changing it refreshes the model list."><input id="browser-api-key" type="password" aria-label="API key" autocomplete="off" placeholder="Your provider API key" title="Credential for the selected cloud provider. Kept in Worker memory, never saved in sessions or settings. Re-enter after reload; the field clears after connecting."><button id="browser-forget-key" title="Remove the selected provider credential from Worker memory. Cloud generation stops until you reconnect; saved conversations remain.">Forget API key</button><details id="browser-token-budgets"><summary>Harness token budgets</summary><p>These are your configured budgets in tokens, not the model’s advertised limits. They stay the same when you switch providers. Changes apply when you start a new session.</p><label title="Memory is trimmed at 75% of this budget; compaction is attempted at 90%.">Working context <input id="browser-context-limit" type="number" value="8192" min="1" title="Harness working-context budget in tokens. Old tool output is trimmed at 75%; compaction is attempted at 90%. This is separate from the model limit and applies when starting a new session."></label><label title="Maximum tokens requested per cloud response, including any reasoning tokens counted by the provider.">Maximum output <input id="browser-output-limit" type="number" value="2048" min="1" title="Maximum tokens requested per cloud response, including reasoning tokens counted by the provider. Applies when starting a new session; it does not change the working-context budget."></label></details><br><button id="browser-local-folder" title="Open a folder on your computer with direct read/write access. Approved edits are saved to the original files.">Open local folder…</button> <button id="browser-folder-copy-picker" title="Copy the selected folder into browser storage. Only UTF-8 text files are imported; edits affect the copy and leave the original files unchanged." type="button">Import folder copy</button><input id="browser-folder-copy" type="file" aria-label="Import folder copy" webkitdirectory multiple hidden> <button id="browser-mcp-config-picker" type="button" title="Load an MCP configuration JSON file ({&quot;mcpServers&quot;: {...}}). The backend connects to its HTTP servers; stdio servers need the Node runtime. Servers must allow this page origin (CORS). Header values such as tokens stay in Worker memory and are not saved: import the file again after a reload.">Import MCP config</button><input id="browser-mcp-config" type="file" aria-label="Import MCP config" accept="application/json,.json" hidden><span id="browser-runtime-status" role="status"></span>';
-  (document.getElementById('settings-model') ?? document.body).prepend(bar);
+  bar.innerHTML = '<strong>Harness backend: browser Worker</strong> · <span id="browser-mode-label"></span><br><label title="Choose a model provider, then start a new session to apply the selected model and budgets.">Model <select id="browser-model-mode" title="Choose the model provider. Ollama connects to a server on this computer; cloud providers require an API key. Use New Session to apply the selection and create an empty conversation."><option value="ollama">Local Ollama</option><option value="gemini" translate="no">Gemini</option><option value="openai" translate="no">OpenAI GPT</option><option value="anthropic" translate="no">Anthropic Claude</option><option value="openrouter">OpenRouter (many models, one key)</option><option value="mistral" translate="no">Mistral</option><option value="groq" translate="no">Groq</option><option value="cerebras" translate="no">Cerebras</option><option value="custom">Custom (OpenAI-compatible)</option></select></label> <input id="browser-ollama-url" aria-label="Ollama URL" value="http://localhost:11434" title="Base URL of the Ollama server, for example http://localhost:11434. The server must allow this page origin. Changing the URL refreshes the model list; starting a session applies it."><select id="browser-model" aria-label="Model ID" title="Choose a model available from the selected provider." disabled><option value="">Loading models…</option></select><input id="browser-custom-url" aria-label="Server address" placeholder="https://host/v1 or http://localhost:1234/v1" hidden title="Address of a server that speaks OpenAI-style Chat Completions, such as LM Studio, llama.cpp, vLLM or a company gateway. It must allow this page origin (CORS). Plain http works only for this computer or your local network. Changing it refreshes the model list."><input id="browser-api-key" type="password" aria-label="API key" autocomplete="off" placeholder="Your provider API key" title="Credential for the selected cloud provider. Kept in Worker memory, never saved in sessions or settings. Re-enter after reload; the field clears after connecting."><button id="browser-forget-key" title="Remove the selected provider credential from Worker memory. Cloud generation stops until you reconnect; saved conversations remain.">Forget API key</button><details id="browser-token-budgets"><summary>Harness token budgets</summary><p>These are your configured budgets in tokens, not the model’s advertised limits. They stay the same when you switch providers. Changes apply when you start a new session.</p><label title="Memory is trimmed at 75% of this budget; compaction is attempted at 90%.">Working context <input id="browser-context-limit" type="number" value="8192" min="1" title="Harness working-context budget in tokens. Old tool output is trimmed at 75%; compaction is attempted at 90%. This is separate from the model limit and applies when starting a new session."></label><label title="Maximum tokens requested per cloud response, including any reasoning tokens counted by the provider.">Maximum output <input id="browser-output-limit" type="number" value="2048" min="1" title="Maximum tokens requested per cloud response, including reasoning tokens counted by the provider. Applies when starting a new session; it does not change the working-context budget."></label></details><br><button id="browser-local-folder" title="Open a folder on your computer with direct read/write access. Approved edits are saved to the original files.">Open local folder…</button> <button id="browser-folder-copy-picker" title="Copy the selected folder into browser storage. Only UTF-8 text files are imported; edits affect the copy and leave the original files unchanged." type="button">Import folder copy</button><input id="browser-folder-copy" type="file" aria-label="Import folder copy" webkitdirectory multiple hidden> <button id="browser-mcp-config-picker" type="button" title="Load an MCP configuration JSON file ({&quot;mcpServers&quot;: {...}}). The backend connects to its HTTP servers; stdio servers need the Node runtime. Servers must allow this page origin (CORS). Header values such as tokens stay in Worker memory and are not saved: import the file again after a reload.">Import MCP config</button><input id="browser-mcp-config" type="file" aria-label="Import MCP config" accept="application/json,.json" hidden><span id="browser-runtime-status" role="status"></span>';
+  (document.getElementById('settings-model') ?? document.body).prepend(bar); translate(bar);
   const status = document.getElementById('browser-runtime-status')!, mode = document.getElementById('browser-model-mode') as HTMLSelectElement;
-  const failure = (error: unknown) => { status.textContent = failureText(error, error instanceof Error ? error.message : String(error)); };
+  const failure = (error: unknown) => { status.textContent = failureText(error, error instanceof Error ? error.message : String(error), text); };
   const input = (id: string) => document.getElementById(id) as HTMLInputElement;
   const model = document.getElementById('browser-model') as HTMLSelectElement;
   const local = document.getElementById('browser-local-folder') as HTMLButtonElement;
   const connect = document.getElementById('new-session') as HTMLButtonElement;
-  connect.title = 'Apply the selected provider, model and budgets, then create and activate an empty conversation. Other saved sessions remain available.';
+  connect.title = t('Apply the selected provider, model and budgets, then create and activate an empty conversation. Other saved sessions remain available.');
   let preferredModel = '';
   const updateConnectionFields = () => {
     const local = mode.value === 'ollama', hosted = !local;
@@ -48,7 +53,7 @@ export async function mountBrowser(): Promise<void> {
   };
   const renderConnection = (state: Record<string, unknown>) => {
     local.disabled = !window_.showDirectoryPicker;
-    local.title = window_.showDirectoryPicker ? 'Open a folder with direct browser file access. Approved edits are saved to the original files. A web page cannot run shell commands.' : 'Direct folder access needs a supporting browser. Import a folder copy instead.';
+    local.title = window_.showDirectoryPicker ? t('Open a folder with direct browser file access. Approved edits are saved to the original files. A web page cannot run shell commands.') : t('Direct folder access needs a supporting browser. Import a folder copy instead.');
     // A session saved with the retired scripted demo stays readable; the picker offers real providers only.
     mode.value = state.provider === 'demo' ? 'ollama' : String(state.provider);
     input('browser-context-limit').value = String(state.context_length);
@@ -56,7 +61,7 @@ export async function mountBrowser(): Promise<void> {
     preferredModel = String(state.model);
     model.value = preferredModel;
     input('browser-ollama-url').value = String(state.ollama_url);
-    document.getElementById('browser-mode-label')!.textContent = `${state.model_connected ? `${state.provider === 'ollama' ? 'Ollama' : state.provider} · ${state.model} · ready` : state.ready ? 'no model connected' : `${state.provider} · ${state.model} · enter API key`} · ${state.workspace_kind}`;
+    document.getElementById('browser-mode-label')!.textContent = `${state.model_connected ? `${state.provider === 'ollama' ? 'Ollama' : state.provider} · ${state.model} · ${t('ready')}` : state.ready ? t('no model connected') : `${state.provider} · ${state.model} · ${t('enter API key')}`} · ${state.workspace_kind}`;
     updateConnectionFields();
   };
   window_.addEventListener('myharness:state', event => renderConnection((event as CustomEvent<Record<string, unknown>>).detail));
@@ -70,7 +75,7 @@ export async function mountBrowser(): Promise<void> {
     settings,
     loading: () => {
       preferredModel = model.value || preferredModel;
-      model.replaceChildren(new Option('Loading models…', ''));
+      model.replaceChildren(new Option(t('Loading models…'), ''));
       model.disabled = connect.disabled = true; status.textContent = '';
     },
     render: models => {
@@ -79,25 +84,27 @@ export async function mountBrowser(): Promise<void> {
         model.value = models.some(item => item.id === preferredModel) ? preferredModel : models[0]!.id;
         model.disabled = connect.disabled = false;
       } else {
-        model.replaceChildren(new Option('No models available', ''));
-        status.textContent = mode.value === 'ollama' ? 'No installed models found on this Ollama server.' : 'No chat models are available for this provider.';
+        model.replaceChildren(new Option(t('No models available'), ''));
+        status.textContent = mode.value === 'ollama' ? t('No installed models found on this Ollama server.') : t('No chat models are available for this provider.');
       }
     },
-    failure: message => { model.replaceChildren(new Option('Models unavailable', '')); status.textContent = message; },
+    failure: message => { model.replaceChildren(new Option(t('Models unavailable'), '')); status.textContent = message; },
   });
   const refreshModels = (): Promise<void> => picker.refresh();
   const controls = new ModelControls(client, {
     settings,
-    clearKey: () => { input('browser-api-key').value = ''; }, status: message => { status.textContent = message; }, render,
+    // Progress messages ('Connecting…', 'Creating session…') are translated here; error text is shown as given.
+    clearKey: () => { input('browser-api-key').value = ''; }, status: message => { status.textContent = message === 'Connecting…' ? t('Connecting…') : message === 'Creating session…' ? t('Creating session…') : message; }, render,
   });
   // First-run card above the chat. It renders the backend's model_connected flag and forwards actions.
-  document.getElementById('messages')!.insertAdjacentHTML('beforebegin', CONNECT_CARD_HTML);
+  document.getElementById('messages')!.insertAdjacentHTML('beforebegin', CONNECT_CARD_HTML); translate(document.getElementById('connect-card'));
   const card = mountConnectCard(document, { client, origin: location.origin, render: state => { render(state); void refreshModels(); } });
   window_.addEventListener('myharness:state', event => card.update((event as CustomEvent<Record<string, unknown>>).detail));
   const initial = await client.call('bootstrap') as Record<string, unknown>;
   // Optional tokenizer helper controls, inside the token viewer. They render backend state and forward actions.
   const summary = document.getElementById('token-summary');
   if (summary) summary.insertAdjacentHTML('afterend', TOKEN_HELPER_HTML); else document.getElementById('tokenization')!.insertAdjacentHTML('afterbegin', TOKEN_HELPER_HTML);
+  translate(document.getElementById('token-helper'));
   const helperPanel = mountTokenHelperPanel(document, { client, origin: location.origin });
   window_.addEventListener('myharness:state', event => helperPanel.update((event as CustomEvent<Record<string, unknown>>).detail));
   const exploreView = document.getElementById('explore-view') as HTMLSelectElement;
@@ -107,7 +114,7 @@ export async function mountBrowser(): Promise<void> {
   // wait until the user opens Settings instead of probing on every page load.
   if (initial.model_connected) void refreshModels();
   else {
-    model.replaceChildren(new Option('Connect a model to list models', ''));
+    model.replaceChildren(new Option(t('Connect a model to list models'), ''));
     document.getElementById('open-settings')!.addEventListener('click', () => void refreshModels(), { once: true });
   }
   mode.addEventListener('change', () => {
@@ -128,7 +135,7 @@ export async function mountBrowser(): Promise<void> {
       const selected = [...(event.target as HTMLInputElement).files!], files = Object.create(null) as Record<string, string>; let skipped = 0;
       const folder = selected[0]!.webkitRelativePath.split('/')[0]!;
       for (const file of selected) { try { const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer()); if (text.includes('\0')) { skipped++; continue; } files[file.webkitRelativePath.slice(folder.length + 1)] = text; } catch { skipped++; } }
-      if (skipped) status.textContent = `Skipped ${skipped} binary/non-UTF8 files.`;
+      if (skipped) status.textContent = text.tn('Skipped {count} binary/non-UTF8 file.', 'Skipped {count} binary/non-UTF8 files.', skipped);
       await client.call('importProject', { format: 'myharness-project', version: 1, root: '/' + folder, files }); location.reload();
     } catch (error) { failure(error); }
   });
@@ -138,7 +145,7 @@ export async function mountBrowser(): Promise<void> {
       const file = (event.target as HTMLInputElement).files![0]!;
       const result = await client.call('configureMcp', JSON.parse(await file.text())) as { servers: { status: string }[] };
       await reportBrowserMcpConfig(client);
-      status.textContent = `MCP: ${result.servers.filter(server => server.status === 'connected').length} of ${result.servers.length} servers connected. See Explore → MCP servers.`;
+      status.textContent = text.tn('MCP: {connected} of {count} server connected. See the MCP tab.', 'MCP: {connected} of {count} servers connected. See the MCP tab.', result.servers.length, { connected: result.servers.filter(server => server.status === 'connected').length });
       render(await client.call('bootstrap') as Record<string, unknown>);
     } catch (error) { failure(error); }
   });

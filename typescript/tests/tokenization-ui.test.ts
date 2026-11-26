@@ -73,7 +73,7 @@ test('bottom viewer explains exactness, shows real pieces/bytes and restores ins
 
 test('viewer distinguishes count-only, configured-tokenizer, unavailable and failed inspection and ignores stale responses', async t => {
   const browser = await launch(); t.after(() => browser.close()); const page = await browser.newPage();
-  await page.setContent('<div id="root"></div>'); await page.addScriptTag({ path: 'web/static/tokenization.js' });
+  await page.setContent('<div id="root"></div>'); await page.addScriptTag({ path: 'web/static/i18n.js' }); await page.addScriptTag({ path: 'web/static/tokenization.js' });
   await page.evaluate(() => {
     const scope = globalThis as unknown as { TokenViewer: new (...args: unknown[]) => { render(data: unknown): void; refresh(id: string): Promise<void>; run(): Promise<void> }; viewer: { render(data: unknown): void; refresh(id: string): Promise<void>; run(): Promise<void> }; reply: unknown; status: number; mode: string; resolve: (response: Response) => void; busy: boolean[] };
     scope.status = 200; scope.mode = 'success'; scope.busy = [];
@@ -105,7 +105,7 @@ test('viewer distinguishes count-only, configured-tokenizer, unavailable and fai
 
 test('viewer refresh renders changed evidence and handles removed requests in the same session', async t => {
   const browser = await launch(); t.after(() => browser.close()); const page = await browser.newPage();
-  await page.setContent('<div id="root"></div>'); await page.addScriptTag({ path: 'web/static/tokenization.js' });
+  await page.setContent('<div id="root"></div>'); await page.addScriptTag({ path: 'web/static/i18n.js' }); await page.addScriptTag({ path: 'web/static/tokenization.js' });
   await page.evaluate(async () => {
     const scope = globalThis as unknown as { TokenViewer: new (...args: unknown[]) => { refresh(id: string): Promise<void> }; viewer: { refresh(id: string): Promise<void> }; events: unknown[] };
     scope.events = [{ type: 'request', model_request: { model: 'qwen' } }];
@@ -130,7 +130,7 @@ test('viewer refresh renders changed evidence and handles removed requests in th
 
 test('viewer shows backend loading, rendering and tokenizing stages and ignores late progress', async t => {
   const browser = await launch(); t.after(() => browser.close()); const page = await browser.newPage();
-  await page.setContent('<div id="root"></div>'); await page.addScriptTag({ path: 'web/static/tokenization.js' });
+  await page.setContent('<div id="root"></div>'); await page.addScriptTag({ path: 'web/static/i18n.js' }); await page.addScriptTag({ path: 'web/static/tokenization.js' });
   await page.evaluate(async () => {
     const state = globalThis as unknown as { TokenViewer: new (...args: unknown[]) => { refresh(id: string): Promise<void> }; stage: string; resolveResult(value: Response): void; resolveProgress?: (value: Response) => void; deferProgress: boolean };
     state.stage = 'Loading tokenizer vocabulary in llama.cpp… Model weights are skipped.';
