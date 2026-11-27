@@ -18,6 +18,14 @@ const { t, tn } = MyHarnessI18n;
   window.addEventListener("storage", event => { if (event.key === "theme" || event.key === null) apply(); });
   window.addEventListener("pageshow", event => { if (event.persisted) apply(); });
 })();
+// Narrow screens show one pane at a time (CSS hides the other). Display only: the harness is not involved.
+const paneButtons = [...document.querySelectorAll("#pane-switch button")];
+function showPane(pane) {
+  document.body.dataset.pane = pane;
+  for (const button of paneButtons) button.setAttribute("aria-pressed", String(button.dataset.pane === pane));
+}
+paneButtons.forEach(button => button.addEventListener("click", () => showPane(button.dataset.pane)));
+showPane("chat");
 const messagesEl = document.getElementById("messages");
 const terminalEl = document.getElementById("terminal");
 const memoryEl = document.getElementById("memory");
@@ -994,6 +1002,7 @@ function renderChangeBox(title, diff, note) {
 }
 
 function addApprovalButtons(box, id) {
+  showPane("chat");  // an approval waits in the chat: never leave it hidden behind the inspector
   const actions = box.querySelector(".change-actions");
   const deny = document.createElement("button");
   deny.title = t("Reject this proposed action. The harness sends the denial to the model without executing the effect.");
