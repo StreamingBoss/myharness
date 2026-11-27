@@ -1,6 +1,6 @@
 import { failureDetails, type FailureDetails } from '../failure.js';
 import { modelConfiguration } from '../providers.js';
-import { BackendError } from '../harness.js';
+import { BackendError, replayRequest } from '../harness.js';
 import type { CoreEvent } from '../core.js';
 import { AGENT_ACTIONS, agentAction, turnAction } from '../transport.js';
 import { sessionSummary } from '../sessions.js';
@@ -46,6 +46,8 @@ export class WorkerHost {
         case 'patchSession': value = await backend.patchSession(String(payload.id), payload); break;
         case 'activateSession': value = await backend.activateSession(String(payload.id)); break;
         case 'importSession': value = { session: sessionSummary(await backend.importSession(payload)), sessions: (await backend.listSessions()).map(sessionSummary) }; break;
+        case 'replayPlan': value = await backend.replayPlan(replayRequest(payload).source); break;
+        case 'continueSession': { const { source, step } = replayRequest(payload); value = await backend.continueSession(source, step); break; }
         case 'reset': await backend.reset(); value = { memory: backend.memoryText() }; break;
         case 'stop': backend.stop(); value = { ok: true }; break;
         case 'approve':

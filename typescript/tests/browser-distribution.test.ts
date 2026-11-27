@@ -332,7 +332,7 @@ test('static browser distribution runs the backend in a Worker, saves sessions/f
     return (await client.call('sessions')).sessions.find(session => session.name === `${name} (imported)`)!.id;
   }, JSON.parse(sessionJSON).name);
   await openSessions(restoredPage); await restoredPage.locator('#session-select').selectOption(importedId);
-  await openSessions(restoredPage); await restoredPage.locator('#load-session').click();
+  await openSessions(restoredPage); await restoredPage.locator('#load-mode').getByText('Continue').click(); await restoredPage.locator('#load-session').click();
   await restoredPage.waitForEvent('load'); await ready(restoredPage);
   await restoredPage.locator('#messages').getByText('Remember 42', { exact: true }).last().waitFor();
   assert.deepEqual(await restoredPage.evaluate(async () => {

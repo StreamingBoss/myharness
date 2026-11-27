@@ -54,8 +54,9 @@ export interface SessionPort {
   save(record: SessionRecord): Promise<void>;
   load(id: string): Promise<SessionRecord>;
   list(): Promise<SessionRecord[]>;
+  validate(value: unknown): SessionRecord;
   uniqueName(name: string, excludeId?: string): Promise<string>;
-  import(value: unknown): Promise<SessionRecord>;
+  import(value: unknown, label?: string): Promise<SessionRecord>;
 }
 
 export abstract class SessionStore implements SessionPort {
@@ -90,7 +91,7 @@ export abstract class SessionStore implements SessionPort {
     return candidate;
   }
 
-  async import(value: unknown): Promise<SessionRecord> {
+  async import(value: unknown, label = 'imported'): Promise<SessionRecord> {
     const record = structuredClone(this.validate(value));
     delete record.parent_session_id; delete record.child_task;
     if (record.orchestration) {
@@ -98,7 +99,7 @@ export abstract class SessionStore implements SessionPort {
       if (record.orchestration.goal?.phase === 'active') record.orchestration.goal.phase = 'paused';
     }
     record.id = crypto.randomUUID().replaceAll('-', '');
-    record.name = await this.uniqueName(`${record.name} (imported)`);
+    record.name = await this.uniqueName(`${record.name} (${label})`);
     record.created_at = now();
     await this.save(record);
     return record;

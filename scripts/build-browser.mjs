@@ -1,6 +1,7 @@
 import { build } from 'esbuild';
 import { mkdir, readFile, writeFile, readdir, cp, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { copyRecordedSessions } from './recorded-sessions.mjs';
 
 const output = path.resolve('dist/browser');
 // Start clean so pages retired from the distribution are never shipped from an older build.
@@ -15,6 +16,7 @@ const library = { agents: {}, prompts: {}, skills: {}, workspace: {
 for (const [folder, key] of [['agents', 'agents'], ['prompts', 'prompts']]) for (const file of (await readdir(folder)).filter(file => file.endsWith('.md')).sort()) library[key][file.slice(0, -3)] = await readFile(path.join(folder, file), 'utf8');
 for (const folder of (await readdir('skills')).sort()) library.skills[folder] = await readFile(path.join('skills', folder, 'SKILL.md'), 'utf8');
 await writeFile(path.join(output, 'library.json'), JSON.stringify(library));
+await copyRecordedSessions('recorded-sessions', path.join(output, 'recorded'));
 let html = await readFile('web/templates/index.html', 'utf8');
 const replaceOnce = (text, search, replacement) => {
   if (!text.includes(search)) throw new Error(`Browser build anchor not found in index.html: ${search.slice(0, 60)}`);

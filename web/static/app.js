@@ -82,11 +82,32 @@ async function saveSessionSettings() {
 const sessionName = name => name === "New session" ? t("New session") : name;
 // Where an agent or skill comes from: the MyHarness library ("harness"), the project folder, or a saved session.
 const sourceLabel = source => ({ harness: t("harness"), project: t("project"), "saved session": t("saved session") })[source] || source;
+// Recorded sessions ship with the page (recorded/index.json, built from recorded-sessions/<language>/): those in the
+// interface language, or in English where that language has none. Without the index (Node host) there are none.
+let recordedSessions = [], savedSessions = [], savedSelected = "";
+const RECORDED = "recorded:";
+async function loadRecordedSessions() {
+  try {
+    const response = await fetch("recorded/index.json");
+    const index = response.ok ? await response.json() : [];
+    const own = index.filter(item => item.language === MyHarnessI18n.lang);
+    recordedSessions = own.length ? own : index.filter(item => item.language === "en");
+  } catch { recordedSessions = []; }
+  fillSessionSelect(savedSessions, savedSelected);
+}
 function fillSessionSelect(items, selected) {
+  savedSessions = items; savedSelected = selected;
   sessionSelect.replaceChildren();
+  let target = sessionSelect;
+  if (recordedSessions.length) {
+    const group = document.createElement("optgroup"); group.label = t("Recorded sessions");
+    for (const item of recordedSessions) group.append(new Option(item.name, RECORDED + item.file));
+    const own = document.createElement("optgroup"); own.label = t("Saved in this browser");
+    sessionSelect.append(group, own); target = own;
+  }
   for (const item of items) {
     const date = new Date(item.created_at).toLocaleString(MyHarnessI18n.locale);
-    sessionSelect.add(new Option(sessionName(item.name) + " — " + date + " — " + item.workspace, item.id));
+    target.append(new Option(sessionName(item.name) + " — " + date + " — " + item.workspace, item.id));
   }
   sessionSelect.value = selected;
   const active = items.find(item => item.id === selected);
@@ -157,6 +178,7 @@ function renderChatBubble(role, text) {
 }
 
 const SEP = "-".repeat(40);
+const modelHeader = (model, count) => SEP + "\n" + t("MODEL") + "\n" + SEP + "\n" + t("Model: {model}  (working context: {count} tokens)", { model, count }) + "\n\n";
 
 // Alternating plain/highlighted pieces keep user input visible in native requests.
 function nativeRequestParts(request) {
@@ -268,29 +290,42 @@ function renderGuardEvent(event) {
   addDivider(t("harness reminded the model: repeated {tool}", { tool: event.tool }));
 }
 
-function replaySession() {
+// Draws recorded events into the chat and the inspector, one event at a time. Markdown is rendered when a reply is
+// complete or a batch ends, so a long streamed reply is not re-rendered for every chunk.
+function createReplayer() {
+  let assistant = null, assistantText = "", thinking = null, thinkingText = "", dirty = false;
+  const flush = () => { if (dirty) renderMarkdown(assistant, assistantText); dirty = false; };
+  return {
+    flush,
+    feed(event) {
+      if (event.type === "chunk") {
+        if (!assistant) assistant = renderChatBubble("assistant", "");
+        assistantText += event.content || ""; dirty = true;
+        return;
+      }
+      if (event.type === "thinking") {
+        if (!thinking) thinking = renderChatBubble("thinking", "");
+        thinkingText += event.content || ""; thinking.textContent = thinkingText;
+        return;
+      }
+      flush();
+      if (event.type === "response") [assistant, assistantText] = completeReply(event, assistant, assistantText);
+      replaySessionEvent(event);
+      if (typeof event.memory === "string") memoryEl.textContent = event.memory;
+      if (["tool", "chat_user", "stopped", "context", "guard"].includes(event.type)) {
+        assistant = null; assistantText = ""; thinking = null; thinkingText = "";
+      }
+    },
+  };
+}
+
+function replaySession(events = sessionEvents, header = initialTerminal) {
   messagesEl.replaceChildren();
-  terminalEl.textContent = initialTerminal;
+  terminalEl.textContent = header;
   requestView.reset();
-  let assistant = null, assistantText = "", thinking = null, thinkingText = "";
-  for (const event of sessionEvents) {
-    if (event.type === "chunk") {
-      if (!assistant) assistant = renderChatBubble("assistant", "");
-      assistantText += event.content || "";
-      renderMarkdown(assistant, assistantText);
-      continue;
-    }
-    if (event.type === "thinking") {
-      if (!thinking) thinking = renderChatBubble("thinking", "");
-      thinkingText += event.content || ""; thinking.textContent = thinkingText;
-      continue;
-    }
-    if (event.type === "response") [assistant, assistantText] = completeReply(event, assistant, assistantText);
-    replaySessionEvent(event);
-    if (["tool", "chat_user", "stopped", "context", "guard"].includes(event.type)) {
-      assistant = null; assistantText = ""; thinking = null; thinkingText = "";
-    }
-  }
+  const replayer = createReplayer();
+  for (const event of events) replayer.feed(event);
+  replayer.flush();
 }
 
 function completeReply(event, bubble, text) {
@@ -1357,7 +1392,7 @@ function initialize(data) {
   const modelMissing = data.model_connected === false;
   document.getElementById("model-name").textContent = modelMissing ? t("no model connected") : data.model;
   document.getElementById("model-chip").classList.toggle("disconnected", modelMissing);
-  initialTerminal = SEP + "\n" + t("MODEL") + "\n" + SEP + "\n" + t("Model: {model}  (working context: {count} tokens)", { model: data.model, count: data.context_length }) + "\n\n";
+  initialTerminal = modelHeader(data.model, data.context_length);
   terminalEl.textContent = initialTerminal;
   requestView.reset();
   memoryEl.textContent = data.memory;
@@ -1395,6 +1430,7 @@ function initialize(data) {
   refreshExplorer();
 }
 
+loadRecordedSessions();
 Promise.resolve(window.MYHARNESS_READY).then(() => {
   window.addEventListener("myharness:state", event => initialize(event.detail));
   return backendFetch(api("/bootstrap"));
@@ -1418,18 +1454,86 @@ exploreView.addEventListener("change", () => {
   try { localStorage.setItem("exploreView", exploreView.value); } catch {}
 });
 
+// Load obeys the "Load sessions as" switch. Play step by step only displays a recording; Continue opens the session
+// for a model. A recorded session is read from the page's own files; the backend decides what a step is and where
+// a session can be continued (POST /sessions/replay and /sessions/continue).
+const loadModeInputs = [...document.querySelectorAll('input[name="load-mode"]')];
+const loadMode = () => loadModeInputs.find(radio => radio.checked).value;
+try { const saved = localStorage.getItem("loadMode"); for (const radio of loadModeInputs) radio.checked = radio.value === (saved === "continue" ? "continue" : "play"); } catch {}
+for (const radio of loadModeInputs) radio.addEventListener("change", () => { try { localStorage.setItem("loadMode", loadMode()); } catch {} });
+async function postJson(path, body) {
+  const response = await backendFetch(api(path), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const result = await response.json();
+  if (!response.ok) throw responseError(result);
+  return result;
+}
+async function recordedSource(value) {
+  const response = await fetch("recorded/" + encodeURI(value.slice(RECORDED.length)));
+  if (!response.ok) throw new Error(t("Could not load this session."));
+  return { record: await response.json() };
+}
 async function loadSelectedSession() {
-  if (!sessionSelect.value || sessionSelect.value === session.id) return;
+  const value = sessionSelect.value;
+  if (!value) return;
+  const recorded = value.startsWith(RECORDED), play = loadMode() === "play";
+  if (!play && value === session.id) return;
   try {
-    const response = await backendFetch(api("/sessions/" + sessionSelect.value + "/activate"), {method: "POST"});
-    const result = await response.json();
-    if (!response.ok) throw responseError(result);
-    location.reload();
+    const source = recorded ? await recordedSource(value) : { id: value };
+    if (play) await startPlay(source);
+    else { await postJson("/sessions/continue", source); location.reload(); }
   } catch (error) {
     sessionStatus.textContent = displayError(error) || t("Could not load this session.");
     sessionSelect.value = session.id;
   }
 }
+
+// What a step is called in the player. The step types are the backend's event types.
+const stepLabel = type => ({
+  chat_user: t("your message"), request: t("request sent to the model"), response: t("the model's response"), tool: t("tool run by the harness"),
+  command: t("command"), change: t("file change"), approval: t("approval"), action: t("action"), mcp: t("MCP tool call"), mcp_prompt: t("MCP prompt"),
+  context: t("context change"), reset: t("memory reset"), guard: t("repeated tool call guard"), stopped: t("stop"), turn_timing: t("turn timeline"),
+  project_instructions: t("project instructions refreshed"), chunk: t("the model's reply"),
+})[type] || type;
+const playerEl = document.getElementById("player"), inputRow = document.getElementById("input-row");
+const playerSlider = document.getElementById("player-slider"), playerStatus = document.getElementById("player-status");
+const playerPrev = document.getElementById("player-prev"), playerNext = document.getElementById("player-next"), playerContinue = document.getElementById("player-continue");
+let player = null;
+async function startPlay(source) {
+  const { session: recording, steps } = await postJson("/sessions/replay", source);
+  player = { source, recording, steps, position: -1, replayer: null };
+  document.getElementById("player-title").textContent = t("Replay: {name}", { name: sessionName(recording.name) });
+  playerSlider.max = String(steps.length);
+  playerEl.hidden = false; inputRow.hidden = true; setSessionsOpen(false);
+  showStep(0);
+}
+// Position n shows the first n steps. Going forward adds the next step; going back or jumping redraws from the start.
+function showStep(position) {
+  const { recording, steps } = player, header = modelHeader(recording.model, recording.context_length);
+  if (!player.replayer || position < player.position) {
+    messagesEl.replaceChildren(); terminalEl.textContent = header; requestView.reset(); memoryEl.textContent = "";
+    player.replayer = createReplayer(); player.position = 0;
+  }
+  while (player.position < position) {
+    const step = steps[player.position++];
+    for (let index = step.first; index <= step.last; index++) player.replayer.feed(recording.events[index]);
+  }
+  player.replayer.flush();
+  playerSlider.value = String(position);
+  playerPrev.disabled = position === 0; playerNext.disabled = position === steps.length;
+  const step = steps[position - 1], canContinue = step !== undefined && step.memory !== undefined;
+  playerContinue.disabled = !canContinue;
+  playerContinue.title = canContinue ? t("Open a new session that starts where this step ended, so you can keep going with a model.") : t("Continuing is offered at the end of a turn, where the model has given its answer.");
+  playerStatus.textContent = step ? t("Step {step} of {total}: {what}", { step: position, total: steps.length, what: stepLabel(step.type) }) : tn("Before the first step. This recording has {count} step.", "Before the first step. This recording has {count} steps.", steps.length);
+}
+playerSlider.addEventListener("input", () => showStep(Number(playerSlider.value)));
+playerPrev.addEventListener("click", () => showStep(player.position - 1));
+playerNext.addEventListener("click", () => showStep(player.position + 1));
+playerContinue.addEventListener("click", async () => {
+  try { await postJson("/sessions/continue", { ...player.source, step: player.position - 1 }); location.reload(); }
+  catch (error) { playerStatus.textContent = displayError(error); }
+});
+// Leaving the replay reloads the page, which restores the current session exactly as it was.
+document.getElementById("player-exit").addEventListener("click", () => location.reload());
 document.getElementById("load-session").addEventListener("click", loadSelectedSession);
 document.getElementById("new-session").addEventListener("click", async () => {
   if (window.MYHARNESS_NEW_SESSION) { await window.MYHARNESS_NEW_SESSION(); return; }

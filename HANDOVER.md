@@ -226,6 +226,36 @@ To do, in order:
    if a free tier really answers from a browser.
 4. Replace the "free access" cells with what was observed, and keep the README table in step.
 
+## Recorded sessions and step-by-step replay
+
+A saved session already stores every harness event, so a recording is an ordinary session export (a real model's
+answers kept as they came) and replay is display only.
+
+- `typescript/src/replay.ts` (core-free): `replaySteps` makes one step per event, except that the streamed chunks and
+  thinking of a reply join the event that ends them. `replayPlan` marks the steps where a replay can be continued
+  (`memory` = messages kept): the end of a turn, where memory ends with the model's final answer. Events record memory
+  only as text, so memory is rebuilt by counting the messages each event added (`chat_user`, `response`, `tool`,
+  `guard`; `reset` empties) and the count is trusted only when it equals the saved memory. After a trim or compaction,
+  or when the count differs, no step can be continued. Only the segment after the last reset can be rebuilt.
+  `sessionAtStep` returns the session as it stood at that step.
+- Backend: `Harness.replayPlan(source)` and `Harness.continueSession(source, step?)`, where `source` is `{ id }` (a saved
+  session) or `{ record }` (a recorded one supplied whole). Continuing from a saved session's last state activates it;
+  a record or a step is imported as a new session named `… (continued)` / `… (continued from step N)`. Routes
+  `POST /sessions/replay` and `POST /sessions/continue` (Node HTTP, Worker `replayPlan` / `continueSession`, fetch shim).
+  The `reset` event now carries `memory`, so replay shows memory emptied.
+- Recordings ship from `recorded-sessions/<language>/*.json` (file-name order). `scripts/recorded-sessions.mjs` copies
+  them to `dist/browser/recorded/` with an `index.json`, and fails the build if a recording is not a session export or
+  mentions a local path: record in the browser edition (workspace `/workspace`). The page lists those in its language,
+  or English, as the "Recorded sessions" group of the session picker. Nothing loads automatically.
+- UI (`web/static/app.js`): the "Load sessions as" switch (Play step by step | Continue, kept in `localStorage`
+  `loadMode`) decides what Load does. Play shows a player (slider, Previous, Next step, Continue from here, Close
+  replay) in place of the message box; it sends nothing to a model and saves nothing. Close replay and every
+  Continue reload the page.
+- A session saved with the retired scripted demo model (`scripted-demo`) is still replaced on startup by
+  `BrowserHarness.open`; recordings must come from a real model.
+- Which sessions to record, and in which order, is not decided. English and French are recorded by the owner; the other
+  ten languages follow. Each recording must be the model's exact answers, even where it writes a language badly.
+
 ## Connect card and tokenizer helper
 
 The browser edition has one entry page. Guide & Setup, the linked second tab,

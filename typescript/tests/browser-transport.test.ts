@@ -111,6 +111,9 @@ test('fetch compatibility validates methods and JSON and maps sessions, state an
   assert.equal((await fetch('/sessions/' + id, { method: 'PATCH', body: '{"name":"changed"}' })).status, 200);
   assert.equal((await post('/sessions/' + id + '/activate')).status, 200);
   const exported = await (await fetch('/sessions/' + id + '/export')).json(); assert.equal((await post('/sessions/import', exported)).status, 201);
+  const plan = await (await post('/sessions/replay', { id })).json() as { session: { id: string }; steps: unknown[] }; assert.equal(plan.session.id, id); assert.ok(Array.isArray(plan.steps));
+  assert.equal((await post('/sessions/continue', { id })).status, 200); assert.equal((await post('/sessions/continue', {})).status, 400);
+  assert.equal((await fetch('/sessions/replay')).status, 404);
   for (const route of ['/reset', '/stop', '/project', '/explore']) assert.equal((await post(route, route === '/project' ? { path: '/workspace' } : turn)).status, 200);
   assert.equal((await post('/approve', { approved: true, id: 'expired' })).status, 404);
   assert.match(await (await post('/chat', turn)).text(), /"type":"tool"/); assert.match(await (await post('/compact')).text(), /context/);
