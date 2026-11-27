@@ -6,6 +6,7 @@ import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { NodeHarness, BackendError } from './harness.js';
+import { replayRequest } from '../harness.js';
 import { sessionSummary } from './sessions.js';
 import type { CoreEvent } from '../core.js';
 import { turnAction as action, agentRoute, agentAction, agentQuery } from '../transport.js';
@@ -76,6 +77,8 @@ export function createHarnessServer(harness: NodeHarness, options: { projectRoot
       if (request.method === 'POST' && route === '/sessions/import') {
         send(response, 201, { session: sessionSummary(await harness.importSession(await body(request))), sessions: (await harness.listSessions()).map(sessionSummary) }); return;
       }
+      if (request.method === 'POST' && route === '/sessions/replay') { send(response, 200, await harness.replayPlan(replayRequest(await body(request)).source)); return; }
+      if (request.method === 'POST' && route === '/sessions/continue') { const { source, step } = replayRequest(await body(request)); send(response, 200, await harness.continueSession(source, step)); return; }
       const match = route.match(/^\/sessions\/([^/]+)(?:\/(activate|export))?$/);
       if (match) {
         const id = decodeURIComponent(match[1]!);

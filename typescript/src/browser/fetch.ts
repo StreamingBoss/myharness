@@ -35,7 +35,7 @@ export function browserFetch(client: WorkerClient) {
           async cancel() { await client.call('stop'); await iterator.return(undefined); },
         }), { headers: { 'content-type': 'application/x-ndjson' } });
       }
-      const session = route === '/sessions/import' ? null : route.match(/^\/sessions\/([^/]+)(?:\/(activate|export))?$/);
+      const session = ['/sessions/import', '/sessions/replay', '/sessions/continue'].includes(route) ? null : route.match(/^\/sessions\/([^/]+)(?:\/(activate|export))?$/);
       if (session) {
         payload = { ...value, id: decodeURIComponent(session[1]!) };
         if (method === 'GET') action = 'getSession';
@@ -50,6 +50,8 @@ export function browserFetch(client: WorkerClient) {
       } else if (method === 'POST') {
         if (route === '/sessions') action = 'newSession';
         else if (route === '/sessions/import') { action = 'importSession'; status = 201; }
+        else if (route === '/sessions/replay') action = 'replayPlan';
+        else if (route === '/sessions/continue') action = 'continueSession';
         else if (['/reset', '/stop', '/approve', '/explore', '/project', '/tokenize', '/vocabulary'].includes(route)) action = route.slice(1);
         else if (route === '/mcp/add') action = 'addMcp';
         else if (route === '/mcp/reload') action = 'reloadMcp';

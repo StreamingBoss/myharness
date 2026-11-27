@@ -613,3 +613,24 @@ html, body { overflow: hidden; }
 #token-helper pre { margin: 6px 0 0; padding: 8px; background: var(--code); border-radius: 6px; font: 13px ui-monospace, monospace; user-select: all; }
 #token-helper button { justify-self: start; }
 #token-helper-status:empty { display: none; }
+
+/* ===== Step-by-step replay ===== */
+#load-mode { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; min-width: 0; }
+#load-mode legend { padding: 0; font-size: 12px; color: var(--fg-muted); float: left; margin-right: 6px; }
+#load-mode label { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--btn-border); border-radius: 6px; background: var(--btn-bg); color: var(--btn-fg); font-size: 13px; cursor: pointer; }
+#load-mode label:has(input:checked) { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+#load-mode label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+#load-mode input { margin: 0; accent-color: var(--accent); }
+#player { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding: 10px 16px; background: var(--surface); }
+#player[hidden] { display: none; }
+#player-title { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+#player-controls { display: flex; gap: 8px; align-items: center; }
+#player-slider { flex: 1; min-width: 0; accent-color: var(--accent); }
+#player-status { font-size: 13px; color: var(--fg-muted); min-height: 1.4em; }
+#player .buttons { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#player .spacer { flex: 1; }
+#player button.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 600; }
+#player button { padding: 6px 14px; border: 1px solid var(--btn-border); border-radius: 6px; background: var(--btn-bg); color: var(--btn-fg); cursor: pointer; font: inherit; font-size: 13px; }
+#player button.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+@media (max-width: 760px) { #player { padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); } }
+#input-row[hidden] { display: none !important; }

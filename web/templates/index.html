@@ -32,8 +32,13 @@
 <div id="sessions-panel" class="popover" role="dialog" aria-label="Sessions" hidden>
   <h2>Sessions in this browser <button id="close-sessions" type="button" title="Close the sessions list without changing anything.">Close</button></h2>
   <div id="session-bar" title="Sessions are saved locally after each event. They retain the transcript, model memory, selected tools, approval choice and frozen prompt, agent and skills. Export contains the session but never project files. Display preferences stay in this browser.">
-    <label for="session-select">Saved sessions</label>
-    <div class="session-pick"><select id="session-select" title="Choose a saved conversation. Use Load session to restore its transcript, memory, tools and instruction snapshots."></select><button id="load-session" title="Restore the selected saved session. Wait for the current turn to finish before switching sessions.">Load session</button></div>
+    <fieldset id="load-mode" title="What Load does. Play step by step shows a session's recorded events one at a time and never calls a model. Continue opens the session so you can keep going with a model.">
+      <legend>Load sessions as</legend>
+      <label><input type="radio" name="load-mode" value="play" checked> Play step by step</label>
+      <label><input type="radio" name="load-mode" value="continue"> Continue</label>
+    </fieldset>
+    <label for="session-select">Sessions</label>
+    <div class="session-pick"><select id="session-select" title="Choose a saved conversation. Use Load session to restore its transcript, memory, tools and instruction snapshots."></select><button id="load-session" title="Open the selected session in the mode chosen above. Wait for the current turn to finish before switching sessions.">Load session</button></div>
     <div class="session-actions">
       <button id="new-session" title="Create and activate an empty conversation. Other saved sessions remain available.">New Session</button><button id="rename-session" title="Change the name of the active saved session; its conversation and memory stay the same.">Rename</button>
       <button id="export-session" title="Download the active session as JSON, including transcript, memory, instruction snapshots and the project workspace path.">Export session</button>
@@ -41,7 +46,7 @@
     </div>
     <span id="session-status">saved</span>
   </div>
-  <p class="note">Load opens a conversation so you can continue it. Import adds a session file to this list; use Export and Import to move a session to another device.</p>
+  <p class="note">Play shows a session's recorded events one at a time and calls no model. Continue opens it so you can keep going with a model. Import adds a session file to this list; use Export and Import to move a session to another device.</p>
 </div>
 
 <aside id="settings-drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Settings" hidden>
@@ -81,6 +86,20 @@
 <div id="chat-pane">
   <div class="pane-header" id="chat-header"></div>
   <div id="messages"></div>
+  <div id="player" hidden role="group" aria-label="Step-by-step replay">
+    <div id="player-title"></div>
+    <div id="player-controls" title="Move through the recorded steps. Nothing is sent to a model: the recording is only displayed.">
+      <button id="player-prev" type="button">Previous</button>
+      <input id="player-slider" type="range" min="0" max="0" step="1" value="0" aria-label="Step" title="Move through the recorded steps. Nothing is sent to a model: the recording is only displayed.">
+      <button id="player-next" type="button" class="primary" title="Show the next step of the recording.">Next step</button>
+    </div>
+    <div id="player-status" role="status" aria-live="polite"></div>
+    <div class="buttons">
+      <button id="player-continue" type="button" title="Open a new session that starts where this step ended, so you can keep going with a model.">Continue from here</button>
+      <span class="spacer"></span>
+      <button id="player-exit" type="button" title="Leave the replay and return to your current session.">Close replay</button>
+    </div>
+  </div>
   <div id="input-row">
     <textarea id="input" rows="2" placeholder="Type a message... (Enter to send, Ctrl+Enter for a new line, /skill-name to use a skill)" autofocus title="Message sent to the model with enabled tools and harness instructions. Enter sends; Ctrl+Enter inserts a new line. Use /skill-name to request a skill."></textarea>
     <p id="queue-note" aria-live="polite" hidden></p>

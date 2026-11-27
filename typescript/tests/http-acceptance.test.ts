@@ -33,6 +33,9 @@ test('all UI routes, static assets, CORS preflight and session lifecycle use the
   await request(`/sessions/${first.id}`, 'PATCH', { name: 'stale' }, 409); await request(`/sessions/${first.id}/activate`, 'POST');
   await request('/sessions/missing', 'GET', undefined, 404); await request('/sessions/missing/activate', 'POST', {}, 404);
   await request(`/sessions/${first.id}/activate`, 'PUT', undefined, 404);
+  assert.deepEqual((await (await request('/sessions/replay', 'POST', { id: first.id })).json() as { steps: unknown[] }).steps, []);
+  await request('/sessions/replay', 'POST', {}, 400); await request('/sessions/continue', 'POST', {}, 400);
+  assert.equal((await (await request('/sessions/continue', 'POST', { id: first.id })).json() as { id: string }).id, first.id);
   await request('/sessions/import', 'POST', first, 201); await request('/sessions/import', 'POST', {}, 400);
   await request('/approve', 'POST', { id: 'expired', approved: false }, 404); await request('/approve', 'POST', {}, 400); await request('/approve', 'POST', { approved: true }, 404);
   const settings = { message: 'hello', use_memory: true, ask_approval: false, tools: [], agent: '', prompt: '' };

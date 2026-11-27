@@ -13,12 +13,23 @@ import { createSession, sessionSummary, sessionTitle, type ChildSummary, type Go
 import { GOAL_TOOLS, GIT_TOOLS, ORCHESTRATION_TOOLS, TOOLS, TOOL_NAMES } from './tools.js';
 import { branchName, cap, commitPreview, fileDiff, formatBranches, formatLog, formatStatus, type GitPort } from './git.js';
 import { planText } from './plan.js';
+import { replayPlan, sessionAtStep, type ReplayStep } from './replay.js';
 import { unavailable, savedModelRequest, type InspectionPort, type TokenInspection, TOKENIZATION_PROGRESS, type TokenizationProgress, type InspectionProgress } from './tokenization.js';
 import { orchestrationLimits, boundedLimit, type OrchestrationLimits } from './orchestration-limits.js';
 import { McpManager, type McpToolCall } from './mcp/manager.js';
 import { kvCacheEstimate, kvText, type KvEstimate } from './timing.js';
 import { Vocabulary, type VocabularyPage, type VocabularyQuery } from './vocabulary.js';
 
+/** A saved session by id, or a recorded session supplied whole. */
+export type ReplaySource = { id: string; record?: undefined } | { id?: undefined; record: unknown };
+/** Read the body of a replay or continue request: `{ id }` or `{ record }`, and for continuing an optional `step` index. */
+export function replayRequest(payload: Record<string, unknown>): { source: ReplaySource; step?: number } {
+  if (payload.step !== undefined && (!Number.isSafeInteger(payload.step) || (payload.step as number) < 0)) throw new BackendError('step must be a non-negative integer');
+  const step = payload.step === undefined ? {} : { step: payload.step as number };
+  if (typeof payload.id === 'string') return { source: { id: payload.id }, ...step };
+  if (payload.record !== undefined) return { source: { record: payload.record }, ...step };
+  throw new BackendError('Give the id of a saved session or a recorded session.');
+}
 export interface TurnAction {
   message: string; useMemory: boolean; tools: string[]; askApproval: boolean; agent: string; prompt: string; sessionId?: string;
   /** Offer the goal tools to the model. A separate switch from `tools`; defaults on. */
@@ -415,11 +426,36 @@ export class Harness implements TurnHost {
     try { return await this.sessions.import(value); }
     catch { throw new BackendError('Choose a valid myharness session JSON export.'); }
   }
+  /** A saved session, or a recorded one supplied whole, with the steps of its step-by-step replay. Nothing is activated and no model is called. */
+  async replayPlan(source: ReplaySource): Promise<{ session: SessionRecord; steps: ReplayStep[] }> {
+    const session = await this.replaySource(source);
+    return { session, steps: replayPlan(session) };
+  }
+  /** Continue a saved or recorded session with a model: from its last state, or from the end of a chosen step. The continuation is a new session. */
+  async continueSession(source: ReplaySource, step?: number): Promise<SessionRecord> {
+    if (!this.sessions) throw new BackendError('Session persistence is not configured.');
+    this.idle('continuing a session');
+    const record = await this.replaySource(source);
+    if (source.id !== undefined && step === undefined) return this.activateSession(source.id);
+    let continued = record;
+    if (step !== undefined) {
+      try { continued = sessionAtStep(record, step); }
+      catch (error) { throw new BackendError((error as Error).message); }
+    }
+    const saved = await this.sessions.import(continued, step === undefined ? 'continued' : `continued from step ${step + 1}`);
+    return this.activateSession(saved.id);
+  }
+  private async replaySource(source: ReplaySource): Promise<SessionRecord> {
+    if (source.id !== undefined) return this.getSession(source.id);
+    if (!this.sessions) throw new BackendError('Session persistence is not configured.');
+    try { return structuredClone(this.sessions.validate(source.record)); }
+    catch { throw new BackendError('Choose a valid myharness session JSON export.'); }
+  }
   async reset(): Promise<void> {
     this.idle('resetting memory');
     this.state.memory.length = 0; this.state.lastPromptTokens = 0;
     this.session.setup = { agent: '', prompt: '' }; this.session.snapshots = {};
-    this.recordEvent({ type: 'reset', reason: 'memory reset' });
+    this.recordEvent({ type: 'reset', reason: 'memory reset', memory: this.memoryText() });
     await this.saveSession();
   }
   stop(reason = 'stopped by the user'): void {
