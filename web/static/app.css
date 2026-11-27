@@ -43,6 +43,7 @@
     margin: 0;
     font-family: -apple-system, "Segoe UI", sans-serif;
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     background: var(--bg);
@@ -445,11 +446,76 @@ button:disabled { opacity: 0.5; cursor: default; }
 /* Goals and subagents are not part of the interface for now (?goals=1 brings them back) */
 .goals-off #chat-header, .goals-off .goals-control, .goals-off #under-the-hood, .goals-off #orchestration, .goals-off #orchestration-attention, .goals-off #stop-orchestration, .goals-off #orchestration-error { display: none !important; }
 
+/* ===== Narrow screens (phones, tablets in portrait) =====
+   One pane at a time, chosen with the Chat / Inspector switch; the page still never scrolls, each pane does. */
+#pane-switch { display: none; }
 @media (max-width: 899px) {
-  #panes { flex-direction: column; overflow-y: auto; }
-  #chat-pane { flex: 0 0 auto; }
+  #pane-switch { flex-shrink: 0; display: flex; gap: 0; padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  #pane-switch button { flex: 1; border-radius: 0; padding: 8px 12px; font-weight: 600; color: var(--fg-muted); background: var(--bg); }
+  #pane-switch button:first-child { border-radius: 8px 0 0 8px; }
+  #pane-switch button:last-child { border-radius: 0 8px 8px 0; border-left: 0; }
+  #pane-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  #pane-switch button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   #splitter { display: none; }
-  #inspector { flex: 0 0 auto; min-height: 70vh; }
+  #panes > #chat-pane, #panes > #inspector { flex: 1 1 auto !important; width: 100% !important; min-height: 0; }
+  body[data-pane="chat"] #inspector, body[data-pane="inspector"] #chat-pane { display: none; }
+
+  /* Header in two rows: brand, language and theme; then model, session and settings */
+  #app-header { padding: 6px 12px; gap: 6px; }
+  .header-actions { display: contents; }
+  .brand { order: 0; flex: 1 0 auto; white-space: nowrap; }
+  #ui-language { order: 1; flex: 1 1 6em; min-width: 0; max-width: 8.5em; }
+  #theme-toggle { order: 2; flex: 1 1 5.5em; min-width: 0; max-width: max-content; padding-left: 10px; padding-right: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #model-chip { order: 3; flex: 0 1 auto; min-width: 0; max-width: 32%; align-self: stretch; }
+  #model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #sessions-btn { order: 4; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  #open-settings { order: 5; flex: 0 0 auto; }
+  #app-header::after { content: ""; order: 2; flex: 1 1 100%; height: 0; }
+  #context-line { padding: 4px 12px; }
+  #context-bar { width: 90px; }
+
+  /* While the connect card is shown the chat pane scrolls as a whole; afterwards the messages fill it */
+  #chat-pane { overflow-y: auto; }
+  #connect-card { flex-shrink: 0; }
+  #messages { padding: 12px; }
+  .msg { max-width: 94%; }
+  /* Composer as in a messaging app: Send beside the message box, switches and secondary actions below */
+  #input-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+  #input-controls, #input-controls > .buttons { display: contents; }
+  #input-row #input { grid-column: 1 / 5; grid-row: 1; min-height: 48px; }
+  #input-row #send, #input-row #stop { grid-column: 5 / -1; grid-row: 1; align-self: stretch; padding: 6px 8px; overflow-wrap: anywhere; }
+  #input-row #reset { grid-column: 1 / 3; }
+  #input-row #clear { grid-column: 3 / 5; }
+  #queue-note, #input-controls > .switches, #confirm-clear { grid-column: 1 / -1; }
+  .switches { gap: 4px 12px; }
+  .buttons .spacer { display: none; }
+  #input-row #reset, #input-row #clear, #input-row #compact { white-space: normal; line-height: 1.2; padding: 6px 8px; }
+  #input-row #compact { grid-column: 5 / -1; }
+  #active-tools { margin: 0 12px 8px; }
+
+  .tabs { padding: 4px 4px 0; }
+  .tabs-pin { padding: 4px 8px 0 2px; }
+  #request-view .request-head, #request-view .request-body { padding-left: 10px; padding-right: 10px; }
+  #terminal, #memory, #explore { padding: 12px; }
+
+  .popover { top: 8px; right: 8px; left: 8px; width: auto; max-height: calc(100dvh - 16px); }
+  #browser { top: 8px; left: 8px; right: 8px; width: auto; max-height: calc(100dvh - 16px); }
+  #mcp-registry { width: calc(100vw - 16px); max-width: none; max-height: calc(100dvh - 16px); padding: 10px; }
+  #mcp-registry form { flex-wrap: wrap; }
+  #mcp-registry input[type=search] { flex: 1 1 100%; }
+  #explore-header { padding: 8px 12px; gap: 6px; }
+  #settings-model #browser-runtime input:not([type="checkbox"]):not([type="file"]), #settings-model #browser-runtime select { flex: 1 1 100%; min-width: 0; max-width: 100%; }
+  #settings-model #browser-runtime label { min-width: 0; max-width: 100%; }
+  #explore-header button { margin-left: 0; }
+  .token-controls select { max-width: 100%; }
+  #vocabulary-table { display: block; overflow-x: auto; }
+}
+/* Touch screens: 16 px text stops phones from zooming into a field; controls get finger-sized targets. */
+@media (pointer: coarse) {
+  input, select, textarea, #input-row #input { font-size: 16px; }
+  button, select, .tab { min-height: 40px; }
+  .toggle { min-height: 32px; }
+  .seg button { min-height: 36px; }
 }
 
 /* ===== Request view ===== */

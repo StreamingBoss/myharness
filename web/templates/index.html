@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>myharness</title>
 <script src="/static/i18n.js"></script>
 <script src="/static/marked.min.js"></script>
@@ -22,6 +23,11 @@
   </div>
 </header>
 <div id="context-line"><span id="context-meter" title="Input tokens measured by the last provider response; unavailable counts are unknown. The working context is a harness budget, separate from the provider limit. Amber at 75%: old tool outputs are trimmed. Red at 90%: older messages are summarized. Ollama can silently drop the START of an overflowing prompt, including the system message. Until the next response, this shows the last measured request.">context: — / —<progress id="context-bar" max="100" value="0"></progress></span></div>
+
+<div id="pane-switch" title="On a narrow screen, show the chat or the inspector. Display choice only: the harness keeps running either way.">
+  <button type="button" data-pane="chat" aria-controls="chat-pane" aria-pressed="true">Chat</button>
+  <button type="button" data-pane="inspector" aria-controls="inspector" aria-pressed="false">Inspector</button>
+</div>
 
 <div id="sessions-panel" class="popover" role="dialog" aria-label="Sessions" hidden>
   <h2>Sessions in this browser <button id="close-sessions" type="button" title="Close the sessions list without changing anything.">Close</button></h2>
